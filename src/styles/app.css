@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * donezo app tokens — extensions layered on top of Aether's --ae-* set.
+ * Everything donezo-specific goes through --dz-* variables so themes can
+ * override the full surface (see themes.css).
+ */
+:root {
+  /* Project color ramp — muted categorical hues, one per project, tuned to
+     sit on Aether's ink-navy panels without competing with the cyan accent. */
+  --dz-pj-blue: #729bd0;
+  --dz-pj-green: #7fb57c;
+  --dz-pj-tan: #c0a467;
+  --dz-pj-violet: #9d8cd0;
+  --dz-pj-rose: #c77e8e;
+  --dz-pj-orange: #c08b5e;
+  --dz-pj-steel: #8b9bab;
+
+  /* Shell metrics */
+  --dz-topbar-h: 46px;
+  --dz-nav-w: 52px;
+  --dz-nav-w-expanded: 176px;
+  --dz-rail-w: 260px;
+  --dz-inspector-w: 360px;
+}
+
+/* Thin, calm scrollbars everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ae-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ae-border);
+  border-radius: var(--ae-radius);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ae-accent-dim);
+}
+
+/* App fills the viewport; internal panes scroll, the page never does. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}

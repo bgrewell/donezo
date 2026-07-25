@@ -1,0 +1,14 @@
+[Unit]
+Description=donezo Vite dev server (hot reload) on http://localhost:5173
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ben/repos/donezo
+Environment=PATH=/home/ben/.nvm/versions/node/v23.10.0/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ben/.nvm/versions/node/v23.10.0/bin/npm run dev
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
