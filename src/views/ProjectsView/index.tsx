@@ -1,10 +1,15 @@
-import { EmptyState } from "@/components/common/EmptyState";
+import { useAppState } from "@/state/AppStore";
+import { projectById } from "@/state/selectors";
+import { ProjectList } from "./ProjectList";
+import { ProjectDetail } from "./ProjectDetail";
 
-/** Project list + reusable project-detail screen. */
+/** Projects: master list, or a single project's detail when one is open. */
 export default function ProjectsView() {
+  const state = useAppState();
+  const project = projectById(state, state.selectedProjectId);
   return (
-    <div className="flex h-full items-center justify-center p-8">
-      <EmptyState title="Projects // under construction" className="w-96" />
+    <div className="h-full overflow-y-auto">
+      {project ? <ProjectDetail project={project} /> : <ProjectList />}
     </div>
   );
 }

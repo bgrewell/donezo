@@ -1,23 +1,12 @@
 import * as React from "react";
 
-import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { parseHash } from "@/lib/route";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { Inspector } from "./Inspector";
 import { QuickCapture } from "./QuickCapture";
-
-const VIEW_IDS: ViewId[] = ["focus", "timeline", "inbox", "projects", "review", "search"];
-
-function parseHash(): { view: ViewId; projectId?: string } | null {
-  const parts = window.location.hash.replace(/^#\/?/, "").split("/");
-  const head = parts[0] as ViewId;
-  if (VIEW_IDS.includes(head)) {
-    return { view: head, projectId: parts[1] || undefined };
-  }
-  return null;
-}
 
 /** Application chrome: nav rail, top bar, workspace, inspector, quick capture.
  *  Also owns hash routing and global keyboard shortcuts. */
@@ -26,10 +15,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
   const { view, selectedProjectId, selectedActivityId, quickCaptureOpen } = state;
 
-  // Hash → state (initial load and manual URL edits).
+  // Hash → state for manual URL edits after load. (The initial hash seeds
+  // AppStore.initialState directly — syncing it here raced under StrictMode.)
   React.useEffect(() => {
     const apply = () => {
-      const parsed = parseHash();
+      const parsed = parseHash(window.location.hash);
       if (!parsed) return;
       if (parsed.view === "projects" && parsed.projectId) {
         dispatch({ type: "OPEN_PROJECT", projectId: parsed.projectId });
@@ -37,7 +27,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         dispatch({ type: "SET_VIEW", view: parsed.view });
       }
     };
-    apply();
     window.addEventListener("hashchange", apply);
     return () => window.removeEventListener("hashchange", apply);
   }, [dispatch]);

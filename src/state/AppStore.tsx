@@ -21,6 +21,7 @@ import {
   TASKS,
 } from "@/domain/mockData";
 import { anchorForToday, shiftAnchor } from "@/lib/time";
+import { parseHash } from "@/lib/route";
 
 /** Timeline display filters. null means "all". */
 export interface Filters {
@@ -179,6 +180,10 @@ function reducer(state: AppState, action: AppAction): AppState {
 }
 
 function initialState(): AppState {
+  // Seed view/project from the URL hash so deep links survive the initial
+  // render (effect-based syncing races under StrictMode double-mount).
+  const route =
+    typeof window !== "undefined" ? parseHash(window.location.hash) : null;
   return {
     projects: PROJECTS,
     activities: ACTIVITIES,
@@ -186,8 +191,9 @@ function initialState(): AppState {
     notes: NOTES,
     reminders: REMINDERS,
     inbox: INBOX_ITEMS,
-    view: "timeline",
-    selectedProjectId: null,
+    view: route?.view ?? "timeline",
+    selectedProjectId:
+      route?.view === "projects" && route.projectId ? route.projectId : null,
     selectedActivityId: null,
     zoom: "day",
     anchorDate: anchorForToday("day"),
