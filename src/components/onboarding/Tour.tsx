@@ -253,7 +253,13 @@ function TourOverlay({ stepIndex }: { stepIndex: number }) {
   // the AppShell handler leaves the inspector alone). If some other dialog
   // is stacked above the tour, defer everything to it.
   React.useEffect(() => {
+    // A Radix menu item activates on keydown, and React mounts this overlay
+    // synchronously — so this listener attaches before that same Enter
+    // reaches document (bubble phase) and would advance past step 1. Ignore
+    // any event created before the listener existed.
+    const mountedAt = performance.now();
     const onKey = (e: KeyboardEvent) => {
+      if (e.timeStamp <= mountedAt) return;
       const card = cardRef.current;
       const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       if (dialogs.some((d) => d !== card)) return;

@@ -91,12 +91,29 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   }, [persisted]);
 
-  // Global "?" opens the shortcuts sheet — but never over a dialog (the tour
-  // card counts) and never while typing.
+  // Quick capture (Ctrl/⌘+K) opens over any screen, so the welcome and the
+  // shortcuts sheet yield to it instead of stacking — two GTC Dialogs paint
+  // in mount order and resolve Escape oldest-first, which would leave capture
+  // typing into a hidden input and Escape closing the bottom layer. Using the
+  // advertised capture habit counts as acknowledging the welcome (same as
+  // "Just start").
+  const quickCaptureOpen = state.quickCaptureOpen;
+  React.useEffect(() => {
+    if (!quickCaptureOpen) return;
+    setShortcutsOpen(false);
+    setPersisted((p) => (p.welcomed ? p : { ...p, welcomed: true }));
+  }, [quickCaptureOpen]);
+
+  // Global "?" opens the shortcuts sheet — but never over a dialog, never
+  // while a tour runs (its card leaves the DOM during step transitions, so
+  // check state rather than [role="dialog"] presence), and never while typing.
+  const tourStepRef = React.useRef(tourStep);
+  tourStepRef.current = tourStep;
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.defaultPrevented || isTypingTarget(e.target)) return;
+      if (tourStepRef.current !== null) return;
       if (document.querySelector('[role="dialog"]')) return;
       e.preventDefault();
       setShortcutsOpen(true);

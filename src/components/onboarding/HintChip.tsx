@@ -8,14 +8,17 @@ import { useOnboarding } from "./OnboardingProvider";
 export const TIMELINE_HINT_ID = "timeline-log-cell";
 
 /** Quiet timeline-only hint chip, bottom-right of the timeline pane.
- *  Shows once the welcome is done, while no tour runs, until dismissed. */
+ *  Only for the "Just start" path — the tour teaches the same lesson on
+ *  its "Log as it happens" step, so anyone who took (or skipped) the tour
+ *  never sees it. Persists dismissal. */
 export function HintChip() {
   const { view } = useAppState();
-  const { welcomed, tourStep, dismissedHints, dismissHint } = useOnboarding();
+  const { welcomed, tourDone, tourStep, dismissedHints, dismissHint } = useOnboarding();
 
   const show =
     view === "timeline" &&
     welcomed &&
+    !tourDone &&
     tourStep === null &&
     !dismissedHints.includes(TIMELINE_HINT_ID);
   if (!show) return null;

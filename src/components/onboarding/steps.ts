@@ -42,12 +42,14 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
+    // Targets today's column (not the whole pane like step 1) so the
+    // spotlight actually singles out somewhere to click.
     id: "log",
     view: "timeline",
-    target: "pulse",
+    target: "log",
     title: "Log as it happens",
     body: "Click any empty cell to record what you did — the date and project are already filled in.",
-    placement: "below",
+    placement: "right",
   },
   {
     id: "capture",
@@ -66,11 +68,13 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "right",
   },
   {
+    // Left keeps the card in the empty margin beside the panel — below
+    // covers the OR alternates and time-sensitive rows the copy points at.
     id: "next-action",
     view: "focus",
     target: "next-action",
     title: "Start your day here",
     body: "One highlighted next action, what's time-sensitive, and what you were doing before the interruption.",
-    placement: "below",
+    placement: "left",
   },
 ];

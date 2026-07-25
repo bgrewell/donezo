@@ -1,13 +1,14 @@
 import { Dialog } from "@grewelltech/console";
 
-import { CAPTURE_KEY_LABEL, MOD_LABEL } from "@/lib/platform";
+import { CAPTURE_KEY_LABEL, modChordLabel } from "@/lib/platform";
 import { Kbd } from "@/components/ui/Kbd";
 import { useOnboarding } from "./OnboardingProvider";
+import { useDialogFocusReassert } from "./useDialogFocusReassert";
 
 const ROWS: { keys: string[]; text: string }[] = [
   { keys: [CAPTURE_KEY_LABEL], text: "Quick capture from anywhere" },
   { keys: ["Enter"], text: "Create the typed item (in capture)" },
-  { keys: [`${MOD_LABEL}+Enter`], text: "Save the capture to the inbox" },
+  { keys: [modChordLabel("Enter")], text: "Save the capture to the inbox" },
   { keys: ["Esc"], text: "Close the top layer" },
   { keys: ["?"], text: "This sheet" },
   { keys: ["←", "→", "Enter", "Esc"], text: "In the tour — back · next · skip" },
@@ -16,10 +17,11 @@ const ROWS: { keys: string[]; text: string }[] = [
 /** Keyboard shortcuts reference. Opens from the Help menu or "?". */
 export function ShortcutsSheet() {
   const { shortcutsOpen, closeShortcuts } = useOnboarding();
+  const focusRef = useDialogFocusReassert(shortcutsOpen);
 
   return (
     <Dialog open={shortcutsOpen} onClose={closeShortcuts} title="Keyboard shortcuts">
-      <div className="space-y-2.5">
+      <div ref={focusRef} className="space-y-2.5">
         {ROWS.map((row) => (
           <div key={row.text} className="flex items-baseline gap-4">
             <span className="flex w-36 shrink-0 flex-wrap gap-1">

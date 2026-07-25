@@ -203,17 +203,33 @@ export default function TimelineView() {
             />
           </div>
           {todayInRange && projects.length > 0 && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute z-10 w-px"
-              style={{
-                left: `calc(${railW} + ${todayX}px)`,
-                top: cfg.headerHeight,
-                bottom: 0,
-                background: "var(--gtc-accent)",
-                opacity: 0.55,
-              }}
-            />
+            <>
+              <div
+                aria-hidden
+                className="pointer-events-none absolute z-10 w-px"
+                style={{
+                  left: `calc(${railW} + ${todayX}px)`,
+                  top: cfg.headerHeight,
+                  bottom: 0,
+                  background: "var(--gtc-accent)",
+                  opacity: 0.55,
+                }}
+              />
+              {/* Tour anchor: today's column. The "Log as it happens" step
+                  spotlights one concrete place to click instead of the whole
+                  pane (cells are painted grid, not elements). Inert. */}
+              <div
+                aria-hidden
+                data-tour="log"
+                className="pointer-events-none absolute"
+                style={{
+                  left: `calc(${railW} + ${todayX}px)`,
+                  width: cfg.colWidth,
+                  top: cfg.headerHeight,
+                  bottom: 0,
+                }}
+              />
+            </>
           )}
           {draft && draftProject && (
             <LogActivityPopover

@@ -3,6 +3,7 @@ import { Button, Dialog } from "@grewelltech/console";
 import { CAPTURE_KEY_LABEL } from "@/lib/platform";
 import { Kbd } from "@/components/ui/Kbd";
 import { useOnboarding } from "./OnboardingProvider";
+import { useDialogFocusReassert } from "./useDialogFocusReassert";
 
 const LOOP: { keyword: string; line: string }[] = [
   { keyword: "Capture", line: "Get it out of your head — sorting can wait." },
@@ -16,6 +17,9 @@ const LOOP: { keyword: string; line: string }[] = [
 export function WelcomeDialog() {
   const { welcomed, tourStep, markWelcomed, startTour } = useOnboarding();
   const open = !welcomed && tourStep === null;
+  // Holds focus when reopened via Help > Reset first-run (Radix menus
+  // refocus their trigger after closing, stealing it from the dialog).
+  const focusRef = useDialogFocusReassert(open);
 
   return (
     <Dialog
@@ -40,7 +44,7 @@ export function WelcomeDialog() {
         </>
       }
     >
-      <div className="space-y-4">
+      <div ref={focusRef} className="space-y-4">
         <p className="font-sans text-[0.88rem] leading-relaxed text-gtc-text">
           donezo is a memory for your work. Capture things the moment they happen,
           see where effort actually went, and pick up threads without re-finding
