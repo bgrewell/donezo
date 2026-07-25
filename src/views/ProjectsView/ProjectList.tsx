@@ -7,7 +7,7 @@ import {
   TableHeadCell,
   TableHeader,
   TableRow,
-} from "@grewelltech/aether";
+} from "@grewelltech/console";
 
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { latestActivityDate, openTaskCount } from "@/state/selectors";
@@ -30,11 +30,11 @@ export function ProjectList() {
     <div className="mx-auto max-w-[1000px] px-8 py-6">
       <SectionLabel
         className="mb-3 mt-0"
-        trailing={<span className="text-ae-text">{projects.length}</span>}
+        trailing={<span className="text-gtc-text">{projects.length}</span>}
       >
         Projects
       </SectionLabel>
-      <p className="mb-5 max-w-[70ch] font-sans text-[0.85rem] text-ae-muted">
+      <p className="mb-5 max-w-[70ch] font-sans text-[0.85rem] text-gtc-muted">
         Every stream of work. Open one to resume where you left off.
       </p>
 
@@ -66,10 +66,10 @@ export function ProjectList() {
                       e.stopPropagation();
                       open(p.id);
                     }}
-                    className="flex items-center gap-2.5 rounded-ae text-left outline-none focus-visible:shadow-ae-focus"
+                    className="flex items-center gap-2.5 rounded-gtc text-left outline-none focus-visible:shadow-gtc-focus"
                   >
                     <ProjectMark color={p.color} size={8} muted={completed} />
-                    <span className="font-sans text-[0.9rem] font-medium text-ae-text">
+                    <span className="font-sans text-[0.9rem] font-medium text-gtc-text">
                       {p.name}
                     </span>
                   </button>
@@ -78,15 +78,15 @@ export function ProjectList() {
                   <StatusBadge status={p.status} />
                 </TableCell>
                 <TableCell>
-                  <span className="block max-w-[32ch] truncate font-sans text-[0.85rem] text-ae-text">
+                  <span className="block max-w-[32ch] truncate font-sans text-[0.85rem] text-gtc-text">
                     {p.currentFocus}
                   </span>
                 </TableCell>
-                <TableCell mono className="text-[0.75rem] text-ae-muted">
+                <TableCell mono className="text-[0.75rem] text-gtc-muted">
                   {latest ? relativeFromToday(latest) : "—"}
                 </TableCell>
                 <TableCell mono className="text-right">
-                  {openTasks > 0 ? openTasks : <span className="text-ae-muted">—</span>}
+                  {openTasks > 0 ? openTasks : <span className="text-gtc-muted">—</span>}
                 </TableCell>
               </TableRow>
             );

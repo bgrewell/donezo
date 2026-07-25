@@ -203,15 +203,15 @@ export function railWidth(collapsed: boolean): string {
 }
 
 /** Column grid hairline color (kept subtle — ~half-strength border token). */
-export const GRID_LINE = "color-mix(in srgb, var(--ae-border) 55%, transparent)";
+export const GRID_LINE = "color-mix(in srgb, var(--gtc-border) 55%, transparent)";
 
 /** Row divider color (border token at reduced opacity). */
-export const ROW_BORDER = "color-mix(in srgb, var(--ae-border) 45%, transparent)";
+export const ROW_BORDER = "color-mix(in srgb, var(--gtc-border) 45%, transparent)";
 
 /** Weekend wash for day-zoom header cells and body columns. Neutral darkening
  *  (bg-deep alone is too close to the page bg to read as a wash). */
 export const WEEKEND_WASH =
-  "color-mix(in srgb, color-mix(in srgb, var(--ae-bg-deep) 40%, black) 45%, transparent)";
+  "color-mix(in srgb, color-mix(in srgb, var(--gtc-bg-deep) 40%, black) 45%, transparent)";
 
 /** Project-color tint, e.g. mixProject("var(--dz-pj-blue)", 16). */
 export function mixProject(colorVar: string, pct: number): string {

@@ -1,4 +1,4 @@
-import { SectionLabel, cn } from "@grewelltech/aether";
+import { SectionLabel, cn } from "@grewelltech/console";
 
 import type { Project } from "@/domain/types";
 import { useAppDispatch } from "@/state/AppStore";
@@ -17,7 +17,7 @@ export function WaitingSection({
 }) {
   const dispatch = useAppDispatch();
   const rowClass = cn(
-    "flex items-center gap-3 py-2 transition-colors hover:bg-ae-tint-accent",
+    "flex items-center gap-3 py-2 transition-colors hover:bg-gtc-tint-accent",
     HAIRLINE_ROW
   );
   return (
@@ -31,10 +31,10 @@ export function WaitingSection({
       <ul>
         {tasks.map(({ task, project }) => (
           <li key={task.id} className={rowClass}>
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-ae-text">
+            <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-gtc-text">
               {task.title}
             </span>
-            <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-ae-muted">
+            <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
               waiting on {task.waitingOn ?? "—"}
             </span>
             {project && <ProjectMark color={project.color} size={7} />}
@@ -46,12 +46,12 @@ export function WaitingSection({
             <button
               type="button"
               onClick={() => dispatch({ type: "OPEN_PROJECT", projectId: p.id })}
-              className="shrink-0 rounded-ae font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-ae-text transition-colors hover:text-ae-accent-bright focus-visible:outline-none focus-visible:shadow-ae-focus"
+              className="shrink-0 rounded-gtc font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-gtc-text transition-colors hover:text-gtc-accent-bright focus-visible:outline-none focus-visible:shadow-gtc-focus"
             >
               {p.name}
             </button>
             <StatusBadge status={p.status} />
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-ae-muted">
+            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-gtc-muted">
               {p.waitingOn}
             </span>
           </li>

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Flag, OctagonAlert } from "lucide-react";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 import type { ActivityEntry } from "@/domain/types";
 import { MONTH_BAR_HEIGHT, mixProject } from "./geometry";
@@ -39,28 +39,28 @@ export const WeekCapsule = React.forwardRef<HTMLButtonElement, WeekCapsuleProps>
         type="button"
         {...rest}
         className={cn(
-          "absolute flex items-center gap-1.5 overflow-hidden rounded-ae border px-2 text-left",
+          "absolute flex items-center gap-1.5 overflow-hidden rounded-gtc border px-2 text-left",
           nodeTintClass,
-          "outline-none transition-colors focus-visible:shadow-ae-focus",
+          "outline-none transition-colors focus-visible:shadow-gtc-focus",
           allPlanned && "border-dashed opacity-60",
           className
         )}
         style={{ ...style, ...nodeTintStyle(colorVar) }}
       >
-        <span className="shrink-0 font-mono text-[0.66rem] text-ae-text">
+        <span className="shrink-0 font-mono text-[0.66rem] text-gtc-text">
           {entries.length}
         </span>
         {effort && (
-          <span className="shrink-0 font-mono text-[0.62rem] text-ae-muted">{effort}</span>
+          <span className="shrink-0 font-mono text-[0.62rem] text-gtc-muted">{effort}</span>
         )}
-        <span className="min-w-0 flex-1 truncate font-sans text-[0.72rem] text-ae-text">
+        <span className="min-w-0 flex-1 truncate font-sans text-[0.72rem] text-gtc-text">
           {summary}
         </span>
         {milestone && (
           <Flag className="h-3 w-3 shrink-0" style={{ color: colorVar }} aria-hidden />
         )}
         {hasBlocker && (
-          <OctagonAlert className="h-3 w-3 shrink-0 text-ae-danger" aria-hidden />
+          <OctagonAlert className="h-3 w-3 shrink-0 text-gtc-danger" aria-hidden />
         )}
       </button>
     );
@@ -98,7 +98,7 @@ export const MonthBar = React.forwardRef<HTMLButtonElement, MonthBarProps>(
         aria-label={`${entries.length} entries`}
         {...rest}
         className={cn(
-          "absolute rounded-ae border outline-none transition-colors focus-visible:shadow-ae-focus",
+          "absolute rounded-gtc border outline-none transition-colors focus-visible:shadow-gtc-focus",
           allPlanned && "border-dashed opacity-60",
           className
         )}

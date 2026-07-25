@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Dialog, Input, Select, cn } from "@grewelltech/aether";
+import { Button, Dialog, Input, Select, cn } from "@grewelltech/console";
 
 import type { ItemKind, Project, ProjectColor } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -62,7 +62,7 @@ export function QuickCapture() {
     .slice(0, 3)
     .map((x) => x.p);
 
-  // Stable reference: Aether's Dialog re-runs its focus effect when onClose
+  // Stable reference: GTech Console's Dialog re-runs its focus effect when onClose
   // changes, which would steal focus from the input on every keystroke.
   const close = React.useCallback(
     () => dispatch({ type: "SET_QUICK_CAPTURE", open: false }),
@@ -187,7 +187,7 @@ export function QuickCapture() {
       maxWidthClassName="max-w-xl"
       footer={
         <div className="flex w-full flex-wrap items-center gap-3">
-          <span className="min-w-0 flex-1 font-mono text-[0.62rem] leading-relaxed text-ae-muted">
+          <span className="min-w-0 flex-1 font-mono text-[0.62rem] leading-relaxed text-gtc-muted">
             <span className="whitespace-nowrap">ENTER create ·</span>{" "}
             <span className="whitespace-nowrap">CMD+ENTER save to inbox ·</span>{" "}
             <span className="whitespace-nowrap">ESC close</span>
@@ -234,17 +234,17 @@ export function QuickCapture() {
                 aria-pressed={selected}
                 onClick={() => setManualKind(k)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-ae border px-2 py-1",
+                  "inline-flex items-center gap-1.5 rounded-gtc border px-2 py-1",
                   "font-mono text-[0.64rem] uppercase tracking-chrome outline-none transition-colors",
-                  "focus-visible:shadow-ae-focus",
+                  "focus-visible:shadow-gtc-focus",
                   selected
-                    ? "border-ae-accent bg-ae-tint-accent text-ae-accent"
-                    : "border-ae-line text-ae-muted hover:text-ae-text"
+                    ? "border-gtc-accent bg-gtc-tint-accent text-gtc-accent"
+                    : "border-gtc-line text-gtc-muted hover:text-gtc-text"
                 )}
               >
                 {k}
                 {selected && showSuggested && (
-                  <span className="font-mono text-[0.56rem] lowercase tracking-normal text-ae-muted">
+                  <span className="font-mono text-[0.56rem] lowercase tracking-normal text-gtc-muted">
                     suggested
                   </span>
                 )}
@@ -255,7 +255,7 @@ export function QuickCapture() {
 
         {/* Project row */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+          <span className="mr-1 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
             Project
           </span>
           {recentProjects.map((p) => {
@@ -267,12 +267,12 @@ export function QuickCapture() {
                 aria-pressed={selected}
                 onClick={() => setProjectId(selected ? "" : p.id)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-ae border px-2 py-1",
+                  "inline-flex items-center gap-1.5 rounded-gtc border px-2 py-1",
                   "font-mono text-[0.64rem] uppercase tracking-chrome outline-none transition-colors",
-                  "focus-visible:shadow-ae-focus",
+                  "focus-visible:shadow-gtc-focus",
                   selected
-                    ? "border-ae-accent bg-ae-tint-accent text-ae-accent"
-                    : "border-ae-line text-ae-muted hover:text-ae-text"
+                    ? "border-gtc-accent bg-gtc-tint-accent text-gtc-accent"
+                    : "border-gtc-line text-gtc-muted hover:text-gtc-text"
                 )}
               >
                 <ProjectMark color={p.color} size={6} />

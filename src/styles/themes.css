@@ -2,38 +2,38 @@
  * donezo themes.
  *
  * A theme is a set of CSS-variable overrides applied via data-theme on
- * <html>. The default (no attribute / "aether") is the Aether design
- * system's own dark palette from @grewelltech/aether/tokens.css.
+ * <html>. The default (no attribute / "console") is the GTech Console design
+ * system's own dark palette from @grewelltech/console/tokens.css.
  *
- * Every component references tokens only (--ae-* / --dz-*), so adding a
+ * Every component references tokens only (--gtc-* / --dz-*), so adding a
  * theme means overriding variables here — no component changes.
  */
 
-/* ── Slate — neutral charcoal, quieter than Aether's ink-navy ─────────── */
+/* ── Slate — neutral charcoal, quieter tha GTech Console's ink-navy ─────────── */
 :root[data-theme="slate"] {
-  --ae-bg: #111315;
-  --ae-bg-deep: #0c0e10;
-  --ae-panel: #191c1f;
-  --ae-panel-inset: #141619;
-  --ae-border: #2a2f34;
-  --ae-border-hi: #4d6a76;
+  --gtc-bg: #111315;
+  --gtc-bg-deep: #0c0e10;
+  --gtc-panel: #191c1f;
+  --gtc-panel-inset: #141619;
+  --gtc-border: #2a2f34;
+  --gtc-border-hi: #4d6a76;
 
-  --ae-accent: #7fb4c9;
-  --ae-accent-dim: #3d5762;
-  --ae-accent-bright: #a8d4e4;
+  --gtc-accent: #7fb4c9;
+  --gtc-accent-dim: #3d5762;
+  --gtc-accent-bright: #a8d4e4;
 
-  --ae-text: #d3dae0;
-  --ae-muted: #848f99;
-  --ae-title: #d9bd77;
+  --gtc-text: #d3dae0;
+  --gtc-muted: #848f99;
+  --gtc-title: #d9bd77;
 
-  --ae-tint-accent: rgba(127, 180, 201, 0.08);
-  --ae-tint-accent-strong: rgba(127, 180, 201, 0.16);
+  --gtc-tint-accent: rgba(127, 180, 201, 0.08);
+  --gtc-tint-accent-strong: rgba(127, 180, 201, 0.16);
 
-  --ae-glow-accent: 0 0 10px rgba(127, 180, 201, 0.3);
-  --ae-glow-dot: 0 0 5px rgba(127, 180, 201, 0.45);
-  --ae-glow-title: none;
-  --ae-glow-focus: 0 0 0 1px var(--ae-accent-dim), 0 0 10px rgba(127, 180, 201, 0.2);
+  --gtc-glow-accent: 0 0 10px rgba(127, 180, 201, 0.3);
+  --gtc-glow-dot: 0 0 5px rgba(127, 180, 201, 0.45);
+  --gtc-glow-title: none;
+  --gtc-glow-focus: 0 0 0 1px var(--gtc-accent-dim), 0 0 10px rgba(127, 180, 201, 0.2);
 
   /* Flat charcoal ground — no radial accents. */
-  --ae-page-bg: linear-gradient(180deg, var(--ae-bg) 0%, var(--ae-bg-deep) 100%);
+  --gtc-page-bg: linear-gradient(180deg, var(--gtc-bg) 0%, var(--gtc-bg-deep) 100%);
 }

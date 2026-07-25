@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Bell, Palette, Plus, Search } from "lucide-react";
-import { Avatar, Button, cn } from "@grewelltech/aether";
+import { Avatar, Button, cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -44,14 +44,14 @@ export function TopBar() {
   };
 
   return (
-    <header className="flex h-[var(--dz-topbar-h)] shrink-0 items-center gap-3 border-b border-ae-line bg-ae-panel px-3">
-      <h1 className="min-w-0 shrink-0 font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-ae-text">
+    <header className="flex h-[var(--dz-topbar-h)] shrink-0 items-center gap-3 border-b border-gtc-line bg-gtc-panel px-3">
+      <h1 className="min-w-0 shrink-0 font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
         {VIEW_TITLES[state.view]}
       </h1>
 
       <div className="relative ml-2 hidden md:block">
         <Search
-          className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ae-muted"
+          className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gtc-muted"
           aria-hidden
         />
         <input
@@ -64,9 +64,9 @@ export function TopBar() {
           placeholder="Search everything…"
           aria-label="Global search"
           className={cn(
-            "h-7 w-60 rounded-ae border border-ae-line bg-ae-inset pl-7 pr-2",
-            "font-mono text-[0.75rem] text-ae-text placeholder:text-ae-muted",
-            "outline-none transition-colors focus:border-ae-accent focus:shadow-ae-focus"
+            "h-7 w-60 rounded-gtc border border-gtc-line bg-gtc-inset pl-7 pr-2",
+            "font-mono text-[0.75rem] text-gtc-text placeholder:text-gtc-muted",
+            "outline-none transition-colors focus:border-gtc-accent focus:shadow-gtc-focus"
           )}
         />
       </div>
@@ -91,15 +91,15 @@ export function TopBar() {
             type="button"
             aria-label={`Reminders (${openReminders.length})`}
             className={cn(
-              "relative flex h-7 w-7 items-center justify-center rounded-ae border border-ae-line text-ae-muted",
-              "outline-none transition-colors hover:border-ae-accent-dim hover:text-ae-text focus-visible:shadow-ae-focus"
+              "relative flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
             )}
           >
             <Bell className="h-3.5 w-3.5" aria-hidden />
             {openReminders.length > 0 && (
               <span
                 aria-hidden
-                className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-ae-accent shadow-ae-glow-dot"
+                className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-gtc-accent shadow-gtc-glow-dot"
               />
             )}
           </button>
@@ -107,7 +107,7 @@ export function TopBar() {
         <DropdownMenuContent align="end" className="w-80">
           <DropdownMenuLabel>Reminders</DropdownMenuLabel>
           {openReminders.length === 0 && (
-            <div className="px-3 py-2 text-[0.8rem] text-ae-muted">Nothing scheduled.</div>
+            <div className="px-3 py-2 text-[0.8rem] text-gtc-muted">Nothing scheduled.</div>
           )}
           {openReminders.slice(0, 6).map((r) => (
             <DropdownMenuItem
@@ -115,12 +115,12 @@ export function TopBar() {
               className="items-start gap-2 normal-case tracking-normal"
               onSelect={() => dispatch({ type: "UPDATE_REMINDER", id: r.id, patch: { done: true } })}
             >
-              <span className="mt-1 h-1.5 w-1.5 shrink-0 bg-ae-accent" aria-hidden />
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 bg-gtc-accent" aria-hidden />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-sans text-[0.8rem] normal-case text-ae-text">
+                <span className="block truncate font-sans text-[0.8rem] normal-case text-gtc-text">
                   {r.text}
                 </span>
-                <span className="font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+                <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
                   {relativeFromToday(r.remindAt.slice(0, 10))} · select to mark done
                 </span>
               </span>
@@ -135,8 +135,8 @@ export function TopBar() {
             type="button"
             aria-label="Theme"
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-ae border border-ae-line text-ae-muted",
-              "outline-none transition-colors hover:border-ae-accent-dim hover:text-ae-text focus-visible:shadow-ae-focus"
+              "flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
             )}
           >
             <Palette className="h-3.5 w-3.5" aria-hidden />
@@ -154,7 +154,7 @@ export function TopBar() {
             </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />
-          <div className="px-3 pb-1.5 text-[0.7rem] normal-case text-ae-muted">
+          <div className="px-3 pb-1.5 text-[0.7rem] normal-case text-gtc-muted">
             Themes are token overrides — add more in themes.css.
           </div>
         </DropdownMenuContent>

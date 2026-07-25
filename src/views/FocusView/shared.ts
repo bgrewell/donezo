@@ -4,11 +4,11 @@
 
 /**
  * Hairline row bottom border at ~60% strength. The ae tokens are plain CSS
- * vars, so Tailwind alpha modifiers (border-ae-line/60) generate nothing —
+ * vars, so Tailwind alpha modifiers (border-gtc-line/60) generate nothing —
  * mix the token down with color-mix instead.
  */
 export const HAIRLINE_ROW =
-  "border-b border-[color:color-mix(in_srgb,var(--ae-border)_60%,transparent)]";
+  "border-b border-[color:color-mix(in_srgb,var(--gtc-border)_60%,transparent)]";
 
 /** Compact effort rendering: 2 → "2h", 1.5 → "1.5h", 0.75 → "0.8h". */
 export function formatHours(hours: number): string {

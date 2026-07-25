@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Field, Input, Select } from "@grewelltech/aether";
+import { Button, Field, Input, Select } from "@grewelltech/console";
 
 import type { ActivityType, Project } from "@/domain/types";
 import { useAppDispatch } from "@/state/AppStore";
@@ -79,12 +79,12 @@ export function LogActivityPopover({
       <PopoverContent align="start" collisionPadding={12} className="w-80">
         <form onSubmit={submit} className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+            <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
               Log activity
             </span>
             <span className="flex min-w-0 items-center gap-1.5">
               <ProjectMark color={project.color} size={7} />
-              <span className="truncate font-sans text-[0.78rem] text-ae-text">
+              <span className="truncate font-sans text-[0.78rem] text-gtc-text">
                 {project.name}
               </span>
             </span>
@@ -147,7 +147,7 @@ export function LogActivityPopover({
               value={details}
               onChange={(e) => setDetails(e.target.value)}
               placeholder="Optional context"
-              className="w-full resize-none rounded-ae border border-ae-line bg-ae-inset px-2 py-1.5 font-sans text-[0.85rem] text-ae-text outline-none transition-shadow placeholder:text-ae-muted/70 focus:border-ae-accent focus:shadow-ae-focus"
+              className="w-full resize-none rounded-gtc border border-gtc-line bg-gtc-inset px-2 py-1.5 font-sans text-[0.85rem] text-gtc-text outline-none transition-shadow placeholder:text-gtc-muted/70 focus:border-gtc-accent focus:shadow-gtc-focus"
             />
           </Field>
           <div className="flex justify-end gap-1.5 pt-0.5">

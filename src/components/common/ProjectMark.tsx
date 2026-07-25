@@ -1,8 +1,8 @@
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 import type { ProjectColor } from "@/domain/types";
 import { projectColorVar } from "@/lib/projectColors";
 
-/** Square project color marker (Aether: dots are square, never circular). */
+/** Square project color marker (GTech Console: dots are square, never circular). */
 export function ProjectMark({
   color,
   size = 8,

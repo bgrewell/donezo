@@ -1,4 +1,4 @@
-import { Button, Checkbox, cn, SectionLabel } from "@grewelltech/aether";
+import { Button, Checkbox, cn, SectionLabel } from "@grewelltech/console";
 import { ExternalLink } from "lucide-react";
 
 import type { ActivityLink, Project, TaskItem } from "@/domain/types";
@@ -25,8 +25,8 @@ function excerpt(text: string, max = 100): string {
 function DefRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">{label}</dt>
-      <dd className="mt-0.5 font-sans text-[0.85rem] leading-relaxed text-ae-text">{value}</dd>
+      <dt className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">{label}</dt>
+      <dd className="mt-0.5 font-sans text-[0.85rem] leading-relaxed text-gtc-text">{value}</dd>
     </div>
   );
 }
@@ -36,8 +36,8 @@ function DueChip({ due }: { due: string }) {
   return (
     <span
       className={cn(
-        "shrink-0 rounded-ae border px-1.5 py-[1px] font-mono text-[0.62rem] uppercase tracking-label",
-        overdue ? "border-ae-warn-dim text-ae-warn" : "border-ae-line text-ae-muted"
+        "shrink-0 rounded-gtc border px-1.5 py-[1px] font-mono text-[0.62rem] uppercase tracking-label",
+        overdue ? "border-gtc-warn-dim text-gtc-warn" : "border-gtc-line text-gtc-muted"
       )}
     >
       due {relativeFromToday(due)}
@@ -54,13 +54,13 @@ function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }) {
           <span className="flex min-w-0 flex-1 items-center gap-2.5">
             <span
               aria-hidden
-              className="h-4 w-4 shrink-0 rounded-ae border border-ae-line bg-ae-inset opacity-50"
+              className="h-4 w-4 shrink-0 rounded-gtc border border-gtc-line bg-gtc-inset opacity-50"
             />
-            <span className="min-w-0 truncate font-sans text-[0.9rem] text-ae-text">
+            <span className="min-w-0 truncate font-sans text-[0.9rem] text-gtc-text">
               {task.title}
             </span>
           </span>
-          <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+          <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
             waiting on {task.waitingOn ?? "—"}
           </span>
         </>
@@ -122,20 +122,20 @@ export function ProjectDetail({ project }: { project: Project }) {
         </Button>
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <ProjectMark color={project.color} size={12} />
-          <h2 className="font-sans text-[1.15rem] font-semibold leading-none text-ae-text">
+          <h2 className="font-sans text-[1.15rem] font-semibold leading-none text-gtc-text">
             {project.name}
           </h2>
           <StatusBadge status={project.status} />
           {project.tags.map((tag) => (
             <span
               key={tag}
-              className="rounded-ae border border-ae-line px-1.5 py-[2px] font-mono text-[0.62rem] uppercase tracking-label text-ae-muted"
+              className="rounded-gtc border border-gtc-line px-1.5 py-[2px] font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted"
             >
               {tag}
             </span>
           ))}
           {project.waitingOn && (
-            <span className="font-mono text-[0.66rem] uppercase tracking-label text-ae-warn">
+            <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-warn">
               waiting on: {project.waitingOn}
             </span>
           )}
@@ -143,7 +143,7 @@ export function ProjectDetail({ project }: { project: Project }) {
       </div>
 
       {/* Orientation block */}
-      <div className="grid gap-6 border-b border-ae-line pb-6 md:grid-cols-2">
+      <div className="grid gap-6 border-b border-gtc-line pb-6 md:grid-cols-2">
         <dl className="space-y-3.5">
           <DefRow label="Purpose" value={project.purpose} />
           <DefRow label="Desired outcome" value={project.outcome} />
@@ -151,18 +151,18 @@ export function ProjectDetail({ project }: { project: Project }) {
         </dl>
 
         <div className="space-y-4">
-          <div className="border-l-2 border-ae-accent bg-ae-tint-accent px-3 py-2">
-            <div className="font-mono text-[0.62rem] uppercase tracking-label text-ae-accent">
+          <div className="border-l-2 border-gtc-accent bg-gtc-tint-accent px-3 py-2">
+            <div className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-accent">
               Resume here
             </div>
-            <p className="mt-1 font-sans text-[0.85rem] leading-relaxed text-ae-text">
+            <p className="mt-1 font-sans text-[0.85rem] leading-relaxed text-gtc-text">
               {project.resumeContext}
             </p>
           </div>
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <span className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+              <span className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
                 Next action
               </span>
               <Button
@@ -172,13 +172,13 @@ export function ProjectDetail({ project }: { project: Project }) {
                 Log progress
               </Button>
             </div>
-            <p className="mt-1 font-sans text-[0.95rem] text-ae-text">{project.nextAction}</p>
+            <p className="mt-1 font-sans text-[0.95rem] text-gtc-text">{project.nextAction}</p>
             {project.altNextActions.slice(0, 2).map((alt) => (
               <div key={alt} className="mt-1.5 flex items-baseline gap-2">
-                <span className="shrink-0 font-mono text-[0.6rem] uppercase tracking-label text-ae-muted">
+                <span className="shrink-0 font-mono text-[0.6rem] uppercase tracking-label text-gtc-muted">
                   alt
                 </span>
-                <span className="font-sans text-[0.8rem] text-ae-muted">{alt}</span>
+                <span className="font-sans text-[0.8rem] text-gtc-muted">{alt}</span>
               </div>
             ))}
           </div>
@@ -200,14 +200,14 @@ export function ProjectDetail({ project }: { project: Project }) {
       <section>
         <SectionLabel
           className="mb-2 mt-0"
-          trailing={<span className="text-ae-text">{openTasks.length}</span>}
+          trailing={<span className="text-gtc-text">{openTasks.length}</span>}
         >
           Open tasks
         </SectionLabel>
         {openTasks.length === 0 ? (
-          <p className="font-sans text-[0.85rem] text-ae-muted">No open tasks.</p>
+          <p className="font-sans text-[0.85rem] text-gtc-muted">No open tasks.</p>
         ) : (
-          <div className="divide-y divide-ae-line">
+          <div className="divide-y divide-gtc-line">
             {openTasks.map((t) => (
               <TaskRow
                 key={t.id}
@@ -225,26 +225,26 @@ export function ProjectDetail({ project }: { project: Project }) {
       <section>
         <SectionLabel
           className="mb-2 mt-0"
-          trailing={<span className="text-ae-text">{recent.length}</span>}
+          trailing={<span className="text-gtc-text">{recent.length}</span>}
         >
           Recent activity
         </SectionLabel>
         {recent.length === 0 ? (
-          <p className="font-sans text-[0.85rem] text-ae-muted">Nothing logged yet.</p>
+          <p className="font-sans text-[0.85rem] text-gtc-muted">Nothing logged yet.</p>
         ) : (
-          <div className="divide-y divide-ae-line">
+          <div className="divide-y divide-gtc-line">
             {recent.map((a) => (
               <button
                 key={a.id}
                 type="button"
                 onClick={() => selectActivity(a.id)}
-                className="flex w-full items-center gap-2.5 py-2 text-left outline-none transition-colors hover:bg-ae-tint-accent focus-visible:shadow-ae-focus"
+                className="flex w-full items-center gap-2.5 py-2 text-left outline-none transition-colors hover:bg-gtc-tint-accent focus-visible:shadow-gtc-focus"
               >
-                <ActivityTypeIcon type={a.type} className="h-3.5 w-3.5 shrink-0 text-ae-muted" />
-                <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-ae-text">
+                <ActivityTypeIcon type={a.type} className="h-3.5 w-3.5 shrink-0 text-gtc-muted" />
+                <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-gtc-text">
                   {a.title}
                 </span>
-                <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+                <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
                   {formatDay(a.date)}
                   {a.effortHours ? ` · ${a.effortHours}h` : ""}
                 </span>
@@ -259,22 +259,22 @@ export function ProjectDetail({ project }: { project: Project }) {
         <section>
           <SectionLabel
             className="mb-2 mt-0"
-            trailing={<span className="text-ae-text">{decisions.length}</span>}
+            trailing={<span className="text-gtc-text">{decisions.length}</span>}
           >
             Decisions
           </SectionLabel>
-          <div className="divide-y divide-ae-line">
+          <div className="divide-y divide-gtc-line">
             {decisions.map((d) => (
               <div key={d.id} className="flex gap-3 py-2">
-                <span className="w-14 shrink-0 pt-0.5 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+                <span className="w-14 shrink-0 pt-0.5 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
                   {formatDay(d.date)}
                 </span>
                 <div className="min-w-0">
-                  <div className="font-sans text-[0.85rem] font-medium text-ae-text">
+                  <div className="font-sans text-[0.85rem] font-medium text-gtc-text">
                     {d.title}
                   </div>
                   {d.details && (
-                    <p className="font-sans text-[0.8rem] text-ae-muted">
+                    <p className="font-sans text-[0.8rem] text-gtc-muted">
                       {firstSentence(d.details)}
                     </p>
                   )}
@@ -291,26 +291,26 @@ export function ProjectDetail({ project }: { project: Project }) {
           <SectionLabel className="mb-2 mt-0">Notes &amp; links</SectionLabel>
           <div className={cn("grid gap-6", notes.length > 0 && links.length > 0 && "md:grid-cols-2")}>
             {notes.length > 0 && (
-              <div className="divide-y divide-ae-line">
+              <div className="divide-y divide-gtc-line">
                 {notes.map((n) => (
                   <div key={n.id} className="py-2">
-                    <div className="font-sans text-[0.85rem] font-medium text-ae-text">
+                    <div className="font-sans text-[0.85rem] font-medium text-gtc-text">
                       {n.title}
                     </div>
-                    <p className="font-sans text-[0.8rem] text-ae-muted">{excerpt(n.body)}</p>
+                    <p className="font-sans text-[0.8rem] text-gtc-muted">{excerpt(n.body)}</p>
                   </div>
                 ))}
               </div>
             )}
             {links.length > 0 && (
-              <div className="divide-y divide-ae-line">
+              <div className="divide-y divide-gtc-line">
                 {links.map((l) => (
                   <a
                     key={l.url}
                     href={l.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-2 py-1.5 font-sans text-[0.82rem] text-ae-accent outline-none transition-colors hover:text-ae-accent-bright focus-visible:shadow-ae-focus"
+                    className="flex items-center gap-2 py-1.5 font-sans text-[0.82rem] text-gtc-accent outline-none transition-colors hover:text-gtc-accent-bright focus-visible:shadow-gtc-focus"
                   >
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span className="truncate">{l.label}</span>

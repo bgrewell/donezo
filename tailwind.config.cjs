@@ -1,16 +1,16 @@
 module.exports = {
-  presets: [require("@grewelltech/aether/tailwind-preset")],
+  presets: [require("@grewelltech/console/tailwind-preset")],
   content: [
     "./index.html",
     "./src/**/*.{ts,tsx}",
-    "./node_modules/@grewelltech/aether/src/**/*.tsx",
+    "./node_modules/@grewelltech/console/src/**/*.tsx",
     "../design-system/src/**/*.tsx",
   ],
   theme: {
     extend: {
       colors: {
         // donezo project-color ramp — muted categorical hues that sit on
-        // Aether's ink-navy without competing with the cyan accent.
+        // GTech Console's ink-navy without competing with the cyan accent.
         pj: {
           blue: "var(--dz-pj-blue)",
           green: "var(--dz-pj-green)",

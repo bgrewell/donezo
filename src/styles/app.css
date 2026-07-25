@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 /**
- * donezo app tokens — extensions layered on top of Aether's --ae-* set.
+ * donezo app tokens — extensions layered on top of GTech Console's --gtc-* set.
  * Everything donezo-specific goes through --dz-* variables so themes can
  * override the full surface (see themes.css).
  */
 :root {
   /* Project color ramp — muted categorical hues, one per project, tuned to
-     sit on Aether's ink-navy panels without competing with the cyan accent. */
+     sit on GTech Console's ink-navy panels without competing with the cyan accent. */
   --dz-pj-blue: #729bd0;
   --dz-pj-green: #7fb57c;
   --dz-pj-tan: #c0a467;
@@ -29,7 +29,7 @@
 /* Thin, calm scrollbars everywhere. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--ae-border) transparent;
+  scrollbar-color: var(--gtc-border) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
@@ -39,11 +39,11 @@
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--ae-border);
-  border-radius: var(--ae-radius);
+  background: var(--gtc-border);
+  border-radius: var(--gtc-radius);
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--ae-accent-dim);
+  background: var(--gtc-accent-dim);
 }
 
 /* App fills the viewport; internal panes scroll, the page never does. */

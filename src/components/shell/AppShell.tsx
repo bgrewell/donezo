@@ -61,7 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <TooltipProvider>
-      <div className="flex h-full bg-ae-page text-ae-text">
+      <div className="flex h-full bg-gtc-page text-gtc-text">
         <NavRail />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />

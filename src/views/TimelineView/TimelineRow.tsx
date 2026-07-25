@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Flag } from "lucide-react";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 import { format, getISOWeek } from "date-fns";
 
 import type { ActivityEntry, Project, ZoomLevel } from "@/domain/types";
@@ -117,7 +117,7 @@ export function TimelineRow({
 }
 
 const chipCls =
-  "absolute inline-flex items-center rounded-ae border border-ae-line bg-ae-panel px-1.5 font-mono text-[0.62rem] text-ae-muted outline-none transition-colors hover:border-ae-accent-dim hover:text-ae-text focus-visible:shadow-ae-focus";
+  "absolute inline-flex items-center rounded-gtc border border-gtc-line bg-gtc-panel px-1.5 font-mono text-[0.62rem] text-gtc-muted outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus";
 
 /** Non-planned entries first so real activity sits atop each day's stack. */
 function sortDayEntries(list: ActivityEntry[]): ActivityEntry[] {
@@ -278,7 +278,7 @@ function MonthLane({
               heading={`${format(parseDate(month), "MMMM yyyy")} · ${list.length} entries`}
               entries={list}
               tip={
-                <span className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+                <span className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
                   {tipLabel}
                 </span>
               }

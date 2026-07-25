@@ -1,5 +1,5 @@
 import * as React from "react";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 import type { ActivityEntry } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -43,8 +43,8 @@ export function ActivityNode({
     <Tip
       content={
         <span className="flex flex-col gap-0.5">
-          <span className="font-sans text-[0.8rem] text-ae-text">{entry.title}</span>
-          <span className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+          <span className="font-sans text-[0.8rem] text-gtc-text">{entry.title}</span>
+          <span className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
             {ACTIVITY_TYPES[entry.type].label}
             {entry.effortHours ? ` · ${entry.effortHours}h` : ""} · {formatDay(entry.date)}
             {entry.planned ? " · planned" : ""}
@@ -56,24 +56,24 @@ export function ActivityNode({
         type="button"
         onClick={() => dispatch({ type: "SELECT_ACTIVITY", id: entry.id })}
         className={cn(
-          "absolute flex items-center gap-1 overflow-hidden rounded-ae border px-1 text-left text-ae-text",
+          "absolute flex items-center gap-1 overflow-hidden rounded-gtc border px-1 text-left text-gtc-text",
           nodeTintClass,
           "outline-none transition-colors",
           entry.planned && "border-dashed opacity-60",
           milestone && "font-medium",
-          selected && "shadow-[inset_0_0_0_1px_var(--ae-accent)]",
-          "focus-visible:shadow-ae-focus"
+          selected && "shadow-[inset_0_0_0_1px_var(--gtc-accent)]",
+          "focus-visible:shadow-gtc-focus"
         )}
         style={{ ...style, ...tint }}
       >
         {entry.type === "blocker" && (
-          <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-ae-danger" />
+          <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-gtc-danger" />
         )}
         <ActivityTypeIcon
           type={entry.type}
           className={cn(
             "h-3 w-3 shrink-0",
-            entry.type === "blocker" ? "text-ae-danger" : "text-ae-muted"
+            entry.type === "blocker" ? "text-gtc-danger" : "text-gtc-muted"
           )}
         />
         <span className="min-w-0 flex-1 truncate font-sans text-[0.7rem]">

@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as MenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 export const DropdownMenu = MenuPrimitive.Root;
 export const DropdownMenuTrigger = MenuPrimitive.Trigger;
@@ -16,7 +16,7 @@ export const DropdownMenuContent = React.forwardRef<
         ref={ref}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-[190px] rounded-ae border border-ae-line bg-ae-panel bg-ae-sheen py-1",
+          "z-50 min-w-[190px] rounded-gtc border border-gtc-line bg-gtc-panel bg-gtc-sheen py-1",
           className
         )}
         {...props}
@@ -34,8 +34,8 @@ export const DropdownMenuItem = React.forwardRef<
       ref={ref}
       className={cn(
         "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 outline-none",
-        "font-mono text-[0.72rem] uppercase tracking-chrome text-ae-text",
-        "data-[highlighted]:bg-ae-tint-accent data-[highlighted]:text-ae-accent-bright",
+        "font-mono text-[0.72rem] uppercase tracking-chrome text-gtc-text",
+        "data-[highlighted]:bg-gtc-tint-accent data-[highlighted]:text-gtc-accent-bright",
         "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
         className
       )}
@@ -53,15 +53,15 @@ export const DropdownMenuCheckboxItem = React.forwardRef<
       ref={ref}
       className={cn(
         "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 outline-none",
-        "font-mono text-[0.72rem] uppercase tracking-chrome text-ae-text",
-        "data-[highlighted]:bg-ae-tint-accent data-[highlighted]:text-ae-accent-bright",
+        "font-mono text-[0.72rem] uppercase tracking-chrome text-gtc-text",
+        "data-[highlighted]:bg-gtc-tint-accent data-[highlighted]:text-gtc-accent-bright",
         className
       )}
       {...props}
     >
-      <span className="flex h-3 w-3 items-center justify-center border border-ae-line">
+      <span className="flex h-3 w-3 items-center justify-center border border-gtc-line">
         <MenuPrimitive.ItemIndicator>
-          <Check className="h-2.5 w-2.5 text-ae-accent" strokeWidth={3} />
+          <Check className="h-2.5 w-2.5 text-gtc-accent" strokeWidth={3} />
         </MenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -76,7 +76,7 @@ export function DropdownMenuLabel({
   return (
     <div
       className={cn(
-        "px-3 pb-1 pt-2 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted",
+        "px-3 pb-1 pt-2 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted",
         className
       )}
       {...props}
@@ -88,5 +88,5 @@ export function DropdownMenuSeparator({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("my-1 h-px bg-ae-line", className)} {...props} />;
+  return <div className={cn("my-1 h-px bg-gtc-line", className)} {...props} />;
 }

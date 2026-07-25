@@ -5,7 +5,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { Button, cn } from "@grewelltech/aether";
+import { Button, cn } from "@grewelltech/console";
 
 import type { ActivityType, ZoomLevel } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -34,13 +34,13 @@ const ZOOM_LEVELS: { id: ZoomLevel; label: string }[] = [
 ];
 
 const iconBtn =
-  "flex h-7 w-7 shrink-0 items-center justify-center rounded-ae text-ae-muted outline-none transition-colors hover:bg-ae-tint-accent hover:text-ae-text focus-visible:shadow-ae-focus";
+  "flex h-7 w-7 shrink-0 items-center justify-center rounded-gtc text-gtc-muted outline-none transition-colors hover:bg-gtc-tint-accent hover:text-gtc-text focus-visible:shadow-gtc-focus";
 
 const triggerBase =
-  "inline-flex h-7 shrink-0 select-none items-center gap-1.5 rounded-ae border px-2 font-mono text-[0.66rem] uppercase tracking-chrome outline-none transition-colors focus-visible:shadow-ae-focus";
+  "inline-flex h-7 shrink-0 select-none items-center gap-1.5 rounded-gtc border px-2 font-mono text-[0.66rem] uppercase tracking-chrome outline-none transition-colors focus-visible:shadow-gtc-focus";
 const triggerIdle =
-  "border-ae-line text-ae-muted hover:border-ae-accent-dim hover:text-ae-text";
-const triggerActive = "border-ae-accent-dim bg-ae-tint-accent text-ae-accent";
+  "border-gtc-line text-gtc-muted hover:border-gtc-accent-dim hover:text-gtc-text";
+const triggerActive = "border-gtc-accent-dim bg-gtc-tint-accent text-gtc-accent";
 
 /** Timeline controls: period nav, range label, zoom, filters, rail toggle. */
 export function ControlsBar() {
@@ -72,7 +72,7 @@ export function ControlsBar() {
   };
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-ae-line bg-ae-panel px-2">
+    <div className="flex h-9 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-gtc-line bg-gtc-panel px-2">
       <button
         type="button"
         aria-label="Previous period"
@@ -93,14 +93,14 @@ export function ControlsBar() {
         Today
       </Button>
 
-      <span className="hidden whitespace-nowrap px-1.5 font-mono text-[0.66rem] font-medium uppercase tracking-label text-ae-title xl:inline">
+      <span className="hidden whitespace-nowrap px-1.5 font-mono text-[0.66rem] font-medium uppercase tracking-label text-gtc-title xl:inline">
         {visibleRangeLabel(anchorDate, zoom)}
       </span>
 
       <div
         role="group"
         aria-label="Zoom level"
-        className="ml-1 inline-flex shrink-0 items-stretch divide-x divide-ae-line rounded-ae border border-ae-line"
+        className="ml-1 inline-flex shrink-0 items-stretch divide-x divide-gtc-line rounded-gtc border border-gtc-line"
       >
         {ZOOM_LEVELS.map((z) => {
           const active = zoom === z.id;
@@ -111,10 +111,10 @@ export function ControlsBar() {
               aria-pressed={active}
               onClick={() => dispatch({ type: "SET_ZOOM", zoom: z.id })}
               className={cn(
-                "px-2.5 py-1 font-mono text-[0.68rem] uppercase tracking-chrome outline-none transition-colors focus-visible:shadow-ae-focus",
+                "px-2.5 py-1 font-mono text-[0.68rem] uppercase tracking-chrome outline-none transition-colors focus-visible:shadow-gtc-focus",
                 active
-                  ? "bg-ae-tint-accent text-ae-accent"
-                  : "text-ae-muted hover:text-ae-text"
+                  ? "bg-gtc-tint-accent text-gtc-accent"
+                  : "text-gtc-muted hover:text-gtc-text"
               )}
             >
               {z.label}
@@ -193,7 +193,7 @@ export function ControlsBar() {
                 onSelect={(e) => e.preventDefault()}
                 onCheckedChange={(c) => toggleType(t, c === true)}
               >
-                <ActivityTypeIcon type={t} className="h-3.5 w-3.5 text-ae-muted" />
+                <ActivityTypeIcon type={t} className="h-3.5 w-3.5 text-gtc-muted" />
                 {ACTIVITY_TYPES[t].label}
               </DropdownMenuCheckboxItem>
             ))}

@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
   return (
@@ -18,7 +18,7 @@ export interface TipProps {
   className?: string;
 }
 
-/** Aether-styled tooltip. Wrap any trigger element. */
+/** GTech Console-styled tooltip. Wrap any trigger element. */
 export function Tip({ content, side = "top", children, className }: TipProps) {
   return (
     <TooltipPrimitive.Root>
@@ -28,8 +28,8 @@ export function Tip({ content, side = "top", children, className }: TipProps) {
           side={side}
           sideOffset={6}
           className={cn(
-            "z-50 max-w-xs rounded-ae border border-ae-line bg-ae-inset px-2.5 py-1.5",
-            "text-[0.78rem] text-ae-text",
+            "z-50 max-w-xs rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-1.5",
+            "text-[0.78rem] text-gtc-text",
             className
           )}
         >

@@ -77,22 +77,22 @@ export function MiniPulse({
 
   return (
     <div>
-      <div className="relative h-14 overflow-hidden rounded-ae border border-ae-line bg-ae-inset">
+      <div className="relative h-14 overflow-hidden rounded-gtc border border-gtc-line bg-gtc-inset">
         {mondays.map((d) => (
           <span
             key={d.iso}
             aria-hidden
-            className="absolute inset-y-0 w-px bg-ae-line opacity-60"
+            className="absolute inset-y-0 w-px bg-gtc-line opacity-60"
             style={{ left: `${d.pos}%` }}
           />
         ))}
         <span
           aria-hidden
-          className="absolute inset-y-0 w-px bg-ae-accent"
+          className="absolute inset-y-0 w-px bg-gtc-accent"
           style={{ left: `${todayPos}%` }}
         />
         {!hasNodes && (
-          <span className="absolute inset-0 flex items-center justify-center font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+          <span className="absolute inset-0 flex items-center justify-center font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
             No activity in the last {DAY_COUNT} days
           </span>
         )}
@@ -112,7 +112,7 @@ export function MiniPulse({
               key={d.iso}
               content={
                 <div className="max-w-[240px]">
-                  <div className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+                  <div className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
                     {formatDay(d.iso)} · {count} {noun}
                     {plannedOnly && " · planned"}
                   </div>
@@ -124,7 +124,7 @@ export function MiniPulse({
                 type="button"
                 onClick={() => onSelectEntry(first.id)}
                 aria-label={`${formatDay(d.iso)}: ${count} ${noun}${plannedOnly ? " planned" : ""}`}
-                className="absolute top-1/2 flex h-8 w-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-ae outline-none focus-visible:shadow-ae-focus"
+                className="absolute top-1/2 flex h-8 w-3.5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-gtc outline-none focus-visible:shadow-gtc-focus"
                 style={{ left: `${d.pos}%` }}
               >
                 <span
@@ -148,7 +148,7 @@ export function MiniPulse({
           .map((d) => (
             <span
               key={d.iso}
-              className="absolute -translate-x-1/2 whitespace-nowrap font-mono text-[0.6rem] uppercase tracking-label text-ae-muted"
+              className="absolute -translate-x-1/2 whitespace-nowrap font-mono text-[0.6rem] uppercase tracking-label text-gtc-muted"
               style={{ left: `${d.pos}%` }}
             >
               {formatDay(d.iso)}

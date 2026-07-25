@@ -8,8 +8,8 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 
-import "@grewelltech/aether/tokens.css";
-import "@grewelltech/aether/base.css";
+import "@grewelltech/console/tokens.css";
+import "@grewelltech/console/base.css";
 import "./styles/themes.css";
 import "./styles/app.css";
 

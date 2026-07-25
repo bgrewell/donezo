@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Bell } from "lucide-react";
-import { Button, Input, SectionLabel, cn } from "@grewelltech/aether";
+import { Button, Input, SectionLabel, cn } from "@grewelltech/console";
 
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { projectById } from "@/state/selectors";
@@ -10,10 +10,10 @@ import { ProjectMark } from "@/components/common/ProjectMark";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { ActivityTypeIcon } from "@/components/common/activityTypes";
 
-const META = "font-mono text-[0.64rem] uppercase tracking-label text-ae-muted";
+const META = "font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted";
 const ROW_BTN =
   "-mx-2 flex w-full items-center gap-3 px-2 py-2 text-left transition-colors " +
-  "hover:bg-ae-tint-accent focus-visible:outline-none focus-visible:shadow-ae-focus";
+  "hover:bg-gtc-tint-accent focus-visible:outline-none focus-visible:shadow-gtc-focus";
 const GROUP_CAP = 8;
 
 /** Locally styled match highlight. */
@@ -28,7 +28,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
     out.push(
       <mark
         key={idx}
-        className="rounded-ae bg-ae-tint-accent-strong px-0.5 text-ae-accent-bright"
+        className="rounded-gtc bg-gtc-tint-accent-strong px-0.5 text-gtc-accent-bright"
       >
         {text.slice(idx, idx + q.length)}
       </mark>
@@ -66,7 +66,7 @@ function Group({
   if (count === 0) return null;
   return (
     <section>
-      <SectionLabel className="my-0 mb-1" trailing={<span className="text-ae-text">{count}</span>}>
+      <SectionLabel className="my-0 mb-1" trailing={<span className="text-gtc-text">{count}</span>}>
         {label}
       </SectionLabel>
       <div>{children}</div>
@@ -177,14 +177,14 @@ export default function SearchView() {
               onExpand={expand("projects")}
             >
               {cap(results.projects, "projects").map((p) => (
-                <div key={p.id} className="border-b border-ae-line/60">
+                <div key={p.id} className="border-b border-gtc-line/60">
                   <button
                     type="button"
                     className={ROW_BTN}
                     onClick={() => dispatch({ type: "OPEN_PROJECT", projectId: p.id })}
                   >
                     <ProjectMark color={p.color} />
-                    <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ae-text">
+                    <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
                       <Highlight text={p.name} query={q} />
                     </span>
                     <StatusBadge status={p.status} />
@@ -202,14 +202,14 @@ export default function SearchView() {
               {cap(results.activities, "activity").map((a) => {
                 const proj = projectById(state, a.projectId);
                 return (
-                  <div key={a.id} className="border-b border-ae-line/60">
+                  <div key={a.id} className="border-b border-gtc-line/60">
                     <button
                       type="button"
                       className={ROW_BTN}
                       onClick={() => dispatch({ type: "SELECT_ACTIVITY", id: a.id })}
                     >
-                      <ActivityTypeIcon type={a.type} className="h-3.5 w-3.5 shrink-0 text-ae-muted" />
-                      <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ae-text">
+                      <ActivityTypeIcon type={a.type} className="h-3.5 w-3.5 shrink-0 text-gtc-muted" />
+                      <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
                         <Highlight text={a.title} query={q} />
                       </span>
                       <span className={cn(META, "shrink-0")}>{formatDay(a.date)}</span>
@@ -237,7 +237,7 @@ export default function SearchView() {
                   .filter(Boolean)
                   .join(" · ");
                 return (
-                  <div key={t.id} className="border-b border-ae-line/60">
+                  <div key={t.id} className="border-b border-gtc-line/60">
                     <button
                       type="button"
                       className={ROW_BTN}
@@ -245,7 +245,7 @@ export default function SearchView() {
                       aria-expanded={open}
                     >
                       <span className={cn(META, "w-16 shrink-0")}>{t.status}</span>
-                      <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ae-text">
+                      <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
                         <Highlight text={t.title} query={q} />
                       </span>
                     </button>
@@ -264,24 +264,24 @@ export default function SearchView() {
               {cap(results.notes, "notes").map((n) => {
                 const open = !!openItems[n.id];
                 return (
-                  <div key={n.id} className="border-b border-ae-line/60">
+                  <div key={n.id} className="border-b border-gtc-line/60">
                     <button
                       type="button"
                       className={ROW_BTN}
                       onClick={toggleItem(n.id)}
                       aria-expanded={open}
                     >
-                      <span className="shrink-0 text-[0.85rem] text-ae-text">
+                      <span className="shrink-0 text-[0.85rem] text-gtc-text">
                         <Highlight text={n.title} query={q} />
                       </span>
                       {!open && (
-                        <span className="min-w-0 flex-1 truncate text-[0.8rem] text-ae-muted">
+                        <span className="min-w-0 flex-1 truncate text-[0.8rem] text-gtc-muted">
                           <Highlight text={snippet(n.body, q)} query={q} />
                         </span>
                       )}
                     </button>
                     {open && (
-                      <p className="max-w-[68ch] whitespace-pre-line pb-2.5 text-[0.85rem] leading-relaxed text-ae-text/90">
+                      <p className="max-w-[68ch] whitespace-pre-line pb-2.5 text-[0.85rem] leading-relaxed text-gtc-text/90">
                         <Highlight text={n.body} query={q} />
                       </p>
                     )}
@@ -299,10 +299,10 @@ export default function SearchView() {
               {cap(results.reminders, "reminders").map((r) => (
                 <div
                   key={r.id}
-                  className="-mx-2 flex items-center gap-3 border-b border-ae-line/60 px-2 py-2"
+                  className="-mx-2 flex items-center gap-3 border-b border-gtc-line/60 px-2 py-2"
                 >
-                  <Bell className="h-3.5 w-3.5 shrink-0 text-ae-muted" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ae-text">
+                  <Bell className="h-3.5 w-3.5 shrink-0 text-gtc-muted" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
                     <Highlight text={r.text} query={q} />
                   </span>
                   <span className={cn(META, "shrink-0")}>
@@ -319,13 +319,13 @@ export default function SearchView() {
               onExpand={expand("inbox")}
             >
               {cap(results.inbox, "inbox").map((i) => (
-                <div key={i.id} className="border-b border-ae-line/60">
+                <div key={i.id} className="border-b border-gtc-line/60">
                   <button
                     type="button"
                     className={ROW_BTN}
                     onClick={() => dispatch({ type: "SET_VIEW", view: "inbox" })}
                   >
-                    <span className="min-w-0 flex-1 truncate text-[0.85rem] text-ae-text">
+                    <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
                       <Highlight text={snippet(i.raw, q)} query={q} />
                     </span>
                     <span className={cn(META, "shrink-0")}>{i.status}</span>

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Button, SectionLabel, cn, type ButtonProps } from "@grewelltech/aether";
+import { Button, SectionLabel, cn, type ButtonProps } from "@grewelltech/console";
 
 import type { Project } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -8,8 +8,8 @@ import { addDaysISO, diffDays, formatDay, relativeFromToday, todayISO } from "@/
 import { EmptyState } from "@/components/common/EmptyState";
 import { ProjectMark } from "@/components/common/ProjectMark";
 
-const META = "font-mono text-[0.64rem] uppercase tracking-label text-ae-muted";
-const TITLE = "truncate text-[0.85rem] text-ae-text";
+const META = "font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted";
+const TITLE = "truncate text-[0.85rem] text-gtc-text";
 
 /** Compact ghost action for review rows. */
 function RowAction({ muted, className, ...props }: ButtonProps & { muted?: boolean }) {
@@ -20,7 +20,7 @@ function RowAction({ muted, className, ...props }: ButtonProps & { muted?: boole
       className={cn(
         "px-2 py-1 text-[0.64rem]",
         muted &&
-          "border-ae-line text-ae-muted hover:border-ae-line hover:bg-ae-inset hover:text-ae-text",
+          "border-gtc-line text-gtc-muted hover:border-gtc-line hover:bg-gtc-inset hover:text-gtc-text",
         className
       )}
       {...props}
@@ -31,7 +31,7 @@ function RowAction({ muted, className, ...props }: ButtonProps & { muted?: boole
 /** One resurfaced item: content left, actions right, hairline below. */
 function ReviewRow({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="-mx-2 flex items-center gap-3 border-b border-ae-line/60 px-2 py-2 transition-colors hover:bg-ae-tint-accent">
+    <div className="-mx-2 flex items-center gap-3 border-b border-gtc-line/60 px-2 py-2 transition-colors hover:bg-gtc-tint-accent">
       <div className="min-w-0 flex-1">{children}</div>
       {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
     </div>
@@ -52,11 +52,11 @@ function ReviewSection({
 }) {
   return (
     <section>
-      <SectionLabel className="my-0 mb-1" trailing={<span className="text-ae-text">{count}</span>}>
+      <SectionLabel className="my-0 mb-1" trailing={<span className="text-gtc-text">{count}</span>}>
         {label}
       </SectionLabel>
       {count === 0 ? (
-        <p className="py-1.5 text-[0.8rem] text-ae-muted">{emptyLine}</p>
+        <p className="py-1.5 text-[0.8rem] text-gtc-muted">{emptyLine}</p>
       ) : (
         <div>{children}</div>
       )}
@@ -111,7 +111,7 @@ export default function ReviewView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[880px] space-y-7 px-8 py-6">
-        <p className="max-w-[62ch] text-[0.85rem] text-ae-muted">
+        <p className="max-w-[62ch] text-[0.85rem] text-gtc-muted">
           A gentle sweep of things that may have drifted. Nothing here is urgent.
         </p>
 

@@ -1,4 +1,4 @@
-import { Badge, type BadgeStatus } from "@grewelltech/aether";
+import { Badge, type BadgeStatus } from "@grewelltech/console";
 import type { ProjectStatus } from "@/domain/types";
 
 const STATUS_MAP: Record<ProjectStatus, { badge: BadgeStatus; label: string }> = {
@@ -9,7 +9,7 @@ const STATUS_MAP: Record<ProjectStatus, { badge: BadgeStatus; label: string }> =
   completed: { badge: "success", label: "Done" },
 };
 
-/** Project status rendered as an Aether badge with calm wording. */
+/** Project status rendered as a GTech Console badge with calm wording. */
 export function StatusBadge({ status }: { status: ProjectStatus }) {
   const { badge, label } = STATUS_MAP[status];
   return <Badge status={badge}>{label}</Badge>;

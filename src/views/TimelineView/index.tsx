@@ -156,7 +156,7 @@ export default function TimelineView() {
                 left: `calc(${railW} + ${todayX}px)`,
                 top: cfg.headerHeight,
                 height: projects.length * cfg.rowHeight,
-                background: "var(--ae-accent)",
+                background: "var(--gtc-accent)",
                 opacity: 0.55,
               }}
             />

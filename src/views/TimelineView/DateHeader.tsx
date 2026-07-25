@@ -1,4 +1,4 @@
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 import type { ZoomLevel } from "@/domain/types";
 import { isToday } from "@/lib/time";
@@ -28,23 +28,23 @@ export function DateHeader({
 
   return (
     <div
-      className="sticky top-0 z-30 flex border-b border-ae-line bg-ae-panel"
+      className="sticky top-0 z-30 flex border-b border-gtc-line bg-gtc-panel"
       style={{ height: cfg.headerHeight }}
     >
       {/* Corner cell — sticky on both axes. */}
       <div
         className={cn(
-          "sticky left-0 z-40 flex shrink-0 items-center border-r border-ae-line bg-ae-panel",
+          "sticky left-0 z-40 flex shrink-0 items-center border-r border-gtc-line bg-gtc-panel",
           railCollapsed ? "justify-center" : "justify-between px-2.5"
         )}
         style={{ width: railWidth(railCollapsed) }}
       >
         {!railCollapsed && (
-          <span className="font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+          <span className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
             Projects
           </span>
         )}
-        <span className="font-mono text-[0.68rem] text-ae-text">{projectCount}</span>
+        <span className="font-mono text-[0.68rem] text-gtc-text">{projectCount}</span>
       </div>
 
       <div className="flex flex-col" style={{ width: totalWidth(zoom) }}>
@@ -53,7 +53,7 @@ export function DateHeader({
             {quarterBands().map((band) => (
               <div
                 key={band.label}
-                className="flex shrink-0 items-center px-2 font-mono text-[0.62rem] uppercase tracking-label text-ae-text"
+                className="flex shrink-0 items-center px-2 font-mono text-[0.62rem] uppercase tracking-label text-gtc-text"
                 style={{
                   width: band.monthSpan * cfg.colWidth,
                   borderLeft: `1px solid ${GRID_LINE}`,
@@ -79,15 +79,15 @@ export function DateHeader({
                 }}
               >
                 {zoom === "quarter" ? (
-                  <span className="font-mono text-[0.64rem] uppercase tracking-label text-ae-muted">
+                  <span className="font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
                     {col.label1}
                   </span>
                 ) : zoom === "month" ? (
                   <>
-                    <span className="font-mono text-[0.7rem] uppercase tracking-chrome text-ae-text">
+                    <span className="font-mono text-[0.7rem] uppercase tracking-chrome text-gtc-text">
                       {col.label1}
                     </span>
-                    <span className="font-mono text-[0.6rem] uppercase tracking-label text-ae-muted">
+                    <span className="font-mono text-[0.6rem] uppercase tracking-label text-gtc-muted">
                       {col.label2}
                     </span>
                   </>
@@ -96,7 +96,7 @@ export function DateHeader({
                     <span
                       className={cn(
                         "font-mono text-[0.6rem] uppercase tracking-label",
-                        today ? "text-ae-accent" : "text-ae-muted"
+                        today ? "text-gtc-accent" : "text-gtc-muted"
                       )}
                     >
                       {col.label1}
@@ -104,7 +104,7 @@ export function DateHeader({
                     <span
                       className={cn(
                         "font-mono text-[0.7rem] uppercase",
-                        today ? "text-ae-accent" : "text-ae-text"
+                        today ? "text-gtc-accent" : "text-gtc-text"
                       )}
                     >
                       {col.label2}
@@ -114,7 +114,7 @@ export function DateHeader({
                 {today && (
                   <span
                     aria-hidden
-                    className="absolute inset-x-0 bottom-0 h-0.5 bg-ae-accent shadow-ae-glow"
+                    className="absolute inset-x-0 bottom-0 h-0.5 bg-gtc-accent shadow-gtc-glow"
                   />
                 )}
               </div>

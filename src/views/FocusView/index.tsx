@@ -35,10 +35,10 @@ export default function FocusView() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[880px] space-y-7 px-8 py-6">
         <header>
-          <div className="font-mono text-[0.68rem] uppercase tracking-label text-ae-muted">
+          <div className="font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted">
             {format(parseDate(data.today), "EEEE")} · {formatDay(data.today)}
           </div>
-          <p className="mt-1.5 font-sans text-[0.85rem] text-ae-muted">
+          <p className="mt-1.5 font-sans text-[0.85rem] text-gtc-muted">
             {summarize(data.timeSensitive.length, waitingCount)}
           </p>
         </header>

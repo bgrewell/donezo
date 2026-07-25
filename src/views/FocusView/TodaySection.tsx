@@ -1,4 +1,4 @@
-import { Button, SectionLabel, cn } from "@grewelltech/aether";
+import { Button, SectionLabel, cn } from "@grewelltech/console";
 
 import { useAppDispatch } from "@/state/AppStore";
 import { ACTIVITY_TYPES, ActivityTypeIcon } from "@/components/common/activityTypes";
@@ -29,7 +29,7 @@ export function TodaySection({
       </SectionLabel>
       {rows.length === 0 ? (
         <div className="flex flex-wrap items-center gap-3 py-1">
-          <p className="font-sans text-[0.85rem] text-ae-muted">Nothing logged yet today.</p>
+          <p className="font-sans text-[0.85rem] text-gtc-muted">Nothing logged yet today.</p>
           <Button size="sm" onClick={() => dispatch({ type: "SET_QUICK_CAPTURE", open: true })}>
             Capture something
           </Button>
@@ -39,16 +39,16 @@ export function TodaySection({
           {rows.map(({ entry, project }) => (
             <li key={entry.id} className={cn("flex items-center gap-3 py-2", HAIRLINE_ROW)}>
               <span
-                className="shrink-0 text-ae-muted"
+                className="shrink-0 text-gtc-muted"
                 title={ACTIVITY_TYPES[entry.type].label}
               >
                 <ActivityTypeIcon type={entry.type} />
               </span>
-              <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-ae-text">
+              <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-gtc-text">
                 {entry.title}
               </span>
               {entry.effortHours != null && (
-                <span className="shrink-0 font-mono text-[0.66rem] text-ae-muted">
+                <span className="shrink-0 font-mono text-[0.66rem] text-gtc-muted">
                   {formatHours(entry.effortHours)}
                 </span>
               )}

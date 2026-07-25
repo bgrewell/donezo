@@ -6,7 +6,7 @@ interruptions; shows where effort actually went on a project-by-time
 timeline (**Project Pulse**).
 
 Frontend prototype: React 18 + TypeScript + Vite + Tailwind CSS, built on the
-[@grewelltech/aether](https://github.com/grewelltech/design-system) design
+[@grewelltech/console](https://github.com/grewelltech/design-system) design
 system. Mock data only — no backend, auth, or persistence yet.
 
 ## Development
@@ -34,8 +34,8 @@ npm run peek -- "#/timeline" .peek/t.png [--theme slate] [--full]
 
 ## Design system
 
-Aether is consumed as a source `file:` dependency from `../design-system`
-(clone of grewelltech/design-system). Its tokens (`--ae-*`), Tailwind preset,
+GTech Console is consumed as a source `file:` dependency from `../design-system`
+(clone of grewelltech/design-system). Its tokens (`--gtc-*`), Tailwind preset,
 and components are the base layer; donezo adds `--dz-*` tokens (project color
 ramp, shell metrics) in `src/styles/app.css`.
 
@@ -46,7 +46,7 @@ be committed back to the design-system repo to keep it current.
 
 Every component references CSS variables only. A theme is a set of variable
 overrides keyed by `data-theme` on `<html>` (see `src/styles/themes.css`),
-applied by `ThemeProvider` and persisted to localStorage. Built-in: `aether`
+applied by `ThemeProvider` and persisted to localStorage. Built-in: `console`
 (default) and `slate`. Adding a theme = adding a CSS block + one registry
 entry in `src/lib/themes.ts`.
 
@@ -59,7 +59,7 @@ src/
   lib/         time math (date-fns), ids, project colors, theme registry
   components/
     shell/     nav rail, top bar, inspector, quick capture, app shell
-    ui/        Radix primitives styled to Aether (tooltip, popover, menu)
+    ui/        Radix primitives styled to GTech Console (tooltip, popover, menu)
     common/    project marks, status badges, activity-type metadata
   views/       one directory per primary view (Timeline is Project Pulse)
 ```

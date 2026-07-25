@@ -1,4 +1,4 @@
-import { Button, SectionLabel, cn } from "@grewelltech/aether";
+import { Button, SectionLabel, cn } from "@grewelltech/console";
 
 import { useAppDispatch } from "@/state/AppStore";
 import { relativeFromToday } from "@/lib/time";
@@ -19,13 +19,13 @@ export function InterruptedSection({ rows }: { rows: InterruptedRow[] }) {
             className={cn("flex items-center gap-3 py-2", HAIRLINE_ROW)}
           >
             <ProjectMark color={project.color} size={7} />
-            <span className="shrink-0 font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-ae-text">
+            <span className="shrink-0 font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-gtc-text">
               {project.name}
             </span>
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-ae-muted">
+            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-gtc-muted">
               last: {latest.title}
             </span>
-            <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-ae-muted">
+            <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
               {relativeFromToday(latest.date)}
             </span>
             <Button

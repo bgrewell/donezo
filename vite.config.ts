@@ -15,7 +15,7 @@ export default defineConfig({
     watch: {
       // The design system is a file: dependency; watch its source too so
       // token/component edits there hot-reload donezo.
-      ignored: ["!**/node_modules/@grewelltech/aether/**"],
+      ignored: ["!**/node_modules/@grewelltech/console/**"],
     },
   },
 });

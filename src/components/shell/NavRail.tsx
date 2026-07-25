@@ -9,7 +9,7 @@ import {
   Target,
   type LucideIcon,
 } from "lucide-react";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -33,23 +33,23 @@ export function NavRail() {
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-ae-line bg-ae-panel transition-[width] duration-150",
+        "flex shrink-0 flex-col border-r border-gtc-line bg-gtc-panel transition-[width] duration-150",
         navCollapsed ? "w-[var(--dz-nav-w)]" : "w-[var(--dz-nav-w-expanded)]"
       )}
     >
       {/* Brand mark */}
       <div
         className={cn(
-          "flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-ae-line",
+          "flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-gtc-line",
           navCollapsed ? "justify-center" : "px-3.5"
         )}
       >
-        <span className="select-none font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-ae-text">
+        <span className="select-none font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
           {navCollapsed ? (
-            <span className="text-ae-accent">dz</span>
+            <span className="text-gtc-accent">dz</span>
           ) : (
             <>
-              donezo <span className="text-ae-accent">//</span>
+              donezo <span className="text-gtc-accent">//</span>
             </>
           )}
         </span>
@@ -68,9 +68,9 @@ export function NavRail() {
                 "relative flex h-9 items-center gap-2.5 font-mono text-[0.72rem] uppercase tracking-chrome outline-none transition-colors",
                 navCollapsed ? "justify-center px-0" : "px-3.5",
                 active
-                  ? "bg-ae-tint-accent text-ae-accent"
-                  : "text-ae-muted hover:bg-ae-tint-accent hover:text-ae-text",
-                "focus-visible:shadow-ae-focus"
+                  ? "bg-gtc-tint-accent text-gtc-accent"
+                  : "text-gtc-muted hover:bg-gtc-tint-accent hover:text-gtc-text",
+                "focus-visible:shadow-gtc-focus"
               )}
             >
               {/* Active tick bar */}
@@ -78,7 +78,7 @@ export function NavRail() {
                 aria-hidden
                 className={cn(
                   "absolute inset-y-1.5 left-0 w-0.5",
-                  active ? "bg-ae-accent shadow-ae-glow-dot" : "bg-transparent"
+                  active ? "bg-gtc-accent shadow-gtc-glow-dot" : "bg-transparent"
                 )}
               />
               <span className="relative shrink-0">
@@ -86,7 +86,7 @@ export function NavRail() {
                 {id === "inbox" && pendingInbox > 0 && (
                   <span
                     aria-hidden
-                    className="absolute -right-1 -top-1 h-1.5 w-1.5 bg-ae-warn shadow-ae-glow-dot"
+                    className="absolute -right-1 -top-1 h-1.5 w-1.5 bg-gtc-warn shadow-gtc-glow-dot"
                   />
                 )}
               </span>
@@ -94,7 +94,7 @@ export function NavRail() {
                 <span className="flex-1 text-left">{label}</span>
               )}
               {!navCollapsed && id === "inbox" && pendingInbox > 0 && (
-                <span className="font-mono text-[0.66rem] text-ae-warn">{pendingInbox}</span>
+                <span className="font-mono text-[0.66rem] text-gtc-warn">{pendingInbox}</span>
               )}
             </button>
           );
@@ -112,9 +112,9 @@ export function NavRail() {
         type="button"
         onClick={() => dispatch({ type: "TOGGLE_NAV" })}
         className={cn(
-          "flex h-9 shrink-0 items-center gap-2.5 border-t border-ae-line font-mono text-[0.68rem] uppercase tracking-chrome text-ae-muted outline-none transition-colors",
+          "flex h-9 shrink-0 items-center gap-2.5 border-t border-gtc-line font-mono text-[0.68rem] uppercase tracking-chrome text-gtc-muted outline-none transition-colors",
           navCollapsed ? "justify-center" : "px-3.5",
-          "hover:text-ae-text focus-visible:shadow-ae-focus"
+          "hover:text-gtc-text focus-visible:shadow-gtc-focus"
         )}
         aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"}
       >

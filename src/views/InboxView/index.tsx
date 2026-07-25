@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
-import { Button, Input, SectionLabel, Select, cn } from "@grewelltech/aether";
+import { Button, Input, SectionLabel, Select, cn } from "@grewelltech/console";
 import { nextMonday } from "date-fns";
 
 import type { InboxItem, ItemKind, Project, ProjectColor } from "@/domain/types";
@@ -11,8 +11,8 @@ import { addDaysISO, relativeFromToday, toISODate, todayISO } from "@/lib/time";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ProjectMark } from "@/components/common/ProjectMark";
 
-/** Softer hairline than border-ae-line (ae tokens don't support /alpha). */
-const HAIRLINE_SOFT = "border-[color-mix(in_srgb,var(--ae-border)_60%,transparent)]";
+/** Softer hairline than border-gtc-line (ae tokens don't support /alpha). */
+const HAIRLINE_SOFT = "border-[color-mix(in_srgb,var(--gtc-border)_60%,transparent)]";
 
 const KINDS: ItemKind[] = ["task", "note", "reminder", "activity", "project"];
 
@@ -60,11 +60,11 @@ function Chip({
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "rounded-ae border px-2 py-1 font-mono text-[0.62rem] uppercase tracking-chrome transition-colors",
-        "focus-visible:outline-none focus-visible:shadow-ae-focus",
+        "rounded-gtc border px-2 py-1 font-mono text-[0.62rem] uppercase tracking-chrome transition-colors",
+        "focus-visible:outline-none focus-visible:shadow-gtc-focus",
         selected
-          ? "border-ae-accent bg-ae-tint-accent text-ae-accent"
-          : "border-ae-line text-ae-muted hover:border-ae-accent-dim hover:text-ae-text"
+          ? "border-gtc-accent bg-gtc-tint-accent text-gtc-accent"
+          : "border-gtc-line text-gtc-muted hover:border-gtc-accent-dim hover:text-gtc-text"
       )}
     >
       {children}
@@ -74,7 +74,7 @@ function Chip({
 
 /** Compact mono field label for the classification area. */
 function FieldLabel({ htmlFor, children }: { htmlFor?: string; children: React.ReactNode }) {
-  const cls = "mb-1.5 block font-mono text-[0.62rem] uppercase tracking-label text-ae-muted";
+  const cls = "mb-1.5 block font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted";
   if (htmlFor) {
     return (
       <label htmlFor={htmlFor} className={cls}>
@@ -186,7 +186,7 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
   };
 
   return (
-    <div className="mb-3 space-y-3 rounded-ae border border-ae-line bg-ae-inset px-3 py-3">
+    <div className="mb-3 space-y-3 rounded-gtc border border-gtc-line bg-gtc-inset px-3 py-3">
       <div role="group" aria-label="File as">
         <FieldLabel>File as</FieldLabel>
         <div className="flex flex-wrap gap-1.5">
@@ -260,7 +260,7 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
           Later
         </Button>
         {needsProject && (
-          <span className="ml-1 font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+          <span className="ml-1 font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
             Needs a project
           </span>
         )}
@@ -293,13 +293,13 @@ function PendingRow({
         aria-controls={expanded ? panelId : undefined}
         onClick={onToggle}
         className={cn(
-          "group -mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-ae px-2 py-3 text-left",
-          "transition-colors hover:bg-ae-tint-accent focus-visible:outline-none focus-visible:shadow-ae-focus"
+          "group -mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-gtc px-2 py-3 text-left",
+          "transition-colors hover:bg-gtc-tint-accent focus-visible:outline-none focus-visible:shadow-gtc-focus"
         )}
       >
         <span className="min-w-0 flex-1">
-          <span className="block text-[0.9rem] leading-snug text-ae-text">{item.raw}</span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+          <span className="block text-[0.9rem] leading-snug text-gtc-text">{item.raw}</span>
+          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
             <span>{relativeFromToday(item.capturedAt.slice(0, 10))}</span>
             <span aria-hidden>·</span>
             <span>suggested: {item.suggestedKind}</span>
@@ -317,7 +317,7 @@ function PendingRow({
         <ChevronDown
           aria-hidden
           className={cn(
-            "mt-1 h-3.5 w-3.5 shrink-0 text-ae-muted transition-transform group-hover:text-ae-text",
+            "mt-1 h-3.5 w-3.5 shrink-0 text-gtc-muted transition-transform group-hover:text-gtc-text",
             expanded && "rotate-180"
           )}
         />
@@ -335,16 +335,16 @@ function PendingRow({
 function HandledRow({ item }: { item: InboxItem }) {
   return (
     <li className={cn("flex items-baseline gap-3 border-b py-2", HAIRLINE_SOFT)}>
-      <span className="min-w-0 flex-1 truncate text-[0.8rem] text-ae-muted">{item.raw}</span>
+      <span className="min-w-0 flex-1 truncate text-[0.8rem] text-gtc-muted">{item.raw}</span>
       <span
         className={cn(
           "w-20 shrink-0 text-right font-mono text-[0.62rem] uppercase tracking-label",
-          item.status === "converted" ? "text-ae-success" : "text-ae-muted"
+          item.status === "converted" ? "text-gtc-success" : "text-gtc-muted"
         )}
       >
         {item.status}
       </span>
-      <span className="w-20 shrink-0 text-right font-mono text-[0.62rem] uppercase tracking-label text-ae-muted">
+      <span className="w-20 shrink-0 text-right font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
         {relativeFromToday(item.capturedAt.slice(0, 10))}
       </span>
     </li>
@@ -367,10 +367,10 @@ export default function InboxView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-[820px] px-8 py-6">
-        <SectionLabel trailing={<span className="text-ae-text">{pending.length}</span>}>
+        <SectionLabel trailing={<span className="text-gtc-text">{pending.length}</span>}>
           Inbox
         </SectionLabel>
-        <p className="mb-4 text-[0.85rem] text-ae-muted">
+        <p className="mb-4 text-[0.85rem] text-gtc-muted">
           Captured thoughts, unfiled. Classify them when it&rsquo;s cheap — or don&rsquo;t.
         </p>
 
@@ -395,7 +395,7 @@ export default function InboxView() {
             <div className="flex items-center gap-3">
               <SectionLabel
                 className="flex-1"
-                trailing={<span className="text-ae-text">{handled.length}</span>}
+                trailing={<span className="text-gtc-text">{handled.length}</span>}
               >
                 Handled
               </SectionLabel>

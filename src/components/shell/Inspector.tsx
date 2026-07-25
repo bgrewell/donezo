@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ExternalLink, X } from "lucide-react";
-import { Button, Field, Input, SectionLabel, Select, cn } from "@grewelltech/aether";
+import { Button, Field, Input, SectionLabel, Select, cn } from "@grewelltech/console";
 
 import type { ActivityEntry, ActivityType } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -79,13 +79,13 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
       aria-label="Activity inspector"
       className={cn(
         "fixed inset-y-0 right-0 z-40 flex w-[var(--dz-inspector-w)] flex-col",
-        "border-l border-ae-line bg-ae-panel",
+        "border-l border-gtc-line bg-gtc-panel",
         "xl:static xl:inset-auto xl:z-auto"
       )}
     >
       {/* Header */}
-      <div className="flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-ae-line px-3">
-        <span className="font-mono text-[0.68rem] uppercase tracking-label text-ae-muted">
+      <div className="flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-gtc-line px-3">
+        <span className="font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted">
           Activity
         </span>
         <div className="flex-1" />
@@ -94,8 +94,8 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
           aria-label="Close inspector"
           onClick={() => dispatch({ type: "SELECT_ACTIVITY", id: null })}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-ae text-ae-muted",
-            "outline-none transition-colors hover:text-ae-text focus-visible:shadow-ae-focus"
+            "flex h-7 w-7 items-center justify-center rounded-gtc text-gtc-muted",
+            "outline-none transition-colors hover:text-gtc-text focus-visible:shadow-gtc-focus"
           )}
         >
           <X className="h-4 w-4" aria-hidden />
@@ -121,9 +121,9 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
                 value={draft.details}
                 onChange={(e) => setDraft({ ...draft, details: e.target.value })}
                 className={cn(
-                  "w-full resize-y rounded-ae border border-ae-line bg-ae-inset px-3 py-[9px]",
-                  "font-sans text-[0.85rem] leading-relaxed text-ae-text placeholder:text-ae-muted/70",
-                  "transition-shadow focus:border-ae-accent focus:outline-none focus:shadow-ae-focus"
+                  "w-full resize-y rounded-gtc border border-gtc-line bg-gtc-inset px-3 py-[9px]",
+                  "font-sans text-[0.85rem] leading-relaxed text-gtc-text placeholder:text-gtc-muted/70",
+                  "transition-shadow focus:border-gtc-accent focus:outline-none focus:shadow-gtc-focus"
                 )}
               />
             </Field>
@@ -173,8 +173,8 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
                     type="button"
                     onClick={() => dispatch({ type: "OPEN_PROJECT", projectId: project.id })}
                     className={cn(
-                      "rounded-ae font-mono text-[0.72rem] uppercase tracking-chrome text-ae-text",
-                      "outline-none transition-colors hover:text-ae-accent focus-visible:shadow-ae-focus"
+                      "rounded-gtc font-mono text-[0.72rem] uppercase tracking-chrome text-gtc-text",
+                      "outline-none transition-colors hover:text-gtc-accent focus-visible:shadow-gtc-focus"
                     )}
                   >
                     {project.name}
@@ -182,14 +182,14 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
                 </>
               )}
               {activity.planned && (
-                <span className="rounded-ae border border-dashed border-ae-line px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-label text-ae-muted">
+                <span className="rounded-gtc border border-dashed border-gtc-line px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-label text-gtc-muted">
                   Planned
                 </span>
               )}
             </div>
 
             {/* Date */}
-            <div className="font-mono text-[0.68rem] uppercase tracking-label text-ae-muted">
+            <div className="font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted">
               {formatFull(activity.date)}
             </div>
 
@@ -197,11 +197,11 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
             <div>
               <span
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-ae border px-2 py-1",
+                  "inline-flex items-center gap-1.5 rounded-gtc border px-2 py-1",
                   "font-mono text-[0.64rem] uppercase tracking-chrome",
                   typeMeta.emphasis === "danger"
-                    ? "border-ae-danger-dim text-ae-danger"
-                    : "border-ae-line text-ae-text"
+                    ? "border-gtc-danger-dim text-gtc-danger"
+                    : "border-gtc-line text-gtc-text"
                 )}
                 style={
                   typeMeta.emphasis === "milestone" && project
@@ -217,42 +217,42 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
             </div>
 
             {/* Title */}
-            <h2 className="font-sans text-[1rem] font-medium normal-case leading-snug text-ae-text">
+            <h2 className="font-sans text-[1rem] font-medium normal-case leading-snug text-gtc-text">
               {activity.title}
             </h2>
 
             {/* Details */}
             {activity.details && (
-              <p className="whitespace-pre-wrap font-sans text-[0.85rem] leading-relaxed text-ae-text">
+              <p className="whitespace-pre-wrap font-sans text-[0.85rem] leading-relaxed text-gtc-text">
                 {activity.details}
               </p>
             )}
 
             {/* Meta */}
-            <dl className="grid grid-cols-2 gap-x-4 border-t border-ae-line pt-3 text-[0.72rem]">
+            <dl className="grid grid-cols-2 gap-x-4 border-t border-gtc-line pt-3 text-[0.72rem]">
               <div>
-                <dt className="font-mono uppercase tracking-label text-ae-muted">Effort</dt>
-                <dd className="mt-0.5 font-mono text-ae-text">
+                <dt className="font-mono uppercase tracking-label text-gtc-muted">Effort</dt>
+                <dd className="mt-0.5 font-mono text-gtc-text">
                   {activity.effortHours != null ? `${activity.effortHours}h` : "—"}
                 </dd>
               </div>
               <div>
-                <dt className="font-mono uppercase tracking-label text-ae-muted">Source</dt>
-                <dd className="mt-0.5 font-mono text-ae-text">{activity.source}</dd>
+                <dt className="font-mono uppercase tracking-label text-gtc-muted">Source</dt>
+                <dd className="mt-0.5 font-mono text-gtc-text">{activity.source}</dd>
               </div>
             </dl>
 
             {/* Tags */}
             {activity.tags.length > 0 && (
               <div>
-                <div className="mb-1.5 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+                <div className="mb-1.5 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
                   Tags
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {activity.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="rounded-ae border border-ae-line px-1.5 py-0.5 font-mono text-[0.62rem] uppercase tracking-label text-ae-muted"
+                      className="rounded-gtc border border-gtc-line px-1.5 py-0.5 font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted"
                     >
                       {tag}
                     </span>
@@ -264,7 +264,7 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
             {/* Links */}
             {activity.links.length > 0 && (
               <div>
-                <div className="mb-1.5 font-mono text-[0.66rem] uppercase tracking-label text-ae-muted">
+                <div className="mb-1.5 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
                   Links
                 </div>
                 <div className="space-y-1">
@@ -275,8 +275,8 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
                       target="_blank"
                       rel="noreferrer"
                       className={cn(
-                        "flex items-center gap-1.5 rounded-ae text-[0.78rem] text-ae-accent",
-                        "outline-none transition-colors hover:text-ae-accent-bright focus-visible:shadow-ae-focus"
+                        "flex items-center gap-1.5 rounded-gtc text-[0.78rem] text-gtc-accent",
+                        "outline-none transition-colors hover:text-gtc-accent-bright focus-visible:shadow-gtc-focus"
                       )}
                     >
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -291,7 +291,7 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
             {activity.nextAction && (
               <div>
                 <SectionLabel className="my-0 mb-2">Next action</SectionLabel>
-                <div className="border-l-2 border-ae-accent bg-ae-tint-accent px-3 py-2 font-sans text-[0.85rem] leading-relaxed text-ae-text">
+                <div className="border-l-2 border-gtc-accent bg-gtc-tint-accent px-3 py-2 font-sans text-[0.85rem] leading-relaxed text-gtc-text">
                   {activity.nextAction}
                 </div>
               </div>
@@ -301,7 +301,7 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
       </div>
 
       {/* Footer */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-ae-line px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-gtc-line px-3 py-2">
         {mode === "edit" ? (
           <>
             <div className="flex-1" />
@@ -314,7 +314,7 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
           </>
         ) : mode === "confirm-delete" ? (
           <>
-            <span className="basis-full font-mono text-[0.64rem] uppercase tracking-label text-ae-danger">
+            <span className="basis-full font-mono text-[0.64rem] uppercase tracking-label text-gtc-danger">
               Delete this entry?
             </span>
             <div className="flex-1" />

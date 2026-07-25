@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { cn } from "@grewelltech/aether";
+import { cn } from "@grewelltech/console";
 
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
@@ -17,7 +17,7 @@ export const PopoverContent = React.forwardRef<
         ref={ref}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 rounded-ae border border-ae-line bg-ae-panel bg-ae-sheen p-3 outline-none",
+          "z-50 rounded-gtc border border-gtc-line bg-gtc-panel bg-gtc-sheen p-3 outline-none",
           className
         )}
         {...props}
