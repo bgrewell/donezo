@@ -7,6 +7,9 @@ import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
 import { Inspector } from "./Inspector";
 import { QuickCapture } from "./QuickCapture";
+import { WelcomeDialog } from "@/components/onboarding/WelcomeDialog";
+import { Tour } from "@/components/onboarding/Tour";
+import { HintChip } from "@/components/onboarding/HintChip";
 
 /** Application chrome: nav rail, top bar, workspace, inspector, quick capture.
  *  Also owns hash routing and global keyboard shortcuts. */
@@ -68,11 +71,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <NavRail />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
-          <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
+          <main className="relative min-h-0 flex-1 overflow-hidden">
+            {children}
+            <HintChip />
+          </main>
         </div>
         <Inspector />
       </div>
       <QuickCapture />
+      <WelcomeDialog />
+      <Tour />
     </TooltipProvider>
   );
 }

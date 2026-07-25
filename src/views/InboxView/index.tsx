@@ -377,7 +377,7 @@ export default function InboxView() {
         {pending.length === 0 ? (
           <EmptyState title="Inbox clear" hint="New captures land here from Cmd+K." />
         ) : (
-          <ul>
+          <ul data-tour="inbox">
             {pending.map((item) => (
               <PendingRow
                 key={item.id}

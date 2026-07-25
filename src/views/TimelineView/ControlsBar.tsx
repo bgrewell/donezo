@@ -109,6 +109,7 @@ export function ControlsBar({ visibleWidth }: { visibleWidth: number }) {
       <div
         role="group"
         aria-label="Zoom level"
+        data-tour="zoom"
         className="ml-1 inline-flex shrink-0 items-stretch divide-x divide-gtc-line rounded-gtc border border-gtc-line"
       >
         {ZOOM_LEVELS.map((z) => {

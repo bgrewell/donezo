@@ -63,6 +63,7 @@ export function ProjectRailCell({
     <button
       type="button"
       onClick={open}
+      data-tour="rail"
       className="group sticky left-0 z-20 flex shrink-0 flex-col justify-center gap-0.5 overflow-hidden border-r border-gtc-line bg-gtc-panel px-2.5 text-left outline-none focus-visible:shadow-gtc-focus"
       style={{ width: railWidth(false) }}
     >

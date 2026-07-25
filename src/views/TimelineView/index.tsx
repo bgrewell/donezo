@@ -159,6 +159,7 @@ export default function TimelineView() {
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
+        data-tour="pulse"
         className="min-h-0 flex-1 overflow-auto"
       >
         <div

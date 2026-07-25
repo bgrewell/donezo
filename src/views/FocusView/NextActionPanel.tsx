@@ -11,7 +11,7 @@ export function NextActionPanel({ project }: { project?: Project }) {
   const alts = project.altNextActions.slice(0, 2);
   return (
     <section>
-      <div className="rounded-gtc border border-gtc-line bg-gtc-panel bg-gtc-sheen px-4 py-3">
+      <div data-tour="next-action" className="rounded-gtc border border-gtc-line bg-gtc-panel bg-gtc-sheen px-4 py-3">
         <div className="font-mono text-[0.64rem] uppercase tracking-label text-gtc-accent">
           Next action
         </div>

@@ -1,4 +1,4 @@
-import { Bell, Palette, Plus, Search } from "lucide-react";
+import { Bell, CircleHelp, Palette, Plus, Search } from "lucide-react";
 import { Avatar, Button, cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
@@ -8,6 +8,8 @@ import { useTheme } from "@/state/ThemeProvider";
 import { relativeFromToday } from "@/lib/time";
 import { CAPTURE_KEY_LABEL } from "@/lib/platform";
 import { Kbd } from "@/components/ui/Kbd";
+import { useOnboarding } from "@/components/onboarding/OnboardingProvider";
+import { ShortcutsSheet } from "@/components/onboarding/ShortcutsSheet";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -32,6 +34,7 @@ export function TopBar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { theme, setTheme } = useTheme();
+  const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -75,6 +78,7 @@ export function TopBar() {
         noGlyph
         onClick={() => dispatch({ type: "SET_QUICK_CAPTURE", open: true })}
         className="gap-1.5"
+        data-tour="capture"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Capture
@@ -156,7 +160,34 @@ export function TopBar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Help"
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
+            )}
+          >
+            <CircleHelp className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel>Help</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => startTour()}>Take the tour</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openShortcuts()}>
+            Keyboard shortcuts
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => resetFirstRun()}>
+            Reset first-run
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Avatar name="Ben Grewell" size="sm" />
+      <ShortcutsSheet />
     </header>
   );
 }

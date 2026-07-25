@@ -15,13 +15,16 @@ import "./styles/app.css";
 
 import { ThemeProvider } from "./state/ThemeProvider";
 import { AppProvider } from "./state/AppStore";
+import { OnboardingProvider } from "./components/onboarding/OnboardingProvider";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider>
       <AppProvider>
-        <App />
+        <OnboardingProvider>
+          <App />
+        </OnboardingProvider>
       </AppProvider>
     </ThemeProvider>
   </React.StrictMode>
