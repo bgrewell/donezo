@@ -16,9 +16,14 @@ import {
   ZOOM_CONFIG,
   dateAtX,
   railWidth,
+  rowBackgroundImage,
   totalWidth,
   xForDate,
 } from "./geometry";
+
+/** After a programmatic scroll settles, ignore scroll-derived re-anchoring
+ *  for this long — the settling frames must not overwrite the anchor. */
+const ANCHOR_GRACE_MS = 300;
 
 /** Project Pulse — the signature project-by-time visualization.
  *  One scroll container holds the date header and every project row, so
@@ -59,7 +64,26 @@ export default function TimelineView() {
   const pendingTarget = React.useRef<number | null>(null);
   /** Anchor value we just dispatched from a user scroll — skip re-scrolling. */
   const scrollDispatched = React.useRef<string | null>(null);
+  /** Ignore scroll-derived anchors until this timestamp (settle frames and
+   *  the browser's own clamp-scroll after a zoom shrinks the track). */
+  const graceUntil = React.useRef(0);
   const debounceTimer = React.useRef<number | undefined>(undefined);
+
+  // Visible timeline lane width (scroller minus the sticky rail) — drives the
+  // honest range label in the controls bar.
+  const [visibleWidth, setVisibleWidth] = React.useState(1160);
+  React.useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const railPx = railCollapsed
+      ? 44
+      : parseFloat(getComputedStyle(el).getPropertyValue("--dz-rail-w")) || 260;
+    const measure = () => setVisibleWidth(Math.max(0, el.clientWidth - railPx));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [railCollapsed]);
 
   React.useLayoutEffect(() => {
     const el = scrollerRef.current;
@@ -70,8 +94,14 @@ export default function TimelineView() {
       return;
     }
     const max = Math.max(0, el.scrollWidth - el.clientWidth);
-    const target = Math.min(Math.max(0, xForDate(anchorDate, zoom)), max);
+    // Snap to a column start (after the max-scroll clamp) so the leftmost
+    // period is never clipped mid-column behind the rail.
+    const w = ZOOM_CONFIG[zoom].colWidth;
+    const target =
+      Math.floor(Math.min(Math.max(0, xForDate(anchorDate, zoom)), max) / w) * w;
     if (Math.abs(el.scrollLeft - target) < 2) {
+      // Already in place — but a zoom switch may still emit a clamp-scroll.
+      graceUntil.current = Date.now() + ANCHOR_GRACE_MS;
       firstPaint.current = false;
       return;
     }
@@ -80,7 +110,10 @@ export default function TimelineView() {
     firstPaint.current = false;
     // Safety valve in case the smooth scroll is interrupted mid-flight.
     const timeout = window.setTimeout(() => {
-      pendingTarget.current = null;
+      if (pendingTarget.current !== null) {
+        pendingTarget.current = null;
+        graceUntil.current = Date.now() + ANCHOR_GRACE_MS;
+      }
     }, 1500);
     return () => window.clearTimeout(timeout);
   }, [anchorDate, zoom]);
@@ -93,6 +126,7 @@ export default function TimelineView() {
     if (pendingTarget.current !== null) {
       if (Math.abs(el.scrollLeft - pendingTarget.current) < 2) {
         pendingTarget.current = null;
+        graceUntil.current = Date.now() + ANCHOR_GRACE_MS;
       }
       return;
     }
@@ -100,11 +134,15 @@ export default function TimelineView() {
     debounceTimer.current = window.setTimeout(() => {
       const scroller = scrollerRef.current;
       if (!scroller || pendingTarget.current !== null) return;
-      const date = dateAtX(scroller.scrollLeft, zoomRef.current);
-      if (date !== anchorRef.current) {
-        scrollDispatched.current = date;
-        dispatch({ type: "SET_ANCHOR", date });
-      }
+      if (Date.now() < graceUntil.current) return;
+      const zoomNow = zoomRef.current;
+      const derived = dateAtX(scroller.scrollLeft, zoomNow);
+      // Sub-column drift keeps the fine-grained anchor; only re-anchor once
+      // the left edge has left the anchor's own column.
+      const anchorCol = dateAtX(xForDate(anchorRef.current, zoomNow), zoomNow);
+      if (derived === anchorCol || derived === anchorRef.current) return;
+      scrollDispatched.current = derived;
+      dispatch({ type: "SET_ANCHOR", date: derived });
     }, 150);
   };
 
@@ -117,13 +155,16 @@ export default function TimelineView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ControlsBar />
+      <ControlsBar visibleWidth={visibleWidth} />
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-auto"
       >
-        <div className="relative" style={{ width: `calc(${railW} + ${width}px)` }}>
+        <div
+          className="relative flex min-h-full flex-col"
+          style={{ width: `calc(${railW} + ${width}px)` }}
+        >
           <DateHeader
             zoom={zoom}
             railCollapsed={railCollapsed}
@@ -148,6 +189,18 @@ export default function TimelineView() {
               />
             </div>
           )}
+          {/* Filler lane: the column grid (and weekend wash) continues below
+              the last row so the lower workspace reads as canvas. */}
+          <div aria-hidden className="pointer-events-none flex min-h-0 flex-1">
+            <div
+              className="sticky left-0 z-20 shrink-0 border-r border-gtc-line bg-gtc-panel"
+              style={{ width: railW }}
+            />
+            <div
+              className="shrink-0"
+              style={{ width, backgroundImage: rowBackgroundImage(zoom) }}
+            />
+          </div>
           {todayInRange && projects.length > 0 && (
             <div
               aria-hidden
@@ -155,7 +208,7 @@ export default function TimelineView() {
               style={{
                 left: `calc(${railW} + ${todayX}px)`,
                 top: cfg.headerHeight,
-                height: projects.length * cfg.rowHeight,
+                bottom: 0,
                 background: "var(--gtc-accent)",
                 opacity: 0.55,
               }}

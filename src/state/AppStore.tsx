@@ -20,7 +20,7 @@ import {
   REMINDERS,
   TASKS,
 } from "@/domain/mockData";
-import { anchorForToday, shiftAnchor } from "@/lib/time";
+import { anchorForToday, clampAnchor, clampToRange, shiftAnchor } from "@/lib/time";
 import { parseHash } from "@/lib/route";
 
 /** Timeline display filters. null means "all". */
@@ -121,16 +121,29 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "SELECT_ACTIVITY":
       return { ...state, selectedActivityId: action.id };
     case "SET_ZOOM":
-      return { ...state, zoom: action.zoom };
+      // Keep the fine-grained anchor so zoom round trips return exactly;
+      // only pull it inside the rendered range. (Applying the per-zoom
+      // window clamp here would pin quarter anchors to RANGE_START and
+      // strand every quarter -> day round trip at the left wall.)
+      return { ...state, zoom: action.zoom, anchorDate: clampToRange(state.anchorDate) };
     case "SET_ANCHOR":
-      return { ...state, anchorDate: action.date };
-    case "SHIFT_PERIOD":
+      // Scroll-derived anchors are physical positions — clamp to the range
+      // only, so a manual scroll to the far edge is never fought.
+      return { ...state, anchorDate: clampToRange(action.date) };
+    case "SHIFT_PERIOD": {
+      const next = clampAnchor(
+        shiftAnchor(state.anchorDate, state.zoom, action.dir),
+        state.zoom
+      );
+      // Clamping can bounce a shift backwards at the walls; treat as no move.
+      const moved = action.dir === 1 ? next > state.anchorDate : next < state.anchorDate;
+      return moved ? { ...state, anchorDate: next } : state;
+    }
+    case "JUMP_TODAY":
       return {
         ...state,
-        anchorDate: shiftAnchor(state.anchorDate, state.zoom, action.dir),
+        anchorDate: clampAnchor(anchorForToday(state.zoom), state.zoom),
       };
-    case "JUMP_TODAY":
-      return { ...state, anchorDate: anchorForToday(state.zoom) };
     case "SET_FILTERS":
       return { ...state, filters: { ...state.filters, ...action.patch } };
     case "SET_QUICK_CAPTURE":
@@ -204,7 +217,7 @@ function initialState(): AppState {
       route?.view === "projects" && route.projectId ? route.projectId : null,
     selectedActivityId: null,
     zoom: "day",
-    anchorDate: anchorForToday("day"),
+    anchorDate: clampAnchor(anchorForToday("day"), "day"),
     filters: {
       projectIds: null,
       types: null,

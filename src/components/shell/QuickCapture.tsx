@@ -63,8 +63,6 @@ export function QuickCapture() {
     .slice(0, 3)
     .map((x) => x.p);
 
-  // Stable reference: GTech Console's Dialog re-runs its focus effect when onClose
-  // changes, which would steal focus from the input on every keystroke.
   const close = React.useCallback(
     () => dispatch({ type: "SET_QUICK_CAPTURE", open: false }),
     [dispatch]

@@ -11,6 +11,11 @@ import {
 
 import type { ZoomLevel } from "@/domain/types";
 
+/** First rendered timeline day (a Monday). */
+export const RANGE_START = "2026-02-23";
+/** Last rendered timeline day (inclusive, a Sunday). */
+export const RANGE_END = "2026-09-06";
+
 /** Parse an ISO yyyy-MM-dd string as a local date. */
 export function parseDate(iso: string): Date {
   return parseISO(iso);
@@ -112,8 +117,8 @@ export function anchorForToday(zoom: ZoomLevel): string {
       // 5 visible weeks, current week fourth
       return addDaysISO(startOfWeekISO(today), -21);
     case "month":
-      // 6 visible months, current month fifth
-      return addMonthsISO(startOfMonthISO(today), -4);
+      // ~5 visible months, current month fourth
+      return addMonthsISO(startOfMonthISO(today), -3);
     case "quarter":
       // 2 visible quarters, current one second
       return addMonthsISO(startOfQuarterISO(today), -3);
@@ -132,4 +137,36 @@ export function shiftAnchor(anchor: string, zoom: ZoomLevel, dir: 1 | -1): strin
     case "quarter":
       return addMonthsISO(anchor, dir * 3);
   }
+}
+
+/** Conservative visible-window span per zoom, in days. Sized to a typical
+ *  desktop viewport so anchors stop where the window would leave the range. */
+const VISIBLE_WINDOW_DAYS: Record<ZoomLevel, number> = {
+  day: 7,
+  week: 35,
+  month: 150,
+  quarter: 240,
+};
+
+/** Clamp a date into the rendered range [RANGE_START, RANGE_END]. */
+export function clampToRange(iso: string): string {
+  if (iso < RANGE_START) return RANGE_START;
+  if (iso > RANGE_END) return RANGE_END;
+  return iso;
+}
+
+/** Clamp an anchor so its visible window stays inside the rendered range:
+ *  [RANGE_START, latest anchor whose window still ends by RANGE_END]. */
+export function clampAnchor(iso: string, zoom: ZoomLevel): string {
+  let max = addDaysISO(RANGE_END, 1 - VISIBLE_WINDOW_DAYS[zoom]);
+  if (zoom === "month" || zoom === "quarter") {
+    // Month/quarter anchors sit on month starts; round the ceiling up so the
+    // last reachable window still includes the final columns.
+    const monthStart = startOfMonthISO(max);
+    if (monthStart !== max) max = addMonthsISO(monthStart, 1);
+  }
+  if (max < RANGE_START) max = RANGE_START;
+  if (iso > max) return max;
+  if (iso < RANGE_START) return RANGE_START;
+  return iso;
 }

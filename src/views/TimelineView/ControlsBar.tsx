@@ -8,6 +8,7 @@ import {
 import { Button, cn } from "@grewelltech/console";
 
 import type { ActivityType, ZoomLevel } from "@/domain/types";
+import { clampAnchor, shiftAnchor } from "@/lib/time";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import {
@@ -43,10 +44,16 @@ const triggerIdle =
 const triggerActive = "border-gtc-accent-dim bg-gtc-tint-accent text-gtc-accent";
 
 /** Timeline controls: period nav, range label, zoom, filters, rail toggle. */
-export function ControlsBar() {
+export function ControlsBar({ visibleWidth }: { visibleWidth: number }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { zoom, anchorDate, filters, railCollapsed, projects } = state;
+
+  /** Whether a prev/next shift would actually move the anchor (walls). */
+  const canShift = (dir: 1 | -1) => {
+    const next = clampAnchor(shiftAnchor(anchorDate, zoom, dir), zoom);
+    return dir === 1 ? next > anchorDate : next < anchorDate;
+  };
 
   const toggleProject = (id: string, checked: boolean) => {
     const all = projects.map((p) => p.id);
@@ -76,7 +83,8 @@ export function ControlsBar() {
       <button
         type="button"
         aria-label="Previous period"
-        className={iconBtn}
+        disabled={!canShift(-1)}
+        className={cn(iconBtn, "disabled:pointer-events-none disabled:opacity-40")}
         onClick={() => dispatch({ type: "SHIFT_PERIOD", dir: -1 })}
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -84,7 +92,8 @@ export function ControlsBar() {
       <button
         type="button"
         aria-label="Next period"
-        className={iconBtn}
+        disabled={!canShift(1)}
+        className={cn(iconBtn, "disabled:pointer-events-none disabled:opacity-40")}
         onClick={() => dispatch({ type: "SHIFT_PERIOD", dir: 1 })}
       >
         <ChevronRight className="h-4 w-4" aria-hidden />
@@ -94,7 +103,7 @@ export function ControlsBar() {
       </Button>
 
       <span className="hidden whitespace-nowrap px-1.5 font-mono text-[0.66rem] font-medium uppercase tracking-label text-gtc-title xl:inline">
-        {visibleRangeLabel(anchorDate, zoom)}
+        {visibleRangeLabel(anchorDate, zoom, visibleWidth)}
       </span>
 
       <div

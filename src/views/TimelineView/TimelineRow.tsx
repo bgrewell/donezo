@@ -17,6 +17,7 @@ import {
   ZOOM_CONFIG,
   columns,
   dateAtX,
+  monthColIndex,
   rowBackgroundImage,
   totalWidth,
   xForDate,
@@ -266,7 +267,9 @@ function MonthLane({
       {months.map((month) => {
         const first = groups.get(month)?.[0];
         if (!first) return null;
-        const col = Math.floor(xForDate(month, zoom) / cfg.colWidth);
+        // Column from month arithmetic — clamped xForDate pixel math would
+        // pull out-of-range months into the first/last rendered column.
+        const col = monthColIndex(month);
         if (col < 0 || col >= colCount) return null;
         const list = groups.get(month) ?? [];
         const monthName = format(parseDate(month), "MMMM");

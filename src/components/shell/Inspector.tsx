@@ -19,9 +19,30 @@ import {
 export function Inspector() {
   const state = useAppState();
   const activity = selectedActivity(state);
+  const open = activity != null;
+
+  // Focus handling lives here, outside the id-keyed panel, so selection
+  // changes remount the panel without re-stealing focus: on open from
+  // closed, jump to the close button (the panel sits ~150 tab stops after
+  // the timeline); on close, return focus to whatever opened it.
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const restoreRef = React.useRef<HTMLElement | null>(null);
+  React.useEffect(() => {
+    if (open) {
+      restoreRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      closeButtonRef.current?.focus();
+    } else if (restoreRef.current) {
+      if (restoreRef.current.isConnected) restoreRef.current.focus();
+      restoreRef.current = null;
+    }
+  }, [open]);
+
   if (!activity) return null;
   // Key by id so edit/delete state resets when the selection changes.
-  return <InspectorPanel key={activity.id} activity={activity} />;
+  return (
+    <InspectorPanel key={activity.id} activity={activity} closeButtonRef={closeButtonRef} />
+  );
 }
 
 type Mode = "view" | "edit" | "confirm-delete";
@@ -34,7 +55,13 @@ interface Draft {
   nextAction: string;
 }
 
-function InspectorPanel({ activity }: { activity: ActivityEntry }) {
+function InspectorPanel({
+  activity,
+  closeButtonRef,
+}: {
+  activity: ActivityEntry;
+  closeButtonRef: React.Ref<HTMLButtonElement>;
+}) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const project = projectById(state, activity.projectId);
@@ -90,6 +117,7 @@ function InspectorPanel({ activity }: { activity: ActivityEntry }) {
         </span>
         <div className="flex-1" />
         <button
+          ref={closeButtonRef}
           type="button"
           aria-label="Close inspector"
           onClick={() => dispatch({ type: "SELECT_ACTIVITY", id: null })}

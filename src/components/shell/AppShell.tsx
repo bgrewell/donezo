@@ -50,8 +50,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         dispatch({ type: "SET_QUICK_CAPTURE", open: !quickCaptureOpen });
         return;
       }
-      // Radix layers call preventDefault for Escape they consume.
-      if (e.key === "Escape" && !e.defaultPrevented && !quickCaptureOpen && selectedActivityId) {
+      // Dialog and Radix layers call preventDefault for Escape they consume,
+      // so an unconsumed Escape here means the inspector is the top layer.
+      // (Checking the event flag, not state, survives the listener re-binding
+      // mid-propagation when a layer's close re-renders this effect.)
+      if (e.key === "Escape" && !e.defaultPrevented && selectedActivityId) {
         dispatch({ type: "SELECT_ACTIVITY", id: null });
       }
     };

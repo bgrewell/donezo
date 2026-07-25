@@ -10,16 +10,17 @@ import { format, getDay, getDaysInMonth, getISOWeek } from "date-fns";
 
 import type { ZoomLevel } from "@/domain/types";
 import {
+  RANGE_END,
+  RANGE_START,
   addDaysISO,
   addMonthsISO,
   diffDays,
   parseDate,
 } from "@/lib/time";
 
-/** First rendered day (a Monday). */
-export const RANGE_START = "2026-02-23";
-/** Last rendered day (inclusive, a Sunday). */
-export const RANGE_END = "2026-09-06";
+// The rendered range lives in lib/time (the reducer clamps anchors against
+// it); re-exported here so timeline modules keep one import site.
+export { RANGE_END, RANGE_START };
 
 /** First day of the first rendered month column (month/quarter zooms). */
 const MONTH_RANGE_START = "2026-02-01";
@@ -39,7 +40,7 @@ export interface ZoomConfig {
 export const ZOOM_CONFIG: Record<ZoomLevel, ZoomConfig> = {
   day: { colWidth: 150, rowHeight: 76, headerHeight: 40 },
   week: { colWidth: 232, rowHeight: 60, headerHeight: 40 },
-  month: { colWidth: 320, rowHeight: 48, headerHeight: 40 },
+  month: { colWidth: 240, rowHeight: 48, headerHeight: 40 },
   quarter: { colWidth: 156, rowHeight: 48, headerHeight: 52 },
 };
 
@@ -177,20 +178,33 @@ export function dateAtX(x: number, zoom: ZoomLevel): string {
   return addMonthsISO(MONTH_RANGE_START, idx);
 }
 
-/** Controls-bar label for the window starting at the anchor date. */
-export function visibleRangeLabel(anchor: string, zoom: ZoomLevel): string {
+/** Controls-bar label for the window that is actually on screen: the column
+ *  under the anchor through the last column within `visibleWidth` px, using
+ *  the same snap-to-column and max-scroll clamp as the scroller itself. */
+export function visibleRangeLabel(
+  anchor: string,
+  zoom: ZoomLevel,
+  visibleWidth: number
+): string {
+  const w = ZOOM_CONFIG[zoom].colWidth;
+  const cols = columns(zoom);
+  const span = Math.max(visibleWidth, w);
+  const maxX = Math.max(0, totalWidth(zoom) - span);
+  const xStart = Math.floor(Math.min(xForDate(anchor, zoom), maxX) / w) * w;
+  const startIdx = Math.min(Math.floor(xStart / w), cols.length - 1);
+  const endIdx = Math.min(Math.floor((xStart + span - 1) / w), cols.length - 1);
   if (zoom === "day" || zoom === "week") {
-    const end = addDaysISO(anchor, zoom === "day" ? 6 : 34);
-    const s = parseDate(anchor);
-    const e = parseDate(end);
+    const endISO = cols[endIdx].endISO < RANGE_END ? cols[endIdx].endISO : RANGE_END;
+    const s = parseDate(cols[startIdx].startISO);
+    const e = parseDate(endISO);
     if (format(s, "yyyy") !== format(e, "yyyy")) {
       return `${format(s, "MMM d, yyyy")} - ${format(e, "MMM d, yyyy")}`;
     }
     return `${format(s, "MMM d")} - ${format(e, "MMM d, yyyy")}`;
   }
-  const end = addMonthsISO(anchor, 5);
-  const s = parseDate(anchor);
-  const e = parseDate(end);
+  const s = parseDate(cols[startIdx].startISO);
+  const e = parseDate(cols[endIdx].startISO);
+  if (startIdx === endIdx) return format(s, "MMM yyyy");
   if (format(s, "yyyy") !== format(e, "yyyy")) {
     return `${format(s, "MMM yyyy")} - ${format(e, "MMM yyyy")}`;
   }
