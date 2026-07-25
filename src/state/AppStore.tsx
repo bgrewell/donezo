@@ -98,7 +98,15 @@ function patchById<T extends { id: string }>(list: T[], id: string, patch: Parti
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "SET_VIEW":
-      return { ...state, view: action.view, selectedActivityId: null };
+      return {
+        ...state,
+        view: action.view,
+        selectedActivityId: null,
+        // Bare "Projects" navigation always lands on the list; deep links
+        // into a project go through OPEN_PROJECT instead.
+        selectedProjectId:
+          action.view === "projects" ? null : state.selectedProjectId,
+      };
     case "OPEN_PROJECT":
       return {
         ...state,

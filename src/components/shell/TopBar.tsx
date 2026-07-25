@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Bell, Palette, Plus, Search } from "lucide-react";
 import { Avatar, Button, cn } from "@grewelltech/console";
 
@@ -7,6 +6,7 @@ import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { THEMES } from "@/lib/themes";
 import { useTheme } from "@/state/ThemeProvider";
 import { relativeFromToday } from "@/lib/time";
+import { CAPTURE_KEY_LABEL } from "@/lib/platform";
 import { Kbd } from "@/components/ui/Kbd";
 import {
   DropdownMenu,
@@ -32,16 +32,10 @@ export function TopBar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { theme, setTheme } = useTheme();
-  const [query, setQuery] = React.useState(state.searchQuery);
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
     .sort((a, b) => a.remindAt.localeCompare(b.remindAt));
-
-  const submitSearch = () => {
-    dispatch({ type: "SET_SEARCH_QUERY", query });
-    dispatch({ type: "SET_VIEW", view: "search" });
-  };
 
   return (
     <header className="flex h-[var(--dz-topbar-h)] shrink-0 items-center gap-3 border-b border-gtc-line bg-gtc-panel px-3">
@@ -56,16 +50,18 @@ export function TopBar() {
         />
         <input
           type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={state.searchQuery}
+          onChange={(e) =>
+            dispatch({ type: "SET_SEARCH_QUERY", query: e.target.value })
+          }
           onKeyDown={(e) => {
-            if (e.key === "Enter") submitSearch();
+            if (e.key === "Enter") dispatch({ type: "SET_VIEW", view: "search" });
           }}
           placeholder="Search everything…"
           aria-label="Global search"
           className={cn(
             "h-7 w-60 rounded-gtc border border-gtc-line bg-gtc-inset pl-7 pr-2",
-            "font-mono text-[0.75rem] text-gtc-text placeholder:text-gtc-muted",
+            "font-sans text-[0.8rem] text-gtc-text placeholder:text-gtc-muted",
             "outline-none transition-colors focus:border-gtc-accent focus:shadow-gtc-focus"
           )}
         />
@@ -82,7 +78,7 @@ export function TopBar() {
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Capture
-        <Kbd className="ml-1 hidden lg:inline-flex">⌘K</Kbd>
+        <Kbd className="ml-1 hidden lg:inline-flex">{CAPTURE_KEY_LABEL}</Kbd>
       </Button>
 
       <DropdownMenu>

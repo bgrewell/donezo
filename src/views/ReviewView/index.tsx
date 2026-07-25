@@ -154,7 +154,7 @@ export default function ReviewView() {
                           dispatch({
                             type: "UPDATE_TASK",
                             id: t.id,
-                            patch: { due: addDaysISO(t.due ?? today, 7) },
+                            patch: { due: addDaysISO(today, 7) },
                           })
                         }
                       >

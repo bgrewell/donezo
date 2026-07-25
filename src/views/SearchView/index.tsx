@@ -28,7 +28,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
     out.push(
       <mark
         key={idx}
-        className="rounded-gtc bg-gtc-tint-accent-strong px-0.5 text-gtc-accent-bright"
+        className="bg-gtc-tint-accent-strong text-gtc-accent-bright"
       >
         {text.slice(idx, idx + q.length)}
       </mark>

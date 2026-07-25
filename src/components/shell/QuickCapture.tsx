@@ -5,7 +5,8 @@ import type { ItemKind, Project, ProjectColor } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { latestActivityDate } from "@/state/selectors";
 import { newId } from "@/lib/id";
-import { addDaysISO, todayISO } from "@/lib/time";
+import { addDaysISO, nowLocalISO, todayISO } from "@/lib/time";
+import { MOD_LABEL } from "@/lib/platform";
 import { ProjectMark } from "@/components/common/ProjectMark";
 
 const KINDS: ItemKind[] = ["task", "note", "reminder", "activity", "project"];
@@ -82,7 +83,7 @@ export function QuickCapture() {
       item: {
         id: newId("inb"),
         raw,
-        capturedAt: new Date().toISOString().slice(0, 16),
+        capturedAt: nowLocalISO(),
         suggestedKind: kind,
         suggestedProjectId: projectId || undefined,
         status: "pending",
@@ -186,11 +187,9 @@ export function QuickCapture() {
       title="Quick capture"
       maxWidthClassName="max-w-xl"
       footer={
-        <div className="flex w-full flex-wrap items-center gap-3">
-          <span className="min-w-0 flex-1 font-mono text-[0.62rem] leading-relaxed text-gtc-muted">
-            <span className="whitespace-nowrap">ENTER create ·</span>{" "}
-            <span className="whitespace-nowrap">CMD+ENTER save to inbox ·</span>{" "}
-            <span className="whitespace-nowrap">ESC close</span>
+        <div className="flex w-full items-center gap-3">
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap font-mono text-[0.62rem] text-gtc-muted">
+            ENTER create · {MOD_LABEL}+ENTER inbox · ESC close
           </span>
           <Button size="sm" variant="ghost" noGlyph disabled={!raw} onClick={saveToInbox}>
             Save to inbox

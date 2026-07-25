@@ -24,6 +24,13 @@ export function todayISO(): string {
   return toISODate(new Date());
 }
 
+/** Local wall-clock timestamp without zone info: "2026-07-25T18:30:05".
+ *  All naive datetimes in the app (capturedAt, remindAt) are local time —
+ *  never use Date.toISOString(), which silently shifts to UTC. */
+export function nowLocalISO(): string {
+  return format(new Date(), "yyyy-MM-dd'T'HH:mm:ss");
+}
+
 export function addDaysISO(iso: string, n: number): string {
   return toISODate(addDays(parseDate(iso), n));
 }

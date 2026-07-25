@@ -108,17 +108,33 @@ export function computeFocusData(state: AppState): FocusData {
   for (const r of state.reminders) {
     if (r.done) continue;
     const due = r.remindAt.slice(0, 10);
-    if (due < today || due > horizon) continue;
+    // Past-due reminders stay visible with the same calm "needs review"
+    // treatment as tasks — a missed reminder must not silently vanish.
+    if (due > horizon) continue;
     timeSensitive.push({
       kind: "reminder",
       id: r.id,
       title: r.text,
       due,
-      overdue: false,
+      overdue: due < today,
       project: projectById(state, r.projectId),
     });
   }
-  timeSensitive.sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title));
+  // A task and a reminder often mirror one commitment ("Email Dan…") —
+  // show the task once instead of two near-identical adjacent rows.
+  const taskKeys = new Set(
+    timeSensitive
+      .filter((r) => r.kind === "task")
+      .map((r) => `${r.title.trim().toLowerCase()}|${r.project?.id ?? ""}`)
+  );
+  const dedupedTimeSensitive = timeSensitive.filter(
+    (r) =>
+      r.kind !== "reminder" ||
+      !taskKeys.has(`${r.title.trim().toLowerCase()}|${r.project?.id ?? ""}`)
+  );
+  dedupedTimeSensitive.sort(
+    (a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title)
+  );
 
   // WAITING ON — waiting tasks plus waiting/blocked projects.
   const waitingTasks: WaitingTaskRow[] = state.tasks
@@ -151,7 +167,7 @@ export function computeFocusData(state: AppState): FocusData {
     today,
     nowProject,
     nowLastTouched,
-    timeSensitive,
+    timeSensitive: dedupedTimeSensitive,
     waitingTasks,
     waitingProjects,
     interrupted,
