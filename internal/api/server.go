@@ -113,25 +113,57 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("GET /api/auth/me", s.handleAuthMe)
 	mux.HandleFunc("GET /api/spaces", s.handleListSpaces)
+	mux.HandleFunc("POST /api/spaces", s.handleCreateSpace)
+	mux.HandleFunc("PATCH /api/spaces/{id}", s.handlePatchSpace)
+	mux.HandleFunc("POST /api/spaces/{id}/archive", s.handleArchiveSpace)
+	mux.HandleFunc("POST /api/spaces/{id}/unarchive", s.handleUnarchiveSpace)
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
+	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
+	mux.HandleFunc("PATCH /api/spaces/{id}/projects/{pid}", s.handlePatchProject)
+	mux.HandleFunc("POST /api/spaces/{id}/activities", s.handleCreateActivity)
+	mux.HandleFunc("PATCH /api/spaces/{id}/activities/{aid}", s.handlePatchActivity)
+	mux.HandleFunc("DELETE /api/spaces/{id}/activities/{aid}", s.handleDeleteActivity)
+	mux.HandleFunc("POST /api/spaces/{id}/tasks", s.handleCreateTask)
+	mux.HandleFunc("PATCH /api/spaces/{id}/tasks/{tid}", s.handlePatchTask)
+	mux.HandleFunc("POST /api/spaces/{id}/notes", s.handleCreateNote)
+	mux.HandleFunc("POST /api/spaces/{id}/reminders", s.handleCreateReminder)
+	mux.HandleFunc("PATCH /api/spaces/{id}/reminders/{rid}", s.handlePatchReminder)
+	mux.HandleFunc("POST /api/spaces/{id}/inbox", s.handleCreateInboxItem)
+	mux.HandleFunc("PATCH /api/spaces/{id}/inbox/{iid}", s.handlePatchInboxItem)
+	mux.HandleFunc("POST /api/spaces/{id}/inbox/{iid}/convert", s.handleConvertInboxItem)
 	// Method-agnostic fallbacks: with the JSON catch-all below registered,
 	// ServeMux's built-in 405 logic never fires, so known paths get an
 	// explicit JSON 405 for other methods (method patterns win when they
-	// match).
+	// match). Values are the Allow header for each path.
 	allowed := map[string]string{
-		"/api/healthz":           http.MethodGet,
-		"/api/auth/status":       http.MethodGet,
-		"/api/auth/setup":        http.MethodPost,
-		"/api/auth/login":        http.MethodPost,
-		"/api/auth/logout":       http.MethodPost,
-		"/api/auth/me":           http.MethodGet,
-		"/api/spaces":            http.MethodGet,
-		"/api/spaces/{id}/state": http.MethodGet,
+		"/api/healthz":                         http.MethodGet,
+		"/api/auth/status":                     http.MethodGet,
+		"/api/auth/setup":                      http.MethodPost,
+		"/api/auth/login":                      http.MethodPost,
+		"/api/auth/logout":                     http.MethodPost,
+		"/api/auth/me":                         http.MethodGet,
+		"/api/spaces":                          "GET, POST",
+		"/api/spaces/{id}":                     http.MethodPatch,
+		"/api/spaces/{id}/archive":             http.MethodPost,
+		"/api/spaces/{id}/unarchive":           http.MethodPost,
+		"/api/spaces/{id}/state":               http.MethodGet,
+		"/api/spaces/{id}/projects":            http.MethodPost,
+		"/api/spaces/{id}/projects/{pid}":      http.MethodPatch,
+		"/api/spaces/{id}/activities":          http.MethodPost,
+		"/api/spaces/{id}/activities/{aid}":    "PATCH, DELETE",
+		"/api/spaces/{id}/tasks":               http.MethodPost,
+		"/api/spaces/{id}/tasks/{tid}":         http.MethodPatch,
+		"/api/spaces/{id}/notes":               http.MethodPost,
+		"/api/spaces/{id}/reminders":           http.MethodPost,
+		"/api/spaces/{id}/reminders/{rid}":     http.MethodPatch,
+		"/api/spaces/{id}/inbox":               http.MethodPost,
+		"/api/spaces/{id}/inbox/{iid}":         http.MethodPatch,
+		"/api/spaces/{id}/inbox/{iid}/convert": http.MethodPost,
 	}
-	for path, method := range allowed {
-		method := method // capture (golangci-lint predates Go 1.22 loopvar)
+	for path, methods := range allowed {
+		methods := methods // capture (golangci-lint predates Go 1.22 loopvar)
 		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Allow", method)
+			w.Header().Set("Allow", methods)
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	}
@@ -172,35 +204,63 @@ func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
 
 // handleSpaceState returns the full content of one space.
 func (s *Server) handleSpaceState(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedSpace(w, r)
+	if !ok {
+		return
+	}
+	state, err := s.spaces.State(r.Context(), sp.ID)
+	if err != nil {
+		s.logger.Printf("space %s state: %v", sp.ID, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+// ownedSpace resolves the {id} path segment to a space owned by the
+// requesting user. On failure it writes the response and reports false.
+// Unknown spaces and spaces belonging to other users both read as 404,
+// so ids are not probeable.
+func (s *Server) ownedSpace(w http.ResponseWriter, r *http.Request) (store.Space, bool) {
 	user, ok := userFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
+		return store.Space{}, false
 	}
 	id := r.PathValue("id")
 	sp, err := s.core.GetSpace(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "space not found")
-			return
+			return store.Space{}, false
 		}
 		s.logger.Printf("get space %s: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return store.Space{}, false
 	}
-	// Ownership check: spaces belonging to other users read as absent
-	// rather than forbidden, so ids are not probeable.
 	if sp.UserID != user.ID {
 		writeError(w, http.StatusNotFound, "space not found")
-		return
+		return store.Space{}, false
 	}
-	state, err := s.spaces.State(r.Context(), id)
-	if err != nil {
-		s.logger.Printf("space %s state: %v", id, err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+	return sp, true
+}
+
+// ownedLiveSpace resolves {id} like ownedSpace and additionally requires
+// the space to be unarchived. Content mutations use it so the archive
+// state is a real write barrier server-side — not just chips the UI
+// hides — while reads and the space lifecycle endpoints (rename,
+// unarchive) keep working on archived spaces. On failure it writes a 409
+// and reports false.
+func (s *Server) ownedLiveSpace(w http.ResponseWriter, r *http.Request) (store.Space, bool) {
+	sp, ok := s.ownedSpace(w, r)
+	if !ok {
+		return store.Space{}, false
 	}
-	writeJSON(w, http.StatusOK, state)
+	if sp.ArchivedAt != nil {
+		writeError(w, http.StatusConflict, "space is archived — unarchive it to make changes")
+		return store.Space{}, false
+	}
+	return sp, true
 }
 
 // writeJSON serializes v with the given status code.

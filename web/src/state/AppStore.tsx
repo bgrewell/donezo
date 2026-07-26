@@ -12,16 +12,12 @@ import type {
   ViewId,
   ZoomLevel,
 } from "@/domain/types";
-import {
-  ACTIVITIES,
-  INBOX_ITEMS,
-  NOTES,
-  PROJECTS,
-  REMINDERS,
-  TASKS,
-} from "@/domain/mockData";
+import { ApiError, type SpaceData } from "@/api/client";
+import { SessionContext } from "@/components/auth/session";
 import { anchorForToday, clampAnchor, clampToRange, shiftAnchor } from "@/lib/time";
+import { newId } from "@/lib/id";
 import { parseHash } from "@/lib/route";
+import { syncAction } from "./sync";
 // Pure geometry module (no React/DOM) — the store needs the column math to
 // seed a today-visible initial anchor on narrow viewports.
 import { visibleColumnCount } from "@/views/TimelineView/geometry";
@@ -62,6 +58,7 @@ export type AppAction =
   | { type: "OPEN_PROJECT"; projectId: string }
   | { type: "CLOSE_PROJECT" }
   | { type: "ADD_PROJECT"; project: Project }
+  | { type: "UPDATE_PROJECT"; id: string; patch: Partial<Project> }
   | { type: "SELECT_ACTIVITY"; id: string | null }
   | { type: "SET_ZOOM"; zoom: ZoomLevel }
   | { type: "SET_ANCHOR"; date: string }
@@ -127,6 +124,11 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, selectedProjectId: null };
     case "ADD_PROJECT":
       return { ...state, projects: [...state.projects, action.project] };
+    case "UPDATE_PROJECT":
+      return {
+        ...state,
+        projects: patchById(state.projects, action.id, action.patch),
+      };
     case "SELECT_ACTIVITY":
       return { ...state, selectedActivityId: action.id };
     case "SET_ZOOM":
@@ -242,7 +244,7 @@ function estimatedInitialDayColumns(
   return visibleColumnCount(Math.max(0, window.innerWidth - nav - rail), "day");
 }
 
-function initialState(): AppState {
+function initialState(data: SpaceData): AppState {
   // Seed view/project from the URL hash so deep links survive the initial
   // render (effect-based syncing races under StrictMode double-mount).
   const route =
@@ -252,12 +254,12 @@ function initialState(): AppState {
   const navCollapsed = viewportMatches("(max-width: 1023px)");
   const railCollapsed = viewportMatches("(max-width: 767px)");
   return {
-    projects: PROJECTS,
-    activities: ACTIVITIES,
-    tasks: TASKS,
-    notes: NOTES,
-    reminders: REMINDERS,
-    inbox: INBOX_ITEMS,
+    projects: data.projects,
+    activities: data.activities,
+    tasks: data.tasks,
+    notes: data.notes,
+    reminders: data.reminders,
+    inbox: data.inbox,
     view: route?.view ?? "timeline",
     selectedProjectId:
       route?.view === "projects" && route.projectId ? route.projectId : null,
@@ -285,11 +287,108 @@ function initialState(): AppState {
 const StateContext = React.createContext<AppState | null>(null);
 const DispatchContext = React.createContext<React.Dispatch<AppAction> | null>(null);
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = React.useReducer(reducer, undefined, initialState);
+/** A mutation the server refused (or never received). The optimistic
+ *  local change stays applied; the banner offers retry/dismiss. */
+export interface SyncFailure {
+  id: string;
+  action: AppAction;
+  message: string;
+}
+
+interface SyncErrors {
+  failures: SyncFailure[];
+  retry: (id: string) => void;
+  dismiss: (id: string) => void;
+}
+
+const SyncErrorsContext = React.createContext<SyncErrors | null>(null);
+
+export function AppProvider({
+  spaceId,
+  initialData,
+  children,
+}: {
+  /** The space this store instance is bound to; every synced mutation
+   *  targets it. Remounting with a different key/spaceId swaps spaces. */
+  spaceId: string;
+  /** Server data the store boots from (GET /api/spaces/{id}/state). */
+  initialData: SpaceData;
+  children: React.ReactNode;
+}) {
+  const [state, dispatch] = React.useReducer(reducer, initialData, initialState);
+  const [failures, setFailures] = React.useState<SyncFailure[]>([]);
+
+  // Optional: present when the store is mounted under AuthGate. A 401
+  // means the session died mid-use — retrying with the same dead cookie
+  // can never succeed, so the gate must overlay re-auth.
+  const session = React.useContext(SessionContext);
+  const sessionExpired = session?.sessionExpired;
+
+  // Fire the API request for an action. With failureId set this is a
+  // retry: success clears that banner entry, failure refreshes its
+  // message in place.
+  const runSync = React.useCallback(
+    (action: AppAction, failureId?: string) => {
+      const request = syncAction(spaceId, action);
+      if (!request) return;
+      request
+        .then(() => {
+          if (failureId) {
+            setFailures((prev) => prev.filter((f) => f.id !== failureId));
+          }
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`donezo: ${action.type} did not sync — ${message}`, err);
+          // Expired session: surface sign-in (the gate keeps this store
+          // mounted) and keep the failure queued — after re-auth the
+          // banner's Retry re-fires with the fresh cookie and succeeds.
+          if (err instanceof ApiError && err.status === 401) sessionExpired?.();
+          setFailures((prev) =>
+            failureId
+              ? prev.map((f) => (f.id === failureId ? { ...f, message } : f))
+              : [...prev, { id: newId("sync"), action, message }]
+          );
+        });
+    },
+    [spaceId, sessionExpired]
+  );
+
+  // Optimistic dispatch: apply locally (unchanged UX), then sync.
+  const appDispatch = React.useCallback(
+    (action: AppAction) => {
+      dispatch(action);
+      runSync(action);
+    },
+    [runSync]
+  );
+
+  // Ref mirror so retry/dismiss stay referentially stable without
+  // side effects inside state updaters (StrictMode double-invokes those).
+  const failuresRef = React.useRef(failures);
+  failuresRef.current = failures;
+
+  const retry = React.useCallback(
+    (id: string) => {
+      const failure = failuresRef.current.find((f) => f.id === id);
+      if (failure) runSync(failure.action, failure.id);
+    },
+    [runSync]
+  );
+  const dismiss = React.useCallback((id: string) => {
+    setFailures((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  const syncErrors = React.useMemo<SyncErrors>(
+    () => ({ failures, retry, dismiss }),
+    [failures, retry, dismiss]
+  );
+
   return (
     <StateContext.Provider value={state}>
-      <DispatchContext.Provider value={dispatch}>{children}</DispatchContext.Provider>
+      <DispatchContext.Provider value={appDispatch}>
+        <SyncErrorsContext.Provider value={syncErrors}>{children}</SyncErrorsContext.Provider>
+      </DispatchContext.Provider>
     </StateContext.Provider>
   );
 }
@@ -303,5 +402,12 @@ export function useAppState(): AppState {
 export function useAppDispatch(): React.Dispatch<AppAction> {
   const ctx = React.useContext(DispatchContext);
   if (!ctx) throw new Error("useAppDispatch must be used within AppProvider");
+  return ctx;
+}
+
+/** Failed-mutation banner state: pending failures plus retry/dismiss. */
+export function useSyncErrors(): SyncErrors {
+  const ctx = React.useContext(SyncErrorsContext);
+  if (!ctx) throw new Error("useSyncErrors must be used within AppProvider");
   return ctx;
 }

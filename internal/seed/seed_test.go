@@ -265,6 +265,85 @@ func TestIsSeeded(t *testing.T) {
 	}
 }
 
+func TestEnsureDevUser(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		// prepare sets up the registry and returns the user id EnsureDevUser
+		// must resolve to, or 0 when any fresh id is acceptable.
+		prepare func(t *testing.T, ctx context.Context, core *store.CoreStore, spaces *store.SpaceStore) int64
+	}{
+		{
+			name: "fresh data dir creates the dev user",
+			prepare: func(_ *testing.T, _ context.Context, _ *store.CoreStore, _ *store.SpaceStore) int64 {
+				return 0
+			},
+		},
+		{
+			name: "seeded data dir returns the existing row",
+			prepare: func(t *testing.T, ctx context.Context, core *store.CoreStore, spaces *store.SpaceStore) int64 {
+				t.Helper()
+				if _, err := Import(ctx, core, spaces, fixtureDataset()); err != nil {
+					t.Fatalf("pre-import: %v", err)
+				}
+				user, err := core.GetUserByUsername(ctx, Username)
+				if err != nil {
+					t.Fatalf("get seeded user: %v", err)
+				}
+				return user.ID
+			},
+		},
+		{
+			name: "dev user id need not be 1",
+			prepare: func(t *testing.T, ctx context.Context, core *store.CoreStore, _ *store.SpaceStore) int64 {
+				t.Helper()
+				// Another user claims id 1 first; EnsureDevUser must still
+				// resolve to a real row for the dev username.
+				if _, err := core.CreateUser(ctx, "someone-else", "Someone Else"); err != nil {
+					t.Fatalf("create other user: %v", err)
+				}
+				return 0
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			core, spaces := newTestStores(t)
+			ctx := context.Background()
+			wantID := tt.prepare(t, ctx, core, spaces)
+
+			user, err := EnsureDevUser(ctx, core)
+			if err != nil {
+				t.Fatalf("EnsureDevUser: %v", err)
+			}
+			if user.Username != Username || user.DisplayName != DisplayName {
+				t.Errorf("user = %q/%q, want %q/%q", user.Username, user.DisplayName, Username, DisplayName)
+			}
+			if wantID != 0 && user.ID != wantID {
+				t.Errorf("user.ID = %d, want existing row %d", user.ID, wantID)
+			}
+
+			// Idempotent: a second call answers the same row, and the
+			// identity satisfies user_id foreign keys (the failure mode
+			// EnsureDevUser exists to prevent).
+			again, err := EnsureDevUser(ctx, core)
+			if err != nil {
+				t.Fatalf("EnsureDevUser (second call): %v", err)
+			}
+			if again.ID != user.ID {
+				t.Errorf("second call user.ID = %d, want %d", again.ID, user.ID)
+			}
+			if _, err := core.CreateSpace(ctx, store.Space{
+				ID: "devcheck", UserID: user.ID, Name: "Dev Check", Color: "blue",
+			}); err != nil {
+				t.Errorf("create space as dev user: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoad(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

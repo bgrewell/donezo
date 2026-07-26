@@ -2,7 +2,9 @@ import * as React from "react";
 import { Button, Dialog, Input, Select, cn } from "@grewelltech/console";
 
 import type { ItemKind, Project, ProjectColor } from "@/domain/types";
+import { ApiError, api } from "@/api/client";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { useSession } from "@/components/auth/session";
 import { latestActivityDate } from "@/state/selectors";
 import { newId } from "@/lib/id";
 import { addDaysISO, nowLocalISO, todayISO } from "@/lib/time";
@@ -37,19 +39,49 @@ function slugify(text: string): string {
 export function QuickCapture() {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const session = useSession();
   const open = state.quickCaptureOpen;
 
   const [text, setText] = React.useState("");
   const [manualKind, setManualKind] = React.useState<ItemKind | null>(null);
   const [projectId, setProjectId] = React.useState("");
+  // Transient "captured to <space> inbox" confirmation for cross-space saves.
+  const [captureNote, setCaptureNote] = React.useState<string | null>(null);
+  const [capturePending, setCapturePending] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const closeTimer = React.useRef<number | null>(null);
 
-  // Focus the capture input after the Dialog's own panel focus lands.
+  const liveSpaces = session.spaces.filter((s) => !s.archivedAt);
+  const activeIsLive = liveSpaces.some((s) => s.id === session.activeSpaceId);
+  // Captures only ever target live spaces (the server refuses archived
+  // writes with a 409). An archived active space — archived from another
+  // tab, or as the last live one — falls back to the first live space;
+  // null means everything is archived and capture is disabled.
+  const defaultTargetId = activeIsLive
+    ? session.activeSpaceId
+    : liveSpaces[0]?.id ?? null;
+  const [targetSpaceId, setTargetSpaceId] = React.useState<string | null>(defaultTargetId);
+
+  const crossSpace = targetSpaceId !== null && targetSpaceId !== session.activeSpaceId;
+  const noLiveTarget = targetSpaceId === null;
+
+  // Focus the capture input after the Dialog's own panel focus lands, and
+  // start every capture aimed at the default (live) target space.
   React.useEffect(() => {
     if (!open) return;
+    setTargetSpaceId(defaultTargetId);
+    setCaptureNote(null);
+    setCapturePending(false);
     const t = window.setTimeout(() => inputRef.current?.focus(), 30);
     return () => window.clearTimeout(t);
-  }, [open]);
+  }, [open, defaultTargetId]);
+
+  React.useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    []
+  );
 
   const raw = text.trim();
   const suggested = suggestKind(raw);
@@ -72,10 +104,44 @@ export function QuickCapture() {
     setText("");
     setManualKind(null);
     setProjectId("");
+    setCaptureNote(null);
+    setCapturePending(false);
   };
 
   const saveToInbox = () => {
-    if (!raw) return;
+    if (!raw || capturePending || targetSpaceId === null) return;
+    if (crossSpace) {
+      // The capture belongs to another space: post straight to its inbox
+      // and leave this store's state untouched.
+      const target = liveSpaces.find((s) => s.id === targetSpaceId);
+      setCapturePending(true);
+      api
+        .post(`/api/spaces/${encodeURIComponent(targetSpaceId)}/inbox`, {
+          id: newId("inb"),
+          raw,
+          capturedAt: nowLocalISO(),
+          suggestedKind: kind,
+          status: "pending",
+        })
+        .then(() => {
+          setCaptureNote(`captured to ${target?.name ?? targetSpaceId} inbox`);
+          closeTimer.current = window.setTimeout(() => {
+            closeTimer.current = null;
+            reset();
+            close();
+          }, 900);
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("donezo: cross-space capture failed", err);
+          // Dead session: the gate overlays sign-in; the typed text stays
+          // in the dialog for a retry once re-authenticated.
+          if (err instanceof ApiError && err.status === 401) session.sessionExpired();
+          setCaptureNote(`capture failed — ${message}`);
+          setCapturePending(false);
+        });
+      return;
+    }
     dispatch({
       type: "ADD_INBOX",
       item: {
@@ -176,7 +242,15 @@ export function QuickCapture() {
     close();
   };
 
-  const createDisabled = !raw || (kind === "activity" && !projectId);
+  const createDisabled =
+    !raw || crossSpace || noLiveTarget || (kind === "activity" && !projectId);
+  const createTitle = noLiveTarget
+    ? "All spaces are archived — unarchive one to capture"
+    : crossSpace
+      ? "Cross-space capture goes to the inbox — classify it there"
+      : kind === "activity" && !projectId
+        ? "Activity needs a project"
+        : undefined;
 
   return (
     <Dialog
@@ -198,9 +272,10 @@ export function QuickCapture() {
             size="sm"
             variant="ghost"
             noGlyph
-            disabled={!raw}
+            disabled={!raw || capturePending || noLiveTarget}
             onClick={saveToInbox}
             className="whitespace-nowrap"
+            title={noLiveTarget ? "All spaces are archived — unarchive one to capture" : undefined}
           >
             Save to inbox
           </Button>
@@ -210,7 +285,7 @@ export function QuickCapture() {
             disabled={createDisabled}
             onClick={create}
             className="whitespace-nowrap"
-            title={kind === "activity" && !projectId ? "Activity needs a project" : undefined}
+            title={createTitle}
           >
             Create {kind}
           </Button>
@@ -225,13 +300,24 @@ export function QuickCapture() {
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             e.preventDefault();
-            if (e.metaKey || e.ctrlKey) saveToInbox();
+            // Cross-space capture is inbox-only, so plain Enter routes
+            // there too.
+            if (e.metaKey || e.ctrlKey || crossSpace) saveToInbox();
             else if (!createDisabled) create();
           }}
           placeholder="Remind me Tuesday morning to email Dan about the RAN550."
           aria-label="Capture text"
           className="h-10 !font-sans !text-[0.95rem] normal-case"
         />
+
+        {captureNote && (
+          <div
+            className="font-mono text-[0.66rem] lowercase tracking-label text-gtc-success"
+            role="status"
+          >
+            {captureNote}
+          </div>
+        )}
 
         {/* Kind chips */}
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Item kind">
@@ -265,7 +351,49 @@ export function QuickCapture() {
           })}
         </div>
 
-        {/* Project row */}
+        {/* Space chips — a non-active space forces save-to-inbox (the
+            capture belongs to that space, not this store). */}
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Capture space">
+          <span className="mr-1 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
+            Space
+          </span>
+          {liveSpaces.map((s) => {
+            const selected = targetSpaceId === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setTargetSpaceId(s.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-gtc border px-2 py-1",
+                  "font-mono text-[0.64rem] uppercase tracking-chrome outline-none transition-colors",
+                  "focus-visible:shadow-gtc-focus",
+                  selected
+                    ? "border-gtc-accent bg-gtc-tint-accent text-gtc-accent"
+                    : "border-gtc-line text-gtc-muted hover:text-gtc-text"
+                )}
+              >
+                <ProjectMark color={s.color} size={6} />
+                {s.name}
+              </button>
+            );
+          })}
+          {crossSpace && (
+            <span className="font-mono text-[max(0.56rem,8px)] lowercase tracking-normal text-gtc-muted">
+              goes to that space&rsquo;s inbox
+            </span>
+          )}
+          {noLiveTarget && (
+            <span className="font-mono text-[max(0.56rem,8px)] lowercase tracking-normal text-gtc-muted">
+              all spaces are archived — unarchive one to capture
+            </span>
+          )}
+        </div>
+
+        {/* Project row (projects belong to the active space, so it hides
+            for cross-space captures and archived actives) */}
+        {!crossSpace && !noLiveTarget && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-1 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
             Project
@@ -308,6 +436,7 @@ export function QuickCapture() {
             </Select>
           </div>
         </div>
+        )}
       </div>
     </Dialog>
   );

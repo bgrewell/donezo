@@ -3,6 +3,7 @@ import { Avatar, Button, cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { useSession } from "@/components/auth/session";
 import { FONT_SETS, FONT_SIZES, THEMES } from "@/lib/themes";
 import { useTheme } from "@/state/ThemeProvider";
 import { relativeFromToday } from "@/lib/time";
@@ -35,6 +36,7 @@ export function TopBar() {
   const dispatch = useAppDispatch();
   const { theme, setTheme, font, setFont, fontSize, setFontSize } = useTheme();
   const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
+  const { user, logout } = useSession();
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -212,7 +214,27 @@ export function TopBar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Avatar name="Ben Grewell" size="sm" />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Account: ${user.displayName}`}
+            className="shrink-0 rounded-gtc outline-none transition-shadow focus-visible:shadow-gtc-focus"
+          >
+            <Avatar name={user.displayName} size="sm" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuLabel className="normal-case tracking-normal">
+            <span className="block truncate text-gtc-text">{user.displayName}</span>
+            <span className="block truncate font-mono text-[0.62rem] lowercase text-gtc-muted">
+              @{user.username}
+            </span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <ShortcutsSheet />
     </header>
   );

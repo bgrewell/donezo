@@ -12,6 +12,14 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      // donezod backend. Cookies pass through untouched (same-origin from
+      // the browser's point of view), so no changeOrigin.
+      "/api": {
+        target: process.env.DONEZO_API_TARGET ?? "http://localhost:8787",
+        changeOrigin: false,
+      },
+    },
     watch: {
       // The design system is a file: dependency; watch its source too so
       // token/component edits there hot-reload donezo.

@@ -14,6 +14,7 @@ import { cn } from "@grewelltech/console";
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { Tip } from "@/components/ui/Tooltip";
+import { SpaceSwitcher } from "./SpaceSwitcher";
 
 const NAV_ITEMS: { id: ViewId; label: string; Icon: LucideIcon }[] = [
   { id: "focus", label: "Focus", Icon: Target },
@@ -37,22 +38,14 @@ export function NavRail() {
         navCollapsed ? "w-[var(--dz-nav-w)]" : "w-[var(--dz-nav-w-expanded)]"
       )}
     >
-      {/* Brand mark */}
+      {/* Brand area — the active space doubles as the space switcher. */}
       <div
         className={cn(
           "flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-gtc-line",
-          navCollapsed ? "justify-center" : "px-3.5"
+          navCollapsed ? "justify-center" : "px-2"
         )}
       >
-        <span className="select-none font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
-          {navCollapsed ? (
-            <span className="text-gtc-accent">dz</span>
-          ) : (
-            <>
-              donezo <span className="text-gtc-accent">//</span>
-            </>
-          )}
-        </span>
+        <SpaceSwitcher collapsed={navCollapsed} />
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 py-2" aria-label="Primary">

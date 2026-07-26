@@ -21,6 +21,18 @@ export type ProjectColor =
 
 export type ProjectStatus = "active" | "waiting" | "blocked" | "paused" | "completed";
 
+/** A workspace: an isolated set of projects/activities/tasks/notes/
+ *  reminders/inbox, stored server-side in its own database. Space colors
+ *  key into the same --dz-pj-* ramp as projects. */
+export interface Space {
+  id: string;
+  name: string;
+  color: ProjectColor;
+  position: number;
+  /** ISO datetime when archived; absent while the space is live. */
+  archivedAt?: string;
+}
+
 export type ActivityType = "work" | "research" | "meeting" | "decision" | "blocker" | "milestone";
 
 /** What a raw capture can become. */

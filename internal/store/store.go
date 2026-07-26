@@ -14,12 +14,40 @@ import (
 	"regexp"
 	"time"
 
-	// Pure-Go SQLite driver (no cgo).
-	_ "modernc.org/sqlite"
+	// Pure-Go SQLite driver (no cgo); named so constraint failures can be
+	// classified by their SQLite error codes.
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrDuplicateID is returned when an insert collides with an existing
+// row's primary key or unique constraint.
+var ErrDuplicateID = errors.New("duplicate id")
+
+// ErrInvalidReference is returned when a write names a related row that
+// does not exist — a foreign key violation, e.g. an unknown project id.
+var ErrInvalidReference = errors.New("invalid reference")
+
+// classifyConstraint maps SQLite constraint violations onto the store's
+// sentinel errors so callers can distinguish duplicate ids and broken
+// references from other database faults. Any other error passes through
+// unchanged.
+func classifyConstraint(err error) error {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return err
+	}
+	switch se.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY, sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+		return fmt.Errorf("%w: %v", ErrDuplicateID, err)
+	case sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
+		return fmt.Errorf("%w: %v", ErrInvalidReference, err)
+	}
+	return err
+}
 
 // Clock returns the current time; injectable for deterministic tests.
 type Clock func() time.Time

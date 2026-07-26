@@ -230,9 +230,99 @@ func (s *CoreStore) CreateSpace(ctx context.Context, sp Space) (Space, error) {
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		sp.ID, sp.UserID, sp.Name, sp.Color, sp.Position, sp.ArchivedAt, sp.CreatedAt)
 	if err != nil {
-		return Space{}, fmt.Errorf("store: create space %q: %w", sp.ID, err)
+		return Space{}, fmt.Errorf("store: create space %q: %w", sp.ID, classifyConstraint(err))
 	}
 	return sp, nil
+}
+
+// CreateSpaceAtEnd inserts a registry row for a space like CreateSpace,
+// but assigns Position automatically: one past the owner's current
+// highest position (0 for the owner's first space). The position is
+// computed inside the INSERT itself, so concurrent creates cannot read
+// the same maximum. Returns the stored row.
+func (s *CoreStore) CreateSpaceAtEnd(ctx context.Context, sp Space) (Space, error) {
+	if err := ValidateSpaceID(sp.ID); err != nil {
+		return Space{}, err
+	}
+	if sp.Name == "" {
+		return Space{}, errors.New("store: space name is required")
+	}
+	sp.CreatedAt = s.opts.now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Space{}, fmt.Errorf("store: create space %q: begin: %w", sp.ID, err)
+	}
+	defer rollbackQuietly(tx)
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO spaces (id, user_id, name, color, position, archived_at, created_at)
+		 VALUES (?, ?, ?, ?,
+		   (SELECT COALESCE(MAX(position) + 1, 0) FROM spaces WHERE user_id = ?),
+		   NULL, ?)`,
+		sp.ID, sp.UserID, sp.Name, sp.Color, sp.UserID, sp.CreatedAt); err != nil {
+		return Space{}, fmt.Errorf("store: create space %q: %w", sp.ID, classifyConstraint(err))
+	}
+	stored, err := getSpaceRow(ctx, tx, sp.ID)
+	if err != nil {
+		return Space{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("store: create space %q: commit: %w", sp.ID, err)
+	}
+	return stored, nil
+}
+
+// PatchSpace atomically applies apply to an existing space registry row
+// and rewrites its mutable columns (name, color, position, archived_at).
+// ID, UserID, and CreatedAt are identity fields and stay as stored even
+// if apply mutates them. The load, mutation, and write run in one
+// transaction. Returns ErrNotFound if the id does not exist; a non-nil
+// error from apply aborts the patch and is returned unchanged.
+func (s *CoreStore) PatchSpace(ctx context.Context, id string, apply func(*Space) error) (Space, error) {
+	if id == "" {
+		return Space{}, errors.New("store: space id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Space{}, fmt.Errorf("store: patch space %q: begin: %w", id, err)
+	}
+	defer rollbackQuietly(tx)
+	sp, err := getSpaceRow(ctx, tx, id)
+	if err != nil {
+		return Space{}, err
+	}
+	userID, createdAt := sp.UserID, sp.CreatedAt
+	if err := apply(&sp); err != nil {
+		return Space{}, err
+	}
+	sp.ID, sp.UserID, sp.CreatedAt = id, userID, createdAt
+	if sp.Name == "" {
+		return Space{}, errors.New("store: space name is required")
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE spaces SET name = ?, color = ?, position = ?, archived_at = ? WHERE id = ?`,
+		sp.Name, sp.Color, sp.Position, sp.ArchivedAt, sp.ID); err != nil {
+		return Space{}, fmt.Errorf("store: patch space %q: %w", id, classifyConstraint(err))
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("store: patch space %q: commit: %w", id, err)
+	}
+	return sp, nil
+}
+
+// SetSpaceArchived archives (stamping ArchivedAt from the store clock) or
+// unarchives (clearing it) a space, returning the stored row. Archiving
+// an already-archived space refreshes the stamp. Returns ErrNotFound if
+// the id does not exist.
+func (s *CoreStore) SetSpaceArchived(ctx context.Context, id string, archived bool) (Space, error) {
+	return s.PatchSpace(ctx, id, func(sp *Space) error {
+		if archived {
+			now := s.opts.now()
+			sp.ArchivedAt = &now
+		} else {
+			sp.ArchivedAt = nil
+		}
+		return nil
+	})
 }
 
 // DeleteSpace removes a space registry row by id. The space's content
@@ -248,8 +338,13 @@ func (s *CoreStore) DeleteSpace(ctx context.Context, id string) error {
 
 // GetSpace returns the registry row for the given space id, or ErrNotFound.
 func (s *CoreStore) GetSpace(ctx context.Context, id string) (Space, error) {
+	return getSpaceRow(ctx, s.db, id)
+}
+
+// getSpaceRow reads one space registry row by id via q, or ErrNotFound.
+func getSpaceRow(ctx context.Context, q rowQuerier, id string) (Space, error) {
 	var sp Space
-	err := s.db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT id, user_id, name, color, position, archived_at, created_at FROM spaces WHERE id = ?`,
 		id).Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Color, &sp.Position, &sp.ArchivedAt, &sp.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {

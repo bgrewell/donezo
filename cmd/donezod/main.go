@@ -160,9 +160,15 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		// config.Validate already gated this on a /tmp data dir or the
 		// explicit consent env var; still make it impossible to miss.
 		fmt.Fprintln(os.Stderr, "donezod: WARNING: --dev-auto-login is set: authentication is DISABLED and every request acts as the seeded dev user. Never expose this instance beyond localhost.")
-		opts = append(opts, api.WithAuthenticator(api.StaticAuthenticator{
-			User: store.User{ID: 1, Username: seed.Username, DisplayName: seed.DisplayName},
-		}))
+		// The static identity must match a real users row: user_id foreign
+		// keys (e.g. the spaces registry) are enforced, so acting as a user
+		// that does not exist would turn every such write into a 500. On an
+		// unseeded data dir this creates the dev user (without a password).
+		devUser, err := seed.EnsureDevUser(context.Background(), core)
+		if err != nil {
+			return err
+		}
+		opts = append(opts, api.WithAuthenticator(api.StaticAuthenticator{User: devUser}))
 	}
 	server := api.NewServer(core, spaces, opts...)
 

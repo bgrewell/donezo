@@ -5,6 +5,7 @@ import { parseHash } from "@/lib/route";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { NavRail } from "./NavRail";
 import { TopBar } from "./TopBar";
+import { SyncErrorBanner } from "./SyncErrorBanner";
 import { Inspector } from "./Inspector";
 import { QuickCapture } from "./QuickCapture";
 import { WelcomeDialog } from "@/components/onboarding/WelcomeDialog";
@@ -71,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <NavRail />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
+          <SyncErrorBanner />
           <main className="relative min-h-0 flex-1 overflow-hidden">
             {children}
             <HintChip />

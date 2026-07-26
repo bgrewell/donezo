@@ -24,17 +24,25 @@ import "./styles/app.css";
 
 import { ThemeProvider } from "./state/ThemeProvider";
 import { AppProvider } from "./state/AppStore";
+import { AuthGate } from "./components/auth/AuthGate";
 import { OnboardingProvider } from "./components/onboarding/OnboardingProvider";
 import App from "./App";
 
+// The gate lives outside AppProvider so the store mounts fresh per space:
+// keying on the space id tears the whole app down on switch and boots it
+// from that space's server data.
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider>
-      <AppProvider>
-        <OnboardingProvider>
-          <App />
-        </OnboardingProvider>
-      </AppProvider>
+      <AuthGate>
+        {(spaceId, data) => (
+          <AppProvider key={spaceId} spaceId={spaceId} initialData={data}>
+            <OnboardingProvider>
+              <App />
+            </OnboardingProvider>
+          </AppProvider>
+        )}
+      </AuthGate>
     </ThemeProvider>
   </React.StrictMode>
 );

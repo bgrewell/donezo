@@ -18,7 +18,14 @@ import (
 type SpaceStore struct {
 	opts options
 
-	mu    sync.Mutex
+	mu sync.Mutex
+	// conns caches one open handle per space for the life of the process;
+	// the only removal path is Close. This is a deliberate tradeoff: each
+	// cached handle pins ~3 file descriptors (db + WAL + shm), which is
+	// nothing for the personal deployments donezod targets (a handful of
+	// spaces), and eviction would reintroduce open/migrate/PRAGMA churn on
+	// every revisit. If usage patterns ever change (bulk imports, hundreds
+	// of spaces), add idle-timeout or LRU eviction here.
 	conns map[string]*sql.DB
 }
 
@@ -170,7 +177,7 @@ func (s *SpaceStore) insertProject(ctx context.Context, ex execer, p Project) (P
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction,
 		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, p.CreatedAt, p.UpdatedAt); err != nil {
-		return Project{}, fmt.Errorf("store: create project %q: %w", p.ID, err)
+		return Project{}, fmt.Errorf("store: create project %q: %w", p.ID, classifyConstraint(err))
 	}
 	return p, nil
 }
@@ -232,28 +239,15 @@ func (s *SpaceStore) UpdateProject(ctx context.Context, spaceID string, p Projec
 	if err != nil {
 		return Project{}, err
 	}
-	alt, err := marshalList(p.AltNextActions)
-	if err != nil {
-		return Project{}, err
-	}
-	tags, err := marshalList(p.Tags)
-	if err != nil {
-		return Project{}, err
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return Project{}, fmt.Errorf("store: update project %q: begin: %w", p.ID, err)
 	}
 	defer rollbackQuietly(tx)
 	p.UpdatedAt = s.opts.now()
-	res, err := tx.ExecContext(ctx,
-		`UPDATE projects SET name = ?, color = ?, purpose = ?, outcome = ?, current_focus = ?,
-		   next_action = ?, alt_next_actions = ?, status = ?, resume_context = ?, waiting_on = ?,
-		   tags = ?, updated_at = ? WHERE id = ?`,
-		p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction, alt, p.Status,
-		p.ResumeContext, p.WaitingOn, tags, p.UpdatedAt, p.ID)
+	res, err := execUpdateProject(ctx, tx, p)
 	if err != nil {
-		return Project{}, fmt.Errorf("store: update project %q: %w", p.ID, err)
+		return Project{}, fmt.Errorf("store: update project %q: %w", p.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "project", p.ID); err != nil {
 		return Project{}, err
@@ -266,6 +260,25 @@ func (s *SpaceStore) UpdateProject(ctx context.Context, spaceID string, p Projec
 		return Project{}, fmt.Errorf("store: update project %q: commit: %w", p.ID, err)
 	}
 	return stored, nil
+}
+
+// execUpdateProject rewrites all mutable columns of a project row via ex.
+// The caller stamps UpdatedAt first.
+func execUpdateProject(ctx context.Context, ex execer, p Project) (sql.Result, error) {
+	alt, err := marshalList(p.AltNextActions)
+	if err != nil {
+		return nil, err
+	}
+	tags, err := marshalList(p.Tags)
+	if err != nil {
+		return nil, err
+	}
+	return ex.ExecContext(ctx,
+		`UPDATE projects SET name = ?, color = ?, purpose = ?, outcome = ?, current_focus = ?,
+		   next_action = ?, alt_next_actions = ?, status = ?, resume_context = ?, waiting_on = ?,
+		   tags = ?, updated_at = ? WHERE id = ?`,
+		p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction, alt, p.Status,
+		p.ResumeContext, p.WaitingOn, tags, p.UpdatedAt, p.ID)
 }
 
 // DeleteProject removes a project by id. Returns ErrNotFound if absent.
@@ -343,7 +356,7 @@ func (s *SpaceStore) insertActivity(ctx context.Context, ex execer, a ActivityEn
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.ProjectID, a.Date, a.Type, a.Title, a.Details, a.EffortHours,
 		a.Source, tags, links, a.NextAction, boolPtrToInt(a.Planned), a.CreatedAt, a.UpdatedAt); err != nil {
-		return ActivityEntry{}, fmt.Errorf("store: create activity %q: %w", a.ID, err)
+		return ActivityEntry{}, fmt.Errorf("store: create activity %q: %w", a.ID, classifyConstraint(err))
 	}
 	return a, nil
 }
@@ -404,28 +417,15 @@ func (s *SpaceStore) UpdateActivity(ctx context.Context, spaceID string, a Activ
 	if err != nil {
 		return ActivityEntry{}, err
 	}
-	tags, err := marshalList(a.Tags)
-	if err != nil {
-		return ActivityEntry{}, err
-	}
-	links, err := marshalList(a.Links)
-	if err != nil {
-		return ActivityEntry{}, err
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return ActivityEntry{}, fmt.Errorf("store: update activity %q: begin: %w", a.ID, err)
 	}
 	defer rollbackQuietly(tx)
 	a.UpdatedAt = s.opts.now()
-	res, err := tx.ExecContext(ctx,
-		`UPDATE activities SET project_id = ?, date = ?, type = ?, title = ?, details = ?,
-		   effort_hours = ?, source = ?, tags = ?, links = ?, next_action = ?, planned = ?,
-		   updated_at = ? WHERE id = ?`,
-		a.ProjectID, a.Date, a.Type, a.Title, a.Details, a.EffortHours, a.Source,
-		tags, links, a.NextAction, boolPtrToInt(a.Planned), a.UpdatedAt, a.ID)
+	res, err := execUpdateActivity(ctx, tx, a)
 	if err != nil {
-		return ActivityEntry{}, fmt.Errorf("store: update activity %q: %w", a.ID, err)
+		return ActivityEntry{}, fmt.Errorf("store: update activity %q: %w", a.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "activity", a.ID); err != nil {
 		return ActivityEntry{}, err
@@ -438,6 +438,25 @@ func (s *SpaceStore) UpdateActivity(ctx context.Context, spaceID string, a Activ
 		return ActivityEntry{}, fmt.Errorf("store: update activity %q: commit: %w", a.ID, err)
 	}
 	return stored, nil
+}
+
+// execUpdateActivity rewrites all mutable columns of an activity row via
+// ex. The caller stamps UpdatedAt first.
+func execUpdateActivity(ctx context.Context, ex execer, a ActivityEntry) (sql.Result, error) {
+	tags, err := marshalList(a.Tags)
+	if err != nil {
+		return nil, err
+	}
+	links, err := marshalList(a.Links)
+	if err != nil {
+		return nil, err
+	}
+	return ex.ExecContext(ctx,
+		`UPDATE activities SET project_id = ?, date = ?, type = ?, title = ?, details = ?,
+		   effort_hours = ?, source = ?, tags = ?, links = ?, next_action = ?, planned = ?,
+		   updated_at = ? WHERE id = ?`,
+		a.ProjectID, a.Date, a.Type, a.Title, a.Details, a.EffortHours, a.Source,
+		tags, links, a.NextAction, boolPtrToInt(a.Planned), a.UpdatedAt, a.ID)
 }
 
 // DeleteActivity removes an activity by id. Returns ErrNotFound if absent.
@@ -499,7 +518,7 @@ func insertTask(ctx context.Context, ex execer, t TaskItem) (TaskItem, error) {
 		`INSERT INTO tasks (id, project_id, title, status, due, waiting_on, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.Title, t.Status, t.Due, t.WaitingOn, t.CreatedAt); err != nil {
-		return TaskItem{}, fmt.Errorf("store: create task %q: %w", t.ID, err)
+		return TaskItem{}, fmt.Errorf("store: create task %q: %w", t.ID, classifyConstraint(err))
 	}
 	return t, nil
 }
@@ -510,8 +529,13 @@ func (s *SpaceStore) GetTask(ctx context.Context, spaceID, id string) (TaskItem,
 	if err != nil {
 		return TaskItem{}, err
 	}
+	return getTaskRow(ctx, db, id)
+}
+
+// getTaskRow reads one task by id via q, or ErrNotFound.
+func getTaskRow(ctx context.Context, q rowQuerier, id string) (TaskItem, error) {
 	var t TaskItem
-	err = db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT id, project_id, title, status, due, waiting_on, created_at FROM tasks WHERE id = ?`,
 		id).Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.Due, &t.WaitingOn, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -533,17 +557,22 @@ func (s *SpaceStore) UpdateTask(ctx context.Context, spaceID string, t TaskItem)
 	if err != nil {
 		return TaskItem{}, err
 	}
-	res, err := db.ExecContext(ctx,
-		`UPDATE tasks SET project_id = ?, title = ?, status = ?, due = ?, waiting_on = ?,
-		   created_at = ? WHERE id = ?`,
-		t.ProjectID, t.Title, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
+	res, err := execUpdateTask(ctx, db, t)
 	if err != nil {
-		return TaskItem{}, fmt.Errorf("store: update task %q: %w", t.ID, err)
+		return TaskItem{}, fmt.Errorf("store: update task %q: %w", t.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "task", t.ID); err != nil {
 		return TaskItem{}, err
 	}
 	return t, nil
+}
+
+// execUpdateTask rewrites all mutable columns of a task row via ex.
+func execUpdateTask(ctx context.Context, ex execer, t TaskItem) (sql.Result, error) {
+	return ex.ExecContext(ctx,
+		`UPDATE tasks SET project_id = ?, title = ?, status = ?, due = ?, waiting_on = ?,
+		   created_at = ? WHERE id = ?`,
+		t.ProjectID, t.Title, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
 }
 
 // DeleteTask removes a task by id. Returns ErrNotFound if absent.
@@ -605,7 +634,7 @@ func insertNote(ctx context.Context, ex execer, n NoteItem) (NoteItem, error) {
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO notes (id, project_id, title, body, created_at) VALUES (?, ?, ?, ?, ?)`,
 		n.ID, n.ProjectID, n.Title, n.Body, n.CreatedAt); err != nil {
-		return NoteItem{}, fmt.Errorf("store: create note %q: %w", n.ID, err)
+		return NoteItem{}, fmt.Errorf("store: create note %q: %w", n.ID, classifyConstraint(err))
 	}
 	return n, nil
 }
@@ -643,7 +672,7 @@ func (s *SpaceStore) UpdateNote(ctx context.Context, spaceID string, n NoteItem)
 		`UPDATE notes SET project_id = ?, title = ?, body = ?, created_at = ? WHERE id = ?`,
 		n.ProjectID, n.Title, n.Body, n.CreatedAt, n.ID)
 	if err != nil {
-		return NoteItem{}, fmt.Errorf("store: update note %q: %w", n.ID, err)
+		return NoteItem{}, fmt.Errorf("store: update note %q: %w", n.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "note", n.ID); err != nil {
 		return NoteItem{}, err
@@ -709,7 +738,7 @@ func insertReminder(ctx context.Context, ex execer, r Reminder) (Reminder, error
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO reminders (id, text, remind_at, project_id, done) VALUES (?, ?, ?, ?, ?)`,
 		r.ID, r.Text, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done)); err != nil {
-		return Reminder{}, fmt.Errorf("store: create reminder %q: %w", r.ID, err)
+		return Reminder{}, fmt.Errorf("store: create reminder %q: %w", r.ID, classifyConstraint(err))
 	}
 	return r, nil
 }
@@ -720,9 +749,14 @@ func (s *SpaceStore) GetReminder(ctx context.Context, spaceID, id string) (Remin
 	if err != nil {
 		return Reminder{}, err
 	}
+	return getReminderRow(ctx, db, id)
+}
+
+// getReminderRow reads one reminder by id via q, or ErrNotFound.
+func getReminderRow(ctx context.Context, q rowQuerier, id string) (Reminder, error) {
 	var r Reminder
 	var done *int64
-	err = db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT id, text, remind_at, project_id, done FROM reminders WHERE id = ?`,
 		id).Scan(&r.ID, &r.Text, &r.RemindAt, &r.ProjectID, &done)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -745,16 +779,21 @@ func (s *SpaceStore) UpdateReminder(ctx context.Context, spaceID string, r Remin
 	if err != nil {
 		return Reminder{}, err
 	}
-	res, err := db.ExecContext(ctx,
-		`UPDATE reminders SET text = ?, remind_at = ?, project_id = ?, done = ? WHERE id = ?`,
-		r.Text, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
+	res, err := execUpdateReminder(ctx, db, r)
 	if err != nil {
-		return Reminder{}, fmt.Errorf("store: update reminder %q: %w", r.ID, err)
+		return Reminder{}, fmt.Errorf("store: update reminder %q: %w", r.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "reminder", r.ID); err != nil {
 		return Reminder{}, err
 	}
 	return r, nil
+}
+
+// execUpdateReminder rewrites all mutable columns of a reminder row via ex.
+func execUpdateReminder(ctx context.Context, ex execer, r Reminder) (sql.Result, error) {
+	return ex.ExecContext(ctx,
+		`UPDATE reminders SET text = ?, remind_at = ?, project_id = ?, done = ? WHERE id = ?`,
+		r.Text, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
 }
 
 // DeleteReminder removes a reminder by id. Returns ErrNotFound if absent.
@@ -818,7 +857,7 @@ func insertInboxItem(ctx context.Context, ex execer, it InboxItem) (InboxItem, e
 		`INSERT INTO inbox (id, raw, captured_at, suggested_kind, suggested_project_id, status)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		it.ID, it.Raw, it.CapturedAt, it.SuggestedKind, it.SuggestedProjectID, it.Status); err != nil {
-		return InboxItem{}, fmt.Errorf("store: create inbox item %q: %w", it.ID, err)
+		return InboxItem{}, fmt.Errorf("store: create inbox item %q: %w", it.ID, classifyConstraint(err))
 	}
 	return it, nil
 }
@@ -829,8 +868,13 @@ func (s *SpaceStore) GetInboxItem(ctx context.Context, spaceID, id string) (Inbo
 	if err != nil {
 		return InboxItem{}, err
 	}
+	return getInboxRow(ctx, db, id)
+}
+
+// getInboxRow reads one inbox item by id via q, or ErrNotFound.
+func getInboxRow(ctx context.Context, q rowQuerier, id string) (InboxItem, error) {
 	var it InboxItem
-	err = db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT id, raw, captured_at, suggested_kind, suggested_project_id, status
 		 FROM inbox WHERE id = ?`,
 		id).Scan(&it.ID, &it.Raw, &it.CapturedAt, &it.SuggestedKind, &it.SuggestedProjectID, &it.Status)
@@ -853,17 +897,22 @@ func (s *SpaceStore) UpdateInboxItem(ctx context.Context, spaceID string, it Inb
 	if err != nil {
 		return InboxItem{}, err
 	}
-	res, err := db.ExecContext(ctx,
-		`UPDATE inbox SET raw = ?, captured_at = ?, suggested_kind = ?, suggested_project_id = ?,
-		   status = ? WHERE id = ?`,
-		it.Raw, it.CapturedAt, it.SuggestedKind, it.SuggestedProjectID, it.Status, it.ID)
+	res, err := execUpdateInbox(ctx, db, it)
 	if err != nil {
-		return InboxItem{}, fmt.Errorf("store: update inbox item %q: %w", it.ID, err)
+		return InboxItem{}, fmt.Errorf("store: update inbox item %q: %w", it.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "inbox item", it.ID); err != nil {
 		return InboxItem{}, err
 	}
 	return it, nil
+}
+
+// execUpdateInbox rewrites all mutable columns of an inbox row via ex.
+func execUpdateInbox(ctx context.Context, ex execer, it InboxItem) (sql.Result, error) {
+	return ex.ExecContext(ctx,
+		`UPDATE inbox SET raw = ?, captured_at = ?, suggested_kind = ?, suggested_project_id = ?,
+		   status = ? WHERE id = ?`,
+		it.Raw, it.CapturedAt, it.SuggestedKind, it.SuggestedProjectID, it.Status, it.ID)
 }
 
 // DeleteInboxItem removes an inbox item by id. Returns ErrNotFound if

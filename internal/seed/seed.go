@@ -90,6 +90,23 @@ func IsSeeded(ctx context.Context, core *store.CoreStore) (bool, error) {
 	}
 }
 
+// EnsureDevUser returns the seeded dev user's registry row, creating the
+// user (with no password — it cannot log in) when the registry has no
+// such row yet. --dev-auto-login uses it so the static dev identity
+// always matches a real users row: without one, any write referencing
+// user_id (e.g. POST /api/spaces) would fail its foreign key check when
+// the server starts on an unseeded data dir.
+func EnsureDevUser(ctx context.Context, core *store.CoreStore) (store.User, error) {
+	user, err := core.GetUserByUsername(ctx, Username)
+	if err == nil {
+		return user, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return store.User{}, err
+	}
+	return core.CreateUser(ctx, Username, DisplayName)
+}
+
 // Import creates the dev user and the Sandbox space in core, then loads
 // the dataset into the space's database. The space content lands in one
 // transaction, and on any failure the core rows created here are removed
