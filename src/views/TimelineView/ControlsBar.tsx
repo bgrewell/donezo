@@ -25,7 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/DropdownMenu";
-import { visibleRangeLabel } from "./geometry";
+import { visibleColumnCount, visibleRangeLabel } from "./geometry";
 
 const ZOOM_LEVELS: { id: ZoomLevel; label: string }[] = [
   { id: "day", label: "Day" },
@@ -98,7 +98,18 @@ export function ControlsBar({ visibleWidth }: { visibleWidth: number }) {
       >
         <ChevronRight className="h-4 w-4" aria-hidden />
       </button>
-      <Button size="sm" onClick={() => dispatch({ type: "JUMP_TODAY" })}>
+      <Button
+        size="sm"
+        className="shrink-0"
+        onClick={() =>
+          // The measured lane tells JUMP_TODAY how many columns fit, so the
+          // jump keeps today on screen on narrow lanes (phones/tablets).
+          dispatch({
+            type: "JUMP_TODAY",
+            visibleColumns: visibleColumnCount(visibleWidth, zoom),
+          })
+        }
+      >
         Today
       </Button>
 
@@ -133,7 +144,7 @@ export function ControlsBar({ visibleWidth }: { visibleWidth: number }) {
         })}
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

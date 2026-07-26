@@ -42,7 +42,7 @@ export const WeekCapsule = React.forwardRef<HTMLButtonElement, WeekCapsuleProps>
           "absolute flex items-center gap-1.5 overflow-hidden rounded-gtc border px-2 text-left",
           nodeTintClass,
           "outline-none transition-colors focus-visible:shadow-gtc-focus",
-          allPlanned && "border-dashed opacity-60",
+          allPlanned && "border-dashed opacity-[var(--dz-planned-opacity)]",
           className
         )}
         style={{ ...style, ...nodeTintStyle(colorVar) }}
@@ -98,8 +98,10 @@ export const MonthBar = React.forwardRef<HTMLButtonElement, MonthBarProps>(
         aria-label={`${entries.length} entries`}
         {...rest}
         className={cn(
-          "absolute rounded-gtc border outline-none transition-colors focus-visible:shadow-gtc-focus",
-          allPlanned && "border-dashed opacity-60",
+          // dz-touch-hit: coarse pointers get an enlarged invisible hit area
+          // around the 10px bar (see app.css).
+          "dz-touch-hit absolute rounded-gtc border outline-none transition-colors focus-visible:shadow-gtc-focus",
+          allPlanned && "border-dashed opacity-[var(--dz-planned-opacity)]",
           className
         )}
         style={{

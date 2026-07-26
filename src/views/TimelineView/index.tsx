@@ -154,8 +154,21 @@ export default function TimelineView() {
     : undefined;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <ControlsBar visibleWidth={visibleWidth} />
+      {/* Tour anchor while the rail is collapsed: the expanded rail cells
+          (data-tour="rail") don't exist, and a single 44px cell is too small
+          a spotlight — so target the whole rail column. Inert; sits outside
+          the scroller so it never scrolls away. top-9 clears the controls
+          bar (h-9). */}
+      {railCollapsed && projects.length > 0 && (
+        <div
+          aria-hidden
+          data-tour="rail"
+          className="pointer-events-none absolute bottom-0 left-0 top-9"
+          style={{ width: railW }}
+        />
+      )}
       <div
         ref={scrollerRef}
         onScroll={handleScroll}

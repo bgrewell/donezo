@@ -24,6 +24,58 @@
   --dz-nav-w-expanded: 176px;
   --dz-rail-w: 260px;
   --dz-inspector-w: 360px;
+
+  /* Theme-proof washes & scrims — dark defaults here; light themes override
+     in themes.css (a white row wash / near-black dim only works on dark). */
+  /* Alternating timeline row wash. */
+  --dz-row-wash: rgba(255, 255, 255, 0.015);
+  /* Weekend column wash: bg-deep pulled toward black, at reduced opacity
+     (bg-deep alone is too close to the page bg to read as a wash). */
+  --dz-weekend-wash: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--gtc-bg-deep) 40%, black) 45%,
+    transparent
+  );
+  /* Tour / overlay dim scrim. */
+  --dz-dim: rgba(5, 11, 19, 0.62);
+  /* Planned-ghost capsule opacity. 0.6 matches the original opacity-60 on
+     the dark themes; light themes lift it in themes.css so ghosts don't
+     sink into the near-white row/weekend washes. */
+  --dz-planned-opacity: 0.6;
+}
+
+/* The design-system Dialog backdrop asks for bg-gtc-bg-deep/80, but the
+   preset maps colors as bare var() with no <alpha-value>, so Tailwind never
+   generates the alpha-modified utility and the scrim paints transparent.
+   Until the preset is fixed upstream, bind that exact class to the same
+   tokenized dim the tour uses so modals separate from the page in every
+   theme. (Selector matches the literal class on the Dialog overlay div.) */
+.bg-gtc-bg-deep\/80 {
+  background-color: var(--dz-dim);
+}
+
+/* Touch ergonomics: month/quarter density bars are 10px tall — far below
+   finger size, and a near-miss falls through to the row's click-to-create.
+   On coarse pointers, extend each bar's hit area vertically with an
+   invisible overlay (bars never stack inside a row, so nothing is stolen
+   from a neighboring target; visuals unchanged). */
+@media (pointer: coarse) {
+  .dz-touch-hit::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -12px;
+    bottom: -12px;
+  }
+}
+
+/* The pre-paint script in index.html inlines a per-theme ground color on
+   <html> before CSS loads; once tokens are live the theme variable must win
+   again (stylesheet !important beats a non-important inline style), so
+   runtime theme switches repaint the canvas/overscroll ground correctly. */
+html {
+  background: var(--gtc-bg) !important;
 }
 
 /* Thin, calm scrollbars everywhere. */

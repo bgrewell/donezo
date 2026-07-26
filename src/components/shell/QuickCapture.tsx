@@ -186,10 +186,19 @@ export function QuickCapture() {
       maxWidthClassName="max-w-xl"
       footer={
         <div className="flex w-full items-center gap-3">
-          <span className="min-w-0 flex-1 truncate whitespace-nowrap font-mono text-[0.62rem] text-gtc-muted">
+          {/* Key hints add nothing on phones (and would crush the buttons). */}
+          <span className="hidden min-w-0 flex-1 truncate whitespace-nowrap font-mono text-[0.62rem] text-gtc-muted sm:block">
             ENTER create · {MOD_LABEL}+ENTER inbox · ESC close
           </span>
-          <Button size="sm" variant="ghost" noGlyph disabled={!raw} onClick={saveToInbox}>
+          <div className="flex-1 sm:hidden" />
+          <Button
+            size="sm"
+            variant="ghost"
+            noGlyph
+            disabled={!raw}
+            onClick={saveToInbox}
+            className="whitespace-nowrap"
+          >
             Save to inbox
           </Button>
           <Button
@@ -197,6 +206,7 @@ export function QuickCapture() {
             variant="primary"
             disabled={createDisabled}
             onClick={create}
+            className="whitespace-nowrap"
             title={kind === "activity" && !projectId ? "Activity needs a project" : undefined}
           >
             Create {kind}

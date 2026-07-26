@@ -5,8 +5,8 @@ import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { useOnboarding } from "./OnboardingProvider";
 import { TOUR_STEPS, type TourPlacement } from "./steps";
 
-/** Screen-fraction dim around the highlighted target. */
-const DIM = "rgba(5,11,19,0.62)";
+/** Screen-fraction dim around the highlighted target (theme token). */
+const DIM = "var(--dz-dim)";
 /** Breathing room between the target edge and the cutout edge. */
 const CUTOUT_PAD = 4;
 /** Minimum distance from the viewport edge for the coachmark card. */

@@ -23,7 +23,7 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
             <li
               key={`${row.kind}-${row.id}`}
               className={cn(
-                "flex items-center gap-3 py-2 transition-colors hover:bg-gtc-tint-accent",
+                "flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
                 HAIRLINE_ROW
               )}
             >
@@ -44,7 +44,8 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
                 <Bell className="h-3.5 w-3.5 shrink-0 text-gtc-muted" aria-hidden />
               )}
               {row.project && (
-                <span className="flex shrink-0 items-center gap-1.5">
+                // Drops under the title on phones instead of crushing it.
+                <span className="flex shrink-0 basis-full items-center gap-1.5 sm:basis-auto">
                   <ProjectMark color={row.project.color} size={7} />
                   <span className="max-w-[180px] truncate font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
                     {row.project.name}

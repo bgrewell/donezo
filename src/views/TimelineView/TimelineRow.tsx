@@ -96,7 +96,7 @@ export function TimelineRow({
         showFocus={zoom === "day" || zoom === "week"}
       />
       <div
-        className={cn("relative shrink-0", index % 2 === 0 && "bg-white/[0.015]")}
+        className={cn("relative shrink-0", index % 2 === 0 && "bg-[var(--dz-row-wash)]")}
         style={{ width, backgroundImage: rowBackgroundImage(zoom) }}
         onClick={handleSurfaceClick}
       >

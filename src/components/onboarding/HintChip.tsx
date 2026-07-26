@@ -26,7 +26,7 @@ export function HintChip() {
   return (
     <div
       className={cn(
-        "absolute bottom-3 right-3 z-20 flex items-center gap-2",
+        "absolute bottom-3 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-2",
         "rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-1.5"
       )}
     >

@@ -5,12 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>donezo</title>
-    <style>
-      /* Paint the ground before CSS loads to avoid a white flash. */
-      html {
-        background: #07101a;
-      }
-    </style>
+    <script>
+      // Pre-paint theming: apply the stored theme and its ground color before
+      // the first paint so no theme ever flashes the wrong ground. Must stay
+      // in sync with src/lib/themes.ts and src/styles/themes.css. app.css
+      // re-binds html's background to var(--gtc-bg) once tokens load, so
+      // runtime theme switches stay correct.
+      (function () {
+        var grounds = {
+          console: { bg: "#07101a", scheme: "dark" },
+          slate: { bg: "#111315", scheme: "dark" },
+          paper: { bg: "#f2f0ea", scheme: "light" },
+          blossom: { bg: "#f7eef1", scheme: "light" },
+        };
+        var theme = null;
+        try {
+          theme = window.localStorage.getItem("donezo.theme");
+        } catch (e) {
+          /* localStorage unavailable — fall through to default */
+        }
+        if (!theme || !grounds[theme]) theme = "console";
+        var g = grounds[theme];
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.background = g.bg;
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.setAttribute("content", g.scheme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

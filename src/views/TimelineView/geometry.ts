@@ -143,6 +143,12 @@ export function totalWidth(zoom: ZoomLevel): number {
   return columns(zoom).length * ZOOM_CONFIG[zoom].colWidth;
 }
 
+/** Whole columns that fit in a `laneWidth`px lane (>= 1). Feeds
+ *  anchorForToday so the today jump stays on screen on narrow lanes. */
+export function visibleColumnCount(laneWidth: number, zoom: ZoomLevel): number {
+  return Math.max(1, Math.floor(laneWidth / ZOOM_CONFIG[zoom].colWidth));
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
@@ -222,10 +228,9 @@ export const GRID_LINE = "color-mix(in srgb, var(--gtc-border) 55%, transparent)
 /** Row divider color (border token at reduced opacity). */
 export const ROW_BORDER = "color-mix(in srgb, var(--gtc-border) 45%, transparent)";
 
-/** Weekend wash for day-zoom header cells and body columns. Neutral darkening
- *  (bg-deep alone is too close to the page bg to read as a wash). */
-export const WEEKEND_WASH =
-  "color-mix(in srgb, color-mix(in srgb, var(--gtc-bg-deep) 40%, black) 45%, transparent)";
+/** Weekend wash for day-zoom header cells and body columns. Theme token —
+ *  the recipe lives in app.css (dark default) and themes.css (per theme). */
+export const WEEKEND_WASH = "var(--dz-weekend-wash)";
 
 /** Project-color tint, e.g. mixProject("var(--dz-pj-blue)", 16). */
 export function mixProject(colorVar: string, pct: number): string {

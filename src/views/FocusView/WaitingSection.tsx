@@ -17,7 +17,7 @@ export function WaitingSection({
 }) {
   const dispatch = useAppDispatch();
   const rowClass = cn(
-    "flex items-center gap-3 py-2 transition-colors hover:bg-gtc-tint-accent",
+    "flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
     HAIRLINE_ROW
   );
   return (
@@ -31,13 +31,18 @@ export function WaitingSection({
       <ul>
         {tasks.map(({ task, project }) => (
           <li key={task.id} className={rowClass}>
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-gtc-text">
+            <span className="min-w-0 grow basis-full truncate font-sans text-[0.85rem] text-gtc-text sm:basis-0">
               {task.title}
             </span>
-            <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
-              waiting on {task.waitingOn ?? "—"}
+            {/* Meta + mark drop under the title together on phones, where a
+                long "waiting on …" must wrap (min-w-0, shrink allowed) —
+                sm+ keeps the single unshrunk line. */}
+            <span className="flex min-w-0 items-center gap-3 sm:shrink-0">
+              <span className="min-w-0 font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">
+                waiting on {task.waitingOn ?? "—"}
+              </span>
+              {project && <ProjectMark color={project.color} size={7} />}
             </span>
-            {project && <ProjectMark color={project.color} size={7} />}
           </li>
         ))}
         {projects.map((p) => (
@@ -51,7 +56,7 @@ export function WaitingSection({
               {p.name}
             </button>
             <StatusBadge status={p.status} />
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-gtc-muted">
+            <span className="min-w-0 grow basis-full truncate font-sans text-[0.8rem] text-gtc-muted sm:basis-0">
               {p.waitingOn}
             </span>
           </li>

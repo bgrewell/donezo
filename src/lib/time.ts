@@ -106,22 +106,37 @@ export function relativeFromToday(iso: string): string {
 }
 
 /** Anchor (left edge of the visible window) that puts today in a natural
- *  reading position for each zoom level. */
-export function anchorForToday(zoom: ZoomLevel): string {
+ *  reading position for each zoom level.
+ *
+ *  `visibleColumns` is how many whole columns the timeline lane can show
+ *  (measured, or estimated at boot). The designed offsets assume a desktop
+ *  lane; on narrower lanes the past-context offset shrinks so today's own
+ *  column always stays on screen. Omitting it keeps the designed positions,
+ *  and lanes wide enough for the designed window are unaffected either way. */
+export function anchorForToday(zoom: ZoomLevel, visibleColumns?: number): string {
   const today = todayISO();
+  // Columns of past context before today's column: the designed amount,
+  // capped at visibleColumns - 1 so today itself is never pushed off.
+  const past = (designed: number) =>
+    Math.min(designed, Math.max(0, (visibleColumns ?? Number.POSITIVE_INFINITY) - 1));
   switch (zoom) {
     case "day":
       // today sits at position 5 of 7 — recent past visible, a little future
-      return addDaysISO(today, -4);
+      return addDaysISO(today, -past(4));
     case "week":
       // 5 visible weeks, current week fourth
-      return addDaysISO(startOfWeekISO(today), -21);
+      return addDaysISO(startOfWeekISO(today), -7 * past(3));
     case "month":
       // ~5 visible months, current month fourth
-      return addMonthsISO(startOfMonthISO(today), -3);
+      return addMonthsISO(startOfMonthISO(today), -past(3));
     case "quarter":
-      // 2 visible quarters, current one second
-      return addMonthsISO(startOfQuarterISO(today), -3);
+      // 2 visible quarters, current one second. Below 6 month columns the
+      // quarter-start offset can strand today off screen (today may sit up
+      // to 2 months into its quarter), so anchor to today's month instead.
+      if (visibleColumns === undefined || visibleColumns >= 6) {
+        return addMonthsISO(startOfQuarterISO(today), -3);
+      }
+      return addMonthsISO(startOfMonthISO(today), -past(2));
   }
 }
 
@@ -148,6 +163,16 @@ const VISIBLE_WINDOW_DAYS: Record<ZoomLevel, number> = {
   quarter: 240,
 };
 
+/** Days spanned by one column at each zoom (month/quarter columns are
+ *  calendar months; 31 is the safe upper bound so a measured window never
+ *  overshoots the range). Converts a measured column count into a window. */
+const DAYS_PER_COLUMN: Record<ZoomLevel, number> = {
+  day: 1,
+  week: 7,
+  month: 31,
+  quarter: 31,
+};
+
 /** Clamp a date into the rendered range [RANGE_START, RANGE_END]. */
 export function clampToRange(iso: string): string {
   if (iso < RANGE_START) return RANGE_START;
@@ -156,9 +181,20 @@ export function clampToRange(iso: string): string {
 }
 
 /** Clamp an anchor so its visible window stays inside the rendered range:
- *  [RANGE_START, latest anchor whose window still ends by RANGE_END]. */
-export function clampAnchor(iso: string, zoom: ZoomLevel): string {
-  let max = addDaysISO(RANGE_END, 1 - VISIBLE_WINDOW_DAYS[zoom]);
+ *  [RANGE_START, latest anchor whose window still ends by RANGE_END].
+ *  `visibleColumns` (when measured) sizes the window from the real lane —
+ *  the desktop-tuned defaults over-clamp on phones, where a much smaller
+ *  window fits and later anchors are therefore still fully in range. */
+export function clampAnchor(
+  iso: string,
+  zoom: ZoomLevel,
+  visibleColumns?: number
+): string {
+  const windowDays =
+    visibleColumns !== undefined
+      ? visibleColumns * DAYS_PER_COLUMN[zoom]
+      : VISIBLE_WINDOW_DAYS[zoom];
+  let max = addDaysISO(RANGE_END, 1 - windowDays);
   if (zoom === "month" || zoom === "quarter") {
     // Month/quarter anchors sit on month starts; round the ceiling up so the
     // last reachable window still includes the final columns.

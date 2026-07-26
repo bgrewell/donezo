@@ -28,12 +28,17 @@ function RowAction({ muted, className, ...props }: ButtonProps & { muted?: boole
   );
 }
 
-/** One resurfaced item: content left, actions right, hairline below. */
+/** One resurfaced item: content left, actions right, hairline below.
+ *  On narrow screens the action row drops under the content, right-aligned. */
 function ReviewRow({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="-mx-2 flex items-center gap-3 border-b border-gtc-line/60 px-2 py-2 transition-colors hover:bg-gtc-tint-accent">
-      <div className="min-w-0 flex-1">{children}</div>
-      {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+    <div className="-mx-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-gtc-line/60 px-2 py-2 transition-colors hover:bg-gtc-tint-accent">
+      <div className="min-w-0 grow basis-full sm:basis-0">{children}</div>
+      {actions && (
+        <div className="flex shrink-0 grow items-center justify-end gap-1.5 sm:grow-0">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -110,7 +115,7 @@ export default function ReviewView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[880px] space-y-7 px-8 py-6">
+      <div className="mx-auto max-w-[880px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <p className="max-w-[62ch] text-[0.85rem] text-gtc-muted">
           A gentle sweep of things that may have drifted. Nothing here is urgent.
         </p>
@@ -136,8 +141,10 @@ export default function ReviewView() {
                     </RowAction>
                   }
                 >
-                  <div className="flex items-baseline gap-3">
-                    <span className={cn(TITLE, "min-w-0 flex-1")}>{i.raw}</span>
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    <span className={cn(TITLE, "min-w-0 grow basis-full sm:basis-0")}>
+                      {i.raw}
+                    </span>
                     <span className={cn(META, "shrink-0")}>
                       captured {relativeFromToday(i.capturedAt.slice(0, 10))}
                     </span>
@@ -230,10 +237,10 @@ export default function ReviewView() {
                     </RowAction>
                   }
                 >
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                     <ProjectMark color={p.color} muted />
                     <span className={TITLE}>{p.name}</span>
-                    <span className={cn(META, "shrink-0")}>
+                    <span className={cn(META, "shrink-0 basis-full sm:basis-auto")}>
                       {projectRowMeta(p, "paused · last touched")}
                     </span>
                   </div>
@@ -287,10 +294,10 @@ export default function ReviewView() {
                       </RowAction>
                     }
                   >
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                       <ProjectMark color={p.color} />
                       <span className={TITLE}>{p.name}</span>
-                      <span className={cn(META, "shrink-0")}>
+                      <span className={cn(META, "shrink-0 basis-full sm:basis-auto")}>
                         waiting on {p.waitingOn ?? "—"} · since {latest ? formatDay(latest) : "—"}
                       </span>
                     </div>

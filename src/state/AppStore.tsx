@@ -22,6 +22,9 @@ import {
 } from "@/domain/mockData";
 import { anchorForToday, clampAnchor, clampToRange, shiftAnchor } from "@/lib/time";
 import { parseHash } from "@/lib/route";
+// Pure geometry module (no React/DOM) — the store needs the column math to
+// seed a today-visible initial anchor on narrow viewports.
+import { visibleColumnCount } from "@/views/TimelineView/geometry";
 
 /** Timeline display filters. null means "all". */
 export interface Filters {
@@ -63,7 +66,13 @@ export type AppAction =
   | { type: "SET_ZOOM"; zoom: ZoomLevel }
   | { type: "SET_ANCHOR"; date: string }
   | { type: "SHIFT_PERIOD"; dir: 1 | -1 }
-  | { type: "JUMP_TODAY" }
+  | {
+      /** Jump the timeline to today. `visibleColumns` (the whole columns the
+       *  measured lane can show) shrinks the past-context offset on narrow
+       *  lanes so today's column always lands on screen. */
+      type: "JUMP_TODAY";
+      visibleColumns?: number;
+    }
   | { type: "SET_FILTERS"; patch: Partial<Filters> }
   | { type: "SET_QUICK_CAPTURE"; open: boolean }
   | { type: "SET_SEARCH_QUERY"; query: string }
@@ -142,7 +151,11 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "JUMP_TODAY":
       return {
         ...state,
-        anchorDate: clampAnchor(anchorForToday(state.zoom), state.zoom),
+        anchorDate: clampAnchor(
+          anchorForToday(state.zoom, action.visibleColumns),
+          state.zoom,
+          action.visibleColumns
+        ),
       };
     case "SET_FILTERS":
       return { ...state, filters: { ...state.filters, ...action.patch } };
@@ -200,11 +213,44 @@ function reducer(state: AppState, action: AppAction): AppState {
   }
 }
 
+/** True when the viewport matches the media query (false without a DOM —
+ *  initial-render only; deliberately no listeners, resize does not re-collapse). */
+function viewportMatches(query: string): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(query).matches
+    : false;
+}
+
+/** Estimated whole day columns visible at first paint: viewport width minus
+ *  the nav/rail chrome the collapse defaults imply. Initial-render only,
+ *  like those defaults — once mounted, the timeline measures its real lane
+ *  (JUMP_TODAY re-derives from that measurement). Chrome widths come from
+ *  the --dz-* shell metrics, with their current values as fallbacks; the
+ *  44px collapsed rail mirrors geometry.railWidth. */
+function estimatedInitialDayColumns(
+  navCollapsed: boolean,
+  railCollapsed: boolean
+): number | undefined {
+  if (typeof window === "undefined") return undefined;
+  const rootVars = window.getComputedStyle(document.documentElement);
+  const px = (name: string, fallback: number) => {
+    const v = parseFloat(rootVars.getPropertyValue(name));
+    return Number.isFinite(v) ? v : fallback;
+  };
+  const nav = navCollapsed ? px("--dz-nav-w", 52) : px("--dz-nav-w-expanded", 176);
+  const rail = railCollapsed ? 44 : px("--dz-rail-w", 260);
+  return visibleColumnCount(Math.max(0, window.innerWidth - nav - rail), "day");
+}
+
 function initialState(): AppState {
   // Seed view/project from the URL hash so deep links survive the initial
   // render (effect-based syncing races under StrictMode double-mount).
   const route =
     typeof window !== "undefined" ? parseHash(window.location.hash) : null;
+  // Small screens start with the chrome folded away; both remain
+  // user-toggleable — these are initial defaults, not live constraints.
+  const navCollapsed = viewportMatches("(max-width: 1023px)");
+  const railCollapsed = viewportMatches("(max-width: 767px)");
   return {
     projects: PROJECTS,
     activities: ACTIVITIES,
@@ -217,7 +263,12 @@ function initialState(): AppState {
       route?.view === "projects" && route.projectId ? route.projectId : null,
     selectedActivityId: null,
     zoom: "day",
-    anchorDate: clampAnchor(anchorForToday("day"), "day"),
+    // Today-visible on any viewport: the anchor's past-context offset
+    // shrinks when the estimated first-paint lane fits fewer day columns.
+    anchorDate: clampAnchor(
+      anchorForToday("day", estimatedInitialDayColumns(navCollapsed, railCollapsed)),
+      "day"
+    ),
     filters: {
       projectIds: null,
       types: null,
@@ -225,8 +276,8 @@ function initialState(): AppState {
       showCompleted: false,
     },
     quickCaptureOpen: false,
-    navCollapsed: false,
-    railCollapsed: false,
+    navCollapsed,
+    railCollapsed,
     searchQuery: "",
   };
 }

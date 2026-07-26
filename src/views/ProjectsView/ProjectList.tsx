@@ -27,7 +27,7 @@ export function ProjectList() {
   const open = (projectId: string) => dispatch({ type: "OPEN_PROJECT", projectId });
 
   return (
-    <div className="mx-auto max-w-[1000px] px-8 py-6">
+    <div className="mx-auto max-w-[1000px] px-4 py-6 sm:px-6 lg:px-8">
       <SectionLabel
         className="mb-3 mt-0"
         trailing={<span className="text-gtc-text">{projects.length}</span>}
@@ -38,7 +38,9 @@ export function ProjectList() {
         Every stream of work. Open one to resume where you left off.
       </p>
 
-      <Table>
+      {/* min-w keeps columns readable on phones — the Table's own
+          overflow-x-auto wrapper scrolls instead of the page. */}
+      <Table className="min-w-[640px]">
         <TableHeader>
           <TableRow>
             <TableHeadCell>Project</TableHeadCell>

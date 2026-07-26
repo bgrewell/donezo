@@ -16,13 +16,14 @@ export function InterruptedSection({ rows }: { rows: InterruptedRow[] }) {
         {rows.map(({ project, latest }) => (
           <li
             key={project.id}
-            className={cn("flex items-center gap-3 py-2", HAIRLINE_ROW)}
+            className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 py-2", HAIRLINE_ROW)}
           >
             <ProjectMark color={project.color} size={7} />
             <span className="shrink-0 font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-gtc-text">
               {project.name}
             </span>
-            <span className="min-w-0 flex-1 truncate font-sans text-[0.8rem] text-gtc-muted">
+            {/* On phones the last-entry line drops below name/date/action. */}
+            <span className="order-last min-w-0 grow basis-full truncate font-sans text-[0.8rem] text-gtc-muted sm:order-none sm:basis-0">
               last: {latest.title}
             </span>
             <span className="shrink-0 font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted">

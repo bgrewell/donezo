@@ -3,6 +3,8 @@
 export const THEMES = [
   { id: "console", label: "GTech Console", hint: "Ink-navy mission control (default)" },
   { id: "slate", label: "Slate", hint: "Neutral charcoal, quieter accents" },
+  { id: "paper", label: "Paper", hint: "Warm light, ink on paper" },
+  { id: "blossom", label: "Blossom", hint: "Soft blush, raspberry accent" },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];

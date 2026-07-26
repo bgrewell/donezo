@@ -59,7 +59,7 @@ export function ActivityNode({
           "absolute flex items-center gap-1 overflow-hidden rounded-gtc border px-1 text-left text-gtc-text",
           nodeTintClass,
           "outline-none transition-colors",
-          entry.planned && "border-dashed opacity-60",
+          entry.planned && "border-dashed opacity-[var(--dz-planned-opacity)]",
           milestone && "font-medium",
           selected && "shadow-[inset_0_0_0_1px_var(--gtc-accent)]",
           "focus-visible:shadow-gtc-focus"

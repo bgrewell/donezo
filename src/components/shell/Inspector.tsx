@@ -105,7 +105,8 @@ function InspectorPanel({
     <aside
       aria-label="Activity inspector"
       className={cn(
-        "fixed inset-y-0 right-0 z-40 flex w-[var(--dz-inspector-w)] flex-col",
+        // Full-width drawer on phones, fixed-width overlay from sm, inline at xl+.
+        "fixed inset-y-0 right-0 z-40 flex w-full flex-col sm:w-[var(--dz-inspector-w)]",
         "border-l border-gtc-line bg-gtc-panel",
         "xl:static xl:inset-auto xl:z-auto"
       )}

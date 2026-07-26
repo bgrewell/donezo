@@ -41,8 +41,8 @@ export function TopBar() {
     .sort((a, b) => a.remindAt.localeCompare(b.remindAt));
 
   return (
-    <header className="flex h-[var(--dz-topbar-h)] shrink-0 items-center gap-3 border-b border-gtc-line bg-gtc-panel px-3">
-      <h1 className="min-w-0 shrink-0 font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
+    <header className="flex h-[var(--dz-topbar-h)] shrink-0 items-center gap-2 border-b border-gtc-line bg-gtc-panel px-3 sm:gap-3">
+      <h1 className="min-w-0 truncate font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
         {VIEW_TITLES[state.view]}
       </h1>
 
@@ -77,11 +77,12 @@ export function TopBar() {
         variant="primary"
         noGlyph
         onClick={() => dispatch({ type: "SET_QUICK_CAPTURE", open: true })}
-        className="gap-1.5"
+        aria-label="Capture"
+        className="shrink-0 gap-1.5 max-sm:px-2"
         data-tour="capture"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
-        Capture
+        <span className="hidden sm:inline">Capture</span>
         <Kbd className="ml-1 hidden lg:inline-flex">{CAPTURE_KEY_LABEL}</Kbd>
       </Button>
 
@@ -91,7 +92,7 @@ export function TopBar() {
             type="button"
             aria-label={`Reminders (${openReminders.length})`}
             className={cn(
-              "relative flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
               "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
             )}
           >
@@ -135,7 +136,7 @@ export function TopBar() {
             type="button"
             aria-label="Theme"
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
               "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
             )}
           >
@@ -166,7 +167,7 @@ export function TopBar() {
             type="button"
             aria-label="Help"
             className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
               "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
             )}
           >

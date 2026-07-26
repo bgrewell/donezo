@@ -33,7 +33,7 @@ export default function FocusView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[880px] space-y-7 px-8 py-6">
+      <div className="mx-auto max-w-[880px] space-y-7 px-4 py-6 sm:px-6 lg:px-8">
         <header>
           <div className="font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted">
             {format(parseDate(data.today), "EEEE")} · {formatDay(data.today)}

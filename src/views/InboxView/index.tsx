@@ -249,7 +249,10 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
         </div>
       )}
 
-      <div className="flex items-center gap-2 pt-0.5">
+      {/* flex-wrap: on phones the "Needs a project" notice drops under the
+          buttons instead of running past the viewport (and dragging the
+          whole pane into horizontal panning). */}
+      <div className="flex flex-wrap items-center gap-2 pt-0.5">
         <Button variant="primary" size="sm" onClick={convert} disabled={needsProject}>
           Convert
         </Button>
@@ -366,7 +369,7 @@ export default function InboxView() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[820px] px-8 py-6">
+      <div className="mx-auto max-w-[820px] px-4 py-6 sm:px-6 lg:px-8">
         <SectionLabel trailing={<span className="text-gtc-text">{pending.length}</span>}>
           Inbox
         </SectionLabel>
