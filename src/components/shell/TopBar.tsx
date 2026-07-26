@@ -3,7 +3,7 @@ import { Avatar, Button, cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
-import { THEMES } from "@/lib/themes";
+import { FONT_SETS, FONT_SIZES, THEMES } from "@/lib/themes";
 import { useTheme } from "@/state/ThemeProvider";
 import { relativeFromToday } from "@/lib/time";
 import { CAPTURE_KEY_LABEL } from "@/lib/platform";
@@ -33,7 +33,7 @@ const VIEW_TITLES: Record<ViewId, string> = {
 export function TopBar() {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, font, setFont, fontSize, setFontSize } = useTheme();
   const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
 
   const openReminders = state.reminders
@@ -134,7 +134,7 @@ export function TopBar() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label="Theme"
+            aria-label="Appearance"
             className={cn(
               "flex h-7 w-7 shrink-0 items-center justify-center rounded-gtc border border-gtc-line text-gtc-muted",
               "outline-none transition-colors hover:border-gtc-accent-dim hover:text-gtc-text focus-visible:shadow-gtc-focus"
@@ -150,8 +150,33 @@ export function TopBar() {
               key={t.id}
               checked={theme === t.id}
               onCheckedChange={() => setTheme(t.id)}
+              onSelect={(event) => event.preventDefault()}
             >
               {t.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Font</DropdownMenuLabel>
+          {FONT_SETS.map((f) => (
+            <DropdownMenuCheckboxItem
+              key={f.id}
+              checked={font === f.id}
+              onCheckedChange={() => setFont(f.id)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              {f.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Text size</DropdownMenuLabel>
+          {FONT_SIZES.map((s) => (
+            <DropdownMenuCheckboxItem
+              key={s.id}
+              checked={fontSize === s.id}
+              onCheckedChange={() => setFontSize(s.id)}
+              onSelect={(event) => event.preventDefault()}
+            >
+              {s.label}
             </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />

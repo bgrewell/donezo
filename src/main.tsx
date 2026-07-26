@@ -8,6 +8,15 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";
 
+// Alternate font set ("inter" in src/lib/themes.ts). @font-face only — the
+// browser fetches the files lazily when the families are actually used.
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@fontsource/jetbrains-mono/600.css";
+
 import "@grewelltech/console/tokens.css";
 import "@grewelltech/console/base.css";
 import "./styles/themes.css";

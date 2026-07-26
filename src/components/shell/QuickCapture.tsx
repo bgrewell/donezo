@@ -186,9 +186,12 @@ export function QuickCapture() {
       maxWidthClassName="max-w-xl"
       footer={
         <div className="flex w-full items-center gap-3">
-          {/* Key hints add nothing on phones (and would crush the buttons). */}
-          <span className="hidden min-w-0 flex-1 truncate whitespace-nowrap font-mono text-[0.62rem] text-gtc-muted sm:block">
-            ENTER create · {MOD_LABEL}+ENTER inbox · ESC close
+          {/* Key hints add nothing on phones (and would crush the buttons).
+              Segments wrap as whole units so no chord is ever truncated away. */}
+          <span className="hidden min-w-0 flex-1 font-mono text-[0.62rem] leading-[0.85rem] text-gtc-muted sm:block">
+            <span className="whitespace-nowrap">ENTER create ·</span>{" "}
+            <span className="whitespace-nowrap">{MOD_LABEL}+ENTER inbox ·</span>{" "}
+            <span className="whitespace-nowrap">ESC close</span>
           </span>
           <div className="flex-1 sm:hidden" />
           <Button
@@ -250,8 +253,10 @@ export function QuickCapture() {
                 )}
               >
                 {k}
+                {/* max() floors the smallest chrome label at 8px when the
+                    small text-size axis drops the root to 14px. */}
                 {selected && showSuggested && (
-                  <span className="font-mono text-[0.56rem] lowercase tracking-normal text-gtc-muted">
+                  <span className="font-mono text-[max(0.56rem,8px)] lowercase tracking-normal text-gtc-muted">
                     suggested
                   </span>
                 )}

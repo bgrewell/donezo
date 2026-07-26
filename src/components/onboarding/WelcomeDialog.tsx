@@ -27,8 +27,11 @@ export function WelcomeDialog() {
       onClose={markWelcomed}
       title="Welcome to donezo"
       footer={
-        <>
-          <Button size="sm" variant="ghost" noGlyph onClick={markWelcomed}>
+        // flex-wrap + nowrap labels: on very narrow dialogs (wide font stacks
+        // at the large text size) the buttons stack instead of breaking their
+        // mono-uppercase labels across two lines.
+        <div className="flex w-full flex-wrap justify-end gap-3">
+          <Button size="sm" variant="ghost" noGlyph onClick={markWelcomed} className="whitespace-nowrap">
             Just start
           </Button>
           <Button
@@ -38,10 +41,11 @@ export function WelcomeDialog() {
               markWelcomed();
               startTour();
             }}
+            className="whitespace-nowrap"
           >
             Take the tour
           </Button>
-        </>
+        </div>
       }
     >
       <div ref={focusRef} className="space-y-4">

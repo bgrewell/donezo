@@ -44,6 +44,39 @@
   --dz-planned-opacity: 0.6;
 }
 
+/* ── Appearance: font sets ──────────────────────────────────────────────────
+   data-font on <html> re-points the two GTech font tokens; every font-sans /
+   font-mono utility follows them (bound in tailwind.config.cjs), as does the
+   design system's body/code styling. "plex" is the token default — no block. */
+:root[data-font="inter"] {
+  --gtc-font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --gtc-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
+    monospace;
+}
+:root[data-font="system"] {
+  --gtc-font-sans: system-ui, "Segoe UI", sans-serif;
+  --gtc-font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+/* ── Appearance: text size ──────────────────────────────────────────────────
+   data-fontsize scales the rem root; "medium" is the browser default (16px)
+   and has no block. Pixel-based chrome (topbar height, nav/rail widths,
+   timeline column geometry, borders) intentionally does NOT scale — only
+   rem/em-sized type does. */
+:root[data-fontsize="small"] {
+  font-size: 14px;
+}
+:root[data-fontsize="large"] {
+  font-size: 17.5px;
+}
+
+/* Body text rides the rem scale: 0.9375rem equals the design system's fixed
+   15px at medium, but follows data-fontsize (base.css pins 15px; this loads
+   after it, same specificity, so the rem value wins). */
+body {
+  font-size: 0.9375rem;
+}
+
 /* The design-system Dialog backdrop asks for bg-gtc-bg-deep/80, but the
    preset maps colors as bare var() with no <alpha-value>, so Tailwind never
    generates the alpha-modified utility and the scrim paints transparent.
