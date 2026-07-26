@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>donezo</title>
+    <script>
+      // Pre-paint appearance: apply the stored theme (plus its ground color),
+      // font set, and text size before the first paint so nothing flashes —
+      // no wrong ground, no font swap, no font-size reflow. Must stay in sync
+      // with src/lib/themes.ts, src/styles/themes.css, and src/styles/app.css.
+      // app.css re-binds html's background to var(--gtc-bg) once tokens load,
+      // so runtime theme switches stay correct.
+      (function () {
+        var grounds = {
+          console: { bg: "#07101a", scheme: "dark" },
+          slate: { bg: "#111315", scheme: "dark" },
+          paper: { bg: "#f2f0ea", scheme: "light" },
+          blossom: { bg: "#f7eef1", scheme: "light" },
+        };
+        var fonts = { plex: true, inter: true, system: true };
+        var sizes = { small: true, medium: true, large: true };
+        var theme = null;
+        var font = null;
+        var size = null;
+        try {
+          theme = window.localStorage.getItem("donezo.theme");
+          font = window.localStorage.getItem("donezo.font");
+          size = window.localStorage.getItem("donezo.fontsize");
+        } catch (e) {
+          /* localStorage unavailable — fall through to defaults */
+        }
+        if (!theme || !grounds[theme]) theme = "console";
+        if (!font || !fonts[font]) font = "plex";
+        if (!size || !sizes[size]) size = "medium";
+        var g = grounds[theme];
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.font = font;
+        document.documentElement.dataset.fontsize = size;
+        document.documentElement.style.background = g.bg;
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.setAttribute("content", g.scheme);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

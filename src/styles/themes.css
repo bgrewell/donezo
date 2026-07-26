@@ -1,0 +1,165 @@
+/**
+ * donezo themes.
+ *
+ * A theme is a set of CSS-variable overrides applied via data-theme on
+ * <html>. The default (no attribute / "console") is the GTech Console design
+ * system's own dark palette from @grewelltech/console/tokens.css.
+ *
+ * Every component references tokens only (--gtc-* / --dz-*), so adding a
+ * theme means overriding variables here — no component changes.
+ */
+
+/* ── Slate — neutral charcoal, quieter tha GTech Console's ink-navy ─────────── */
+:root[data-theme="slate"] {
+  --gtc-bg: #111315;
+  --gtc-bg-deep: #0c0e10;
+  --gtc-panel: #191c1f;
+  --gtc-panel-inset: #141619;
+  --gtc-border: #2a2f34;
+  --gtc-border-hi: #4d6a76;
+
+  --gtc-accent: #7fb4c9;
+  --gtc-accent-dim: #3d5762;
+  --gtc-accent-bright: #a8d4e4;
+
+  --gtc-text: #d3dae0;
+  --gtc-muted: #848f99;
+  --gtc-title: #d9bd77;
+
+  --gtc-tint-accent: rgba(127, 180, 201, 0.08);
+  --gtc-tint-accent-strong: rgba(127, 180, 201, 0.16);
+
+  --gtc-glow-accent: 0 0 10px rgba(127, 180, 201, 0.3);
+  --gtc-glow-dot: 0 0 5px rgba(127, 180, 201, 0.45);
+  --gtc-glow-title: none;
+  --gtc-glow-focus: 0 0 0 1px var(--gtc-accent-dim), 0 0 10px rgba(127, 180, 201, 0.2);
+
+  /* Flat charcoal ground — no radial accents. */
+  --gtc-page-bg: linear-gradient(180deg, var(--gtc-bg) 0%, var(--gtc-bg-deep) 100%);
+}
+
+/* ── Paper — warm light, ink on paper, deep teal accent ─────────────────────
+   A proper light theme: form controls and scrollbars follow color-scheme,
+   glows collapse to soft rings, gold titles become bronze, and the project
+   ramp deepens so hues stay distinguishable on near-white panels. */
+:root[data-theme="paper"] {
+  color-scheme: light;
+
+  --gtc-bg: #f2f0ea;
+  --gtc-bg-deep: #e9e6dd;
+  --gtc-panel: #faf9f4;
+  --gtc-panel-inset: #eeebe2;
+  --gtc-border: #d6d0c2;
+  --gtc-border-hi: #2f7d8e;
+
+  --gtc-accent: #14707f;
+  --gtc-accent-dim: #8db8c0; /* quiet borders, focus ring, ::selection bg */
+  --gtc-accent-bright: #0b5260; /* hover text darkens on light ground */
+
+  --gtc-text: #2a3138;
+  --gtc-muted: #6d7681;
+  --gtc-title: #8a6a33; /* bronze replaces gold */
+
+  --gtc-success: #257a4d;
+  --gtc-success-dim: #93c4a7;
+  --gtc-warn: #9a6410;
+  --gtc-warn-dim: #d9b478;
+  --gtc-danger: #b23f2e;
+  --gtc-danger-dim: #dfa397;
+
+  --gtc-tint-accent: rgba(20, 112, 127, 0.08);
+  --gtc-tint-accent-strong: rgba(20, 112, 127, 0.16);
+  --gtc-tint-success: rgba(37, 122, 77, 0.09);
+  --gtc-tint-warn: rgba(154, 100, 16, 0.09);
+  --gtc-tint-danger: rgba(178, 63, 46, 0.08);
+
+  --gtc-glow-accent: 0 0 8px rgba(20, 112, 127, 0.28);
+  --gtc-glow-dot: 0 0 4px rgba(20, 112, 127, 0.4);
+  --gtc-glow-title: none;
+  --gtc-glow-focus: 0 0 0 1px var(--gtc-accent-dim), 0 0 8px rgba(20, 112, 127, 0.18);
+  --gtc-glow-focus-danger: 0 0 0 1px var(--gtc-danger-dim), 0 0 8px rgba(178, 63, 46, 0.18);
+
+  /* Flat paper ground — no radial accents. */
+  --gtc-page-bg: linear-gradient(180deg, var(--gtc-bg) 0%, var(--gtc-bg-deep) 100%);
+
+  /* Project ramp deepened for light panels — same hue identities. */
+  --dz-pj-blue: #476fa4;
+  --dz-pj-green: #4d7d51;
+  --dz-pj-tan: #8c7134;
+  --dz-pj-violet: #6d5aa4;
+  --dz-pj-rose: #a24e63;
+  --dz-pj-orange: #9a5e2e;
+  --dz-pj-steel: #5b6e7e;
+
+  /* Washes & scrims flip to ink-on-light. */
+  --dz-row-wash: rgba(42, 49, 56, 0.026);
+  --dz-weekend-wash: rgba(42, 49, 56, 0.05);
+  --dz-dim: rgba(42, 49, 56, 0.45);
+  /* Planned ghosts sit on near-white washes here — lift them off the floor
+     (dashed edge keeps the ghost feel; 0.6 was close to vanishing). */
+  --dz-planned-opacity: 0.75;
+}
+
+/* ── Blossom — soft blush, raspberry accent, plum ink ───────────────────────
+   Light and feminine but still calm and technical: dusty-rose hairlines,
+   a raspberry accent used exactly where cyan is used elsewhere, and a
+   deep-orchid title treatment in place of gold. */
+:root[data-theme="blossom"] {
+  color-scheme: light;
+
+  --gtc-bg: #f7eef1;
+  --gtc-bg-deep: #f0e1e7;
+  --gtc-panel: #fdf9f9;
+  --gtc-panel-inset: #f3e8ec;
+  --gtc-border: #e2ccd6;
+  --gtc-border-hi: #b0537f;
+
+  --gtc-accent: #b03d74;
+  --gtc-accent-dim: #d8a3bc; /* quiet borders, focus ring, ::selection bg */
+  --gtc-accent-bright: #8c2c5b; /* hover text darkens on light ground */
+
+  --gtc-text: #43303f;
+  --gtc-muted: #8b7285;
+  --gtc-title: #8d4a93; /* deep orchid replaces gold */
+
+  --gtc-success: #47795a;
+  --gtc-success-dim: #a5c6b1;
+  --gtc-warn: #a2661c;
+  --gtc-warn-dim: #dcb488;
+  --gtc-danger: #bb4a38;
+  --gtc-danger-dim: #e3a99c;
+
+  --gtc-tint-accent: rgba(176, 61, 116, 0.08);
+  --gtc-tint-accent-strong: rgba(176, 61, 116, 0.15);
+  --gtc-tint-success: rgba(71, 121, 90, 0.09);
+  --gtc-tint-warn: rgba(162, 102, 28, 0.09);
+  --gtc-tint-danger: rgba(187, 74, 56, 0.08);
+
+  --gtc-glow-accent: 0 0 8px rgba(176, 61, 116, 0.25);
+  --gtc-glow-dot: 0 0 4px rgba(176, 61, 116, 0.38);
+  --gtc-glow-title: none;
+  --gtc-glow-focus: 0 0 0 1px var(--gtc-accent-dim), 0 0 8px rgba(176, 61, 116, 0.18);
+  --gtc-glow-focus-danger: 0 0 0 1px var(--gtc-danger-dim), 0 0 8px rgba(187, 74, 56, 0.18);
+
+  /* Blush ground with one faint rose bloom at the top corner. */
+  --gtc-page-bg:
+    radial-gradient(1100px 550px at 18% -10%, rgba(176, 61, 116, 0.05), transparent 60%),
+    linear-gradient(180deg, var(--gtc-bg) 0%, var(--gtc-bg-deep) 100%);
+
+  /* Project ramp deepened for light panels — same hue identities. */
+  --dz-pj-blue: #476fa4;
+  --dz-pj-green: #4d7d51;
+  --dz-pj-tan: #8c7134;
+  --dz-pj-violet: #6d5aa4;
+  --dz-pj-rose: #a24e63;
+  --dz-pj-orange: #9a5e2e;
+  --dz-pj-steel: #5b6e7e;
+
+  /* Washes & scrims flip to plum-ink-on-light. */
+  --dz-row-wash: rgba(67, 48, 63, 0.028);
+  --dz-weekend-wash: rgba(67, 48, 63, 0.05);
+  --dz-dim: rgba(67, 48, 63, 0.45);
+  /* Planned ghosts sit on near-white washes here — lift them off the floor
+     (dashed edge keeps the ghost feel; 0.6 was close to vanishing). */
+  --dz-planned-opacity: 0.75;
+}

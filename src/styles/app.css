@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * donezo app tokens — extensions layered on top of GTech Console's --gtc-* set.
+ * Everything donezo-specific goes through --dz-* variables so themes can
+ * override the full surface (see themes.css).
+ */
+:root {
+  /* Project color ramp — muted categorical hues, one per project, tuned to
+     sit on GTech Console's ink-navy panels without competing with the cyan accent. */
+  --dz-pj-blue: #729bd0;
+  --dz-pj-green: #7fb57c;
+  --dz-pj-tan: #c0a467;
+  --dz-pj-violet: #9d8cd0;
+  --dz-pj-rose: #c77e8e;
+  --dz-pj-orange: #c08b5e;
+  --dz-pj-steel: #8b9bab;
+
+  /* Shell metrics */
+  --dz-topbar-h: 46px;
+  --dz-nav-w: 52px;
+  --dz-nav-w-expanded: 176px;
+  --dz-rail-w: 260px;
+  --dz-inspector-w: 360px;
+
+  /* Theme-proof washes & scrims — dark defaults here; light themes override
+     in themes.css (a white row wash / near-black dim only works on dark). */
+  /* Alternating timeline row wash. */
+  --dz-row-wash: rgba(255, 255, 255, 0.015);
+  /* Weekend column wash: bg-deep pulled toward black, at reduced opacity
+     (bg-deep alone is too close to the page bg to read as a wash). */
+  --dz-weekend-wash: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--gtc-bg-deep) 40%, black) 45%,
+    transparent
+  );
+  /* Tour / overlay dim scrim. */
+  --dz-dim: rgba(5, 11, 19, 0.62);
+  /* Planned-ghost capsule opacity. 0.6 matches the original opacity-60 on
+     the dark themes; light themes lift it in themes.css so ghosts don't
+     sink into the near-white row/weekend washes. */
+  --dz-planned-opacity: 0.6;
+}
+
+/* ── Appearance: font sets ──────────────────────────────────────────────────
+   data-font on <html> re-points the two GTech font tokens; every font-sans /
+   font-mono utility follows them (bound in tailwind.config.cjs), as does the
+   design system's body/code styling. "plex" is the token default — no block. */
+:root[data-font="inter"] {
+  --gtc-font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --gtc-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas,
+    monospace;
+}
+:root[data-font="system"] {
+  --gtc-font-sans: system-ui, "Segoe UI", sans-serif;
+  --gtc-font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+/* ── Appearance: text size ──────────────────────────────────────────────────
+   data-fontsize scales the rem root; "medium" is the browser default (16px)
+   and has no block. Pixel-based chrome (topbar height, nav/rail widths,
+   timeline column geometry, borders) intentionally does NOT scale — only
+   rem/em-sized type does. */
+:root[data-fontsize="small"] {
+  font-size: 14px;
+}
+:root[data-fontsize="large"] {
+  font-size: 17.5px;
+}
+
+/* Body text rides the rem scale: 0.9375rem equals the design system's fixed
+   15px at medium, but follows data-fontsize (base.css pins 15px; this loads
+   after it, same specificity, so the rem value wins). */
+body {
+  font-size: 0.9375rem;
+}
+
+/* The design-system Dialog backdrop asks for bg-gtc-bg-deep/80, but the
+   preset maps colors as bare var() with no <alpha-value>, so Tailwind never
+   generates the alpha-modified utility and the scrim paints transparent.
+   Until the preset is fixed upstream, bind that exact class to the same
+   tokenized dim the tour uses so modals separate from the page in every
+   theme. (Selector matches the literal class on the Dialog overlay div.) */
+.bg-gtc-bg-deep\/80 {
+  background-color: var(--dz-dim);
+}
+
+/* Touch ergonomics: month/quarter density bars are 10px tall — far below
+   finger size, and a near-miss falls through to the row's click-to-create.
+   On coarse pointers, extend each bar's hit area vertically with an
+   invisible overlay (bars never stack inside a row, so nothing is stolen
+   from a neighboring target; visuals unchanged). */
+@media (pointer: coarse) {
+  .dz-touch-hit::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -12px;
+    bottom: -12px;
+  }
+}
+
+/* The pre-paint script in index.html inlines a per-theme ground color on
+   <html> before CSS loads; once tokens are live the theme variable must win
+   again (stylesheet !important beats a non-important inline style), so
+   runtime theme switches repaint the canvas/overscroll ground correctly. */
+html {
+  background: var(--gtc-bg) !important;
+}
+
+/* Thin, calm scrollbars everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gtc-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--gtc-border);
+  border-radius: var(--gtc-radius);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--gtc-accent-dim);
+}
+
+/* App fills the viewport; internal panes scroll, the page never does. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
