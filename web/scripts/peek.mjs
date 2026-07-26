@@ -11,7 +11,7 @@
  *   --width N     viewport width  (default 1600)
  *   --height N    viewport height (default 950)
  *   --full        full-page screenshot
- *   --theme ID    set donezo theme before load (console | slate)
+ *   --theme ID    set donezo theme before load (console | slate | paper | blossom)
  *   --wait MS     extra settle time after load (default 400)
  */
 import { chromium } from "playwright";

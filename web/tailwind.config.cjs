@@ -4,7 +4,7 @@ module.exports = {
     "./index.html",
     "./src/**/*.{ts,tsx}",
     "./node_modules/@grewelltech/console/src/**/*.tsx",
-    "../design-system/src/**/*.tsx",
+    "../../design-system/src/**/*.tsx",
   ],
   theme: {
     extend: {
