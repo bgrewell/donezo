@@ -8,24 +8,67 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
+	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
 // Server wires the stores to the HTTP surface.
 type Server struct {
-	core   *store.CoreStore
-	spaces *store.SpaceStore
-	auth   Authenticator
-	logger *log.Logger
+	core       *store.CoreStore
+	spaces     *store.SpaceStore
+	auth       Authenticator
+	passwords  auth.PasswordHasher
+	limiter    *auth.RateLimiter
+	clock      func() time.Time
+	trustProxy bool
+	logger     *log.Logger
 }
 
 // ServerOption configures a Server (functional options pattern).
 type ServerOption func(*Server)
 
-// WithAuthenticator replaces the phase 1 static dev authenticator.
+// WithAuthenticator replaces the default session-cookie authenticator.
+// Production has no reason to; --dev-auto-login installs the
+// StaticAuthenticator bypass through this.
 func WithAuthenticator(a Authenticator) ServerOption {
 	return func(s *Server) { s.auth = a }
+}
+
+// WithPasswordHasher replaces the default argon2id password hasher.
+// Tests inject fast or call-counting implementations.
+func WithPasswordHasher(h auth.PasswordHasher) ServerOption {
+	return func(s *Server) { s.passwords = h }
+}
+
+// WithRateLimiter replaces the default login/setup rate limiter (10
+// attempts per 5 minutes per client IP). The caller can share the
+// limiter with a background sweeper.
+func WithRateLimiter(l *auth.RateLimiter) ServerOption {
+	return func(s *Server) { s.limiter = l }
+}
+
+// WithTrustProxy declares that a reverse proxy donezod trusts sits
+// directly in front of it: rate limiting keys on the last
+// X-Forwarded-For hop (the one that proxy appended) instead of the
+// socket address, and X-Forwarded-Proto: https marks session cookies
+// Secure. Enable only when such a proxy is actually there — without
+// one, both headers arrive attacker-controlled, which is why they are
+// ignored by default.
+func WithTrustProxy(trust bool) ServerOption {
+	return func(s *Server) { s.trustProxy = trust }
+}
+
+// WithClock overrides the server's time source (session issuance and
+// cookie expiry). Defaults to time.Now; deterministic tests inject a
+// fixed clock.
+func WithClock(clock func() time.Time) ServerOption {
+	return func(s *Server) {
+		if clock != nil {
+			s.clock = clock
+		}
+	}
 }
 
 // WithLogger replaces the default stderr request logger.
@@ -33,18 +76,28 @@ func WithLogger(l *log.Logger) ServerOption {
 	return func(s *Server) { s.logger = l }
 }
 
-// NewServer builds a Server around the given stores. By default requests
-// are attributed to a fixed dev user (see StaticAuthenticator) and logged
-// to stderr.
+// NewServer builds a Server around the given stores. By default
+// requests are authenticated by the donezo_session cookie against
+// core.db, passwords are hashed with argon2id, login and setup are
+// rate-limited per client IP, and requests are logged to stderr.
 func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOption) *Server {
 	s := &Server{
 		core:   core,
 		spaces: spaces,
-		auth:   StaticAuthenticator{User: store.User{ID: 1, Username: "ben"}},
+		clock:  time.Now,
 		logger: defaultLogger(),
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.auth == nil {
+		s.auth = auth.NewSessionAuthenticator(core, auth.WithSessionClock(s.clock))
+	}
+	if s.passwords == nil {
+		s.passwords = auth.NewArgon2()
+	}
+	if s.limiter == nil {
+		s.limiter = auth.NewRateLimiter(auth.WithLimiterClock(s.clock))
 	}
 	return s
 }
@@ -54,14 +107,31 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/healthz", s.handleHealthz)
+	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/setup", s.handleAuthSetup)
+	mux.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("GET /api/auth/me", s.handleAuthMe)
 	mux.HandleFunc("GET /api/spaces", s.handleListSpaces)
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
 	// Method-agnostic fallbacks: with the JSON catch-all below registered,
 	// ServeMux's built-in 405 logic never fires, so known paths get an
-	// explicit JSON 405 for non-GET methods (method patterns win for GET).
-	for _, path := range []string{"/api/healthz", "/api/spaces", "/api/spaces/{id}/state"} {
+	// explicit JSON 405 for other methods (method patterns win when they
+	// match).
+	allowed := map[string]string{
+		"/api/healthz":           http.MethodGet,
+		"/api/auth/status":       http.MethodGet,
+		"/api/auth/setup":        http.MethodPost,
+		"/api/auth/login":        http.MethodPost,
+		"/api/auth/logout":       http.MethodPost,
+		"/api/auth/me":           http.MethodGet,
+		"/api/spaces":            http.MethodGet,
+		"/api/spaces/{id}/state": http.MethodGet,
+	}
+	for path, method := range allowed {
+		method := method // capture (golangci-lint predates Go 1.22 loopvar)
 		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Allow", http.MethodGet)
+			w.Header().Set("Allow", method)
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	}
@@ -90,8 +160,7 @@ func (s *Server) handleListSpaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	// Per-space ownership filter; with the phase 1 dev user this passes
-	// everything, and with phase 2 auth it scopes the listing for free.
+	// Per-space ownership filter scopes the listing to the requester.
 	mine := []store.Space{}
 	for _, sp := range all {
 		if sp.UserID == user.ID {

@@ -4,6 +4,7 @@ go 1.22.4
 
 require (
 	github.com/bgrewell/stencil v0.0.0-20260610184505-9b3d050c070e
+	golang.org/x/crypto v0.31.0
 	modernc.org/sqlite v1.36.0
 )
 

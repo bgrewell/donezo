@@ -20,8 +20,10 @@ func fixedClock() time.Time {
 }
 
 // newTestServer builds a Server over temp stores seeded with: user ben
-// (id 1, the dev auth identity) owning space "sandbox" with one project,
-// and user other (id 2) owning space "private".
+// (the static test identity) owning space "sandbox" with one project,
+// and user other owning space "private". The static authenticator keeps
+// these endpoint tests independent of session plumbing, which has its
+// own tests in auth_test.go.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -65,7 +67,7 @@ func newTestServer(t *testing.T) *Server {
 	}
 
 	quiet := log.New(io.Discard, "", 0)
-	return NewServer(core, spaces, WithLogger(quiet))
+	return NewServer(core, spaces, WithLogger(quiet), WithAuthenticator(StaticAuthenticator{User: ben}))
 }
 
 func TestAPIEndpoints(t *testing.T) {

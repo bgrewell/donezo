@@ -98,6 +98,121 @@ func (s *CoreStore) GetUserByUsername(ctx context.Context, username string) (Use
 	return u, nil
 }
 
+// SetUserPassword replaces the stored password hash for the user with
+// the given id. The hash must be non-empty (an encoded PHC string, not
+// a raw password). Returns ErrNotFound if the id does not exist.
+func (s *CoreStore) SetUserPassword(ctx context.Context, id int64, passwordHash string) error {
+	if passwordHash == "" {
+		return errors.New("store: password hash is required")
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("store: set password for user %d: %w", id, err)
+	}
+	return notFoundIfZero(res, "user", strconv.FormatInt(id, 10))
+}
+
+// SetUserDisplayName replaces the display name for the user with the
+// given id. Returns ErrNotFound if the id does not exist.
+func (s *CoreStore) SetUserDisplayName(ctx context.Context, id int64, displayName string) error {
+	if displayName == "" {
+		return errors.New("store: display name is required")
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET display_name = ? WHERE id = ?`, displayName, id)
+	if err != nil {
+		return fmt.Errorf("store: set display name for user %d: %w", id, err)
+	}
+	return notFoundIfZero(res, "user", strconv.FormatInt(id, 10))
+}
+
+// HasCredentialedUser reports whether any user has a password set. It
+// is the first-run signal: seeding creates a user with an empty hash,
+// which deliberately does not count, so /api/auth/setup stays open
+// until a real password exists.
+func (s *CoreStore) HasCredentialedUser(ctx context.Context) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE password_hash <> ''`).Scan(&n); err != nil {
+		return false, fmt.Errorf("store: count credentialed users: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ErrSetupComplete is returned by SetupOwner once any user already has
+// a password: first-run setup may only ever succeed once.
+var ErrSetupComplete = errors.New("setup already complete")
+
+// noCredentialedUserGuard is the SQL predicate enforcing the first-run
+// invariant inside each SetupOwner write. Embedding it in the statement
+// makes the check and the write one atomic operation — SQLite executes
+// a statement in isolation — so concurrent SetupOwner calls cannot all
+// pass a separate Go-level check first: exactly one wins.
+const noCredentialedUserGuard = `NOT EXISTS (SELECT 1 FROM users WHERE password_hash <> '')`
+
+// SetupOwner atomically performs first-run setup: while no user has a
+// password yet, it gives username one — claiming the seeded
+// password-less row in place if the username exists, creating the user
+// otherwise — and returns the resulting user. Once any user is
+// credentialed (including losing a race against a concurrent call) it
+// returns ErrSetupComplete and writes nothing.
+func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passwordHash string) (User, error) {
+	if username == "" {
+		return User{}, errors.New("store: username is required")
+	}
+	if displayName == "" {
+		return User{}, errors.New("store: display name is required")
+	}
+	if passwordHash == "" {
+		return User{}, errors.New("store: password hash is required")
+	}
+	// Claim path: the seeded password-less row, updated in place.
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ?, display_name = ?
+		 WHERE username = ? AND password_hash = '' AND `+noCredentialedUserGuard,
+		passwordHash, displayName, username)
+	if err != nil {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
+	}
+	if n > 0 {
+		return s.GetUserByUsername(ctx, username)
+	}
+	// Create path: no claimable row (and possibly no open setup — the
+	// guard decides atomically; when it fails the SELECT yields no row
+	// and nothing is inserted).
+	u := User{
+		Username:     username,
+		DisplayName:  displayName,
+		PasswordHash: passwordHash,
+		CreatedAt:    s.opts.now(),
+	}
+	res, err = s.db.ExecContext(ctx,
+		`INSERT INTO users (username, display_name, password_hash, created_at)
+		 SELECT ?, ?, ?, ? WHERE `+noCredentialedUserGuard,
+		u.Username, u.DisplayName, u.PasswordHash, u.CreatedAt)
+	if err != nil {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
+	}
+	n, err = res.RowsAffected()
+	if err != nil {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
+	}
+	if n == 0 {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, ErrSetupComplete)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
+	}
+	u.ID = id
+	return u, nil
+}
+
 // CreateSpace inserts a registry row for a space. The caller provides ID
 // (validated as a file-safe slug), UserID, Name, Color, and Position;
 // CreatedAt is set from the store clock. The space's content database is

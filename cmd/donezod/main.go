@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +20,7 @@ import (
 	"github.com/bgrewell/stencil"
 
 	"github.com/bgrewell/donezo/internal/api"
+	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/config"
 	"github.com/bgrewell/donezo/internal/seed"
 	"github.com/bgrewell/donezo/internal/store"
@@ -48,6 +50,8 @@ func main() {
 	root.Flags.Int("port", "p", "HTTP listen port", config.DefaultPort).Env = config.EnvPort
 	root.Flags.String("data-dir", "d", "Data directory for core.db and space databases", defaultDataDir).Env = config.EnvDataDir
 	root.Flags.String("seed", "s", "Seed JSON file to import before serving (skipped if already seeded)", "").Env = config.EnvSeed
+	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
+	root.Flags.Bool("dev-auto-login", "", "DANGEROUS: disable authentication and act as the seeded dev user (frontend dev only; requires a /tmp data dir or "+config.EnvDevAutoLoginConsent+"=1)", false).Env = config.EnvDevAutoLogin
 
 	app := stencil.NewApp(
 		stencil.WithName("donezod"),
@@ -66,9 +70,11 @@ func main() {
 // run is the root command: optionally seed, then serve until interrupted.
 func run(ctx *stencil.Context) error {
 	cfg := config.Config{
-		Port:     ctx.Flags.Int("port"),
-		DataDir:  ctx.Flags.String("data-dir"),
-		SeedPath: ctx.Flags.String("seed"),
+		Port:         ctx.Flags.Int("port"),
+		DataDir:      ctx.Flags.String("data-dir"),
+		SeedPath:     ctx.Flags.String("seed"),
+		TrustProxy:   ctx.Flags.Bool("trust-proxy"),
+		DevAutoLogin: ctx.Flags.Bool("dev-auto-login"),
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -142,9 +148,42 @@ func runSeed(ctx context.Context, path string, core *store.CoreStore, spaces *st
 }
 
 // serve runs the HTTP server until SIGINT/SIGTERM, then shuts down
-// gracefully.
+// gracefully. It also runs the hourly session/rate-limiter sweep for
+// the lifetime of the server.
 func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) error {
-	server := api.NewServer(core, spaces)
+	limiter := auth.NewRateLimiter()
+	opts := []api.ServerOption{
+		api.WithRateLimiter(limiter),
+		api.WithTrustProxy(cfg.TrustProxy),
+	}
+	if cfg.DevAutoLogin {
+		// config.Validate already gated this on a /tmp data dir or the
+		// explicit consent env var; still make it impossible to miss.
+		fmt.Fprintln(os.Stderr, "donezod: WARNING: --dev-auto-login is set: authentication is DISABLED and every request acts as the seeded dev user. Never expose this instance beyond localhost.")
+		opts = append(opts, api.WithAuthenticator(api.StaticAuthenticator{
+			User: store.User{ID: 1, Username: seed.Username, DisplayName: seed.DisplayName},
+		}))
+	}
+	server := api.NewServer(core, spaces, opts...)
+
+	sweepCtx, stopSweep := context.WithCancel(context.Background())
+	sweeper := auth.NewSweeper(core,
+		auth.WithSweepLimiter(limiter),
+		auth.WithSweepLogger(log.New(os.Stderr, "donezod ", log.LstdFlags)),
+	)
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		sweeper.Run(sweepCtx)
+	}()
+	// Cancel the sweeper AND wait for it to exit before serve returns:
+	// run()'s deferred store Close() calls fire right after, and an
+	// in-flight sweep must not race them.
+	defer func() {
+		stopSweep()
+		<-sweepDone
+	}()
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           server.Handler(),

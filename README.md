@@ -12,7 +12,8 @@ Monorepo:
   system.
 - Go backend **donezod** (`cmd/donezod`, `internal/`) — SQLite-backed API
   server. One SQLite file per space; `core.db` holds the users/spaces
-  registry. Auth is stubbed (phase 2).
+  registry and sessions. Cookie-session authentication with argon2id
+  passwords (phase 2).
 
 ## Development
 
@@ -49,8 +50,57 @@ make seed-json           # regenerate seed/seed.json from web mock data
 bin/donezod --port 8787 --data-dir ~/.local/share/donezo --seed seed/seed.json
 ```
 
-API surface (phase 1): `GET /api/healthz`, `GET /api/spaces`,
-`GET /api/spaces/{id}/state`.
+Flags (each also has a `DONEZOD_*` env fallback): `--port`, `--data-dir`,
+`--seed`, `--trust-proxy` (trust proxy headers: the **last**
+`X-Forwarded-For` hop — the one the proxy itself appended — keys rate
+limiting, and `X-Forwarded-Proto: https` marks session cookies `Secure`;
+set it only when donezod sits directly behind a reverse proxy, since
+without one those headers are attacker-controlled and are ignored), and
+`--dev-auto-login` (see below).
+
+API surface: `GET /api/healthz`, `GET /api/spaces`,
+`GET /api/spaces/{id}/state`, plus the auth endpoints:
+
+| Endpoint                | What it does                                          |
+| ----------------------- | ----------------------------------------------------- |
+| `GET /api/auth/status`  | `{needsSetup, authenticated}` — public                |
+| `POST /api/auth/setup`  | First-run: create the owner + session; `409` after    |
+| `POST /api/auth/login`  | `{username, password}` → session cookie + `{user}`    |
+| `POST /api/auth/logout` | Delete the session, expire the cookie                 |
+| `GET /api/auth/me`      | `{user}` or `401`                                     |
+
+Everything else under `/api/` requires a session; only `/api/healthz` and
+`/api/auth/*` are public.
+
+**First run:** start with `--seed seed/seed.json` (creates user `ben` with
+*no password* — it cannot log in yet), then `GET /api/auth/status` reports
+`needsSetup: true` and `POST /api/auth/setup` with username `ben` claims
+the seeded account by setting its password. Setup with a fresh username on
+an unseeded data dir works the same way; once any user has a password,
+setup answers `409`. The once-only invariant is enforced atomically at the
+SQL layer, so concurrent setup requests racing on a fresh instance produce
+exactly one owner.
+
+Security posture:
+
+- Passwords: argon2id (64 MiB, t=1, p=4), PHC-encoded so parameters can
+  evolve; verification is constant-time; minimum length 10; decoded
+  parameters are capped (256 MiB) so a tampered row cannot turn
+  verification into a memory bomb.
+- Sessions: 32 random bytes in a `donezo_session` cookie (`HttpOnly`,
+  `SameSite=Lax`, `Path=/`, `Secure` over TLS or — only with
+  `--trust-proxy` — behind an `X-Forwarded-Proto: https` proxy); only
+  the SHA-256 of the token is stored; 30-day absolute expiry; expired
+  sessions swept hourly.
+- Login/setup rate limit: 10 attempts per 5 minutes per client IP
+  (`429` + `Retry-After`); IPv6 clients are aggregated by /64 so
+  rotating addresses inside one allocation doesn't reset the budget.
+- Uniform `401` for unknown user vs wrong password, with equalized
+  argon2 work on both paths (no username oracle, by text or by timing).
+- `--dev-auto-login` **disables authentication** (every request acts as
+  the seeded dev user). It exists solely for frontend dev/tests and is
+  refused unless the data dir is under `/tmp` or
+  `DONEZOD_I_KNOW_WHAT_IM_DOING=1` is set. Never expose such an instance.
 
 ## Design system
 
@@ -81,9 +131,10 @@ Adding a theme = adding a CSS block + one registry entry in
 cmd/donezod/     backend entry point
 internal/
   api/           HTTP layer (stdlib net/http, Go 1.22 routing)
+  auth/          argon2id passwords, session tokens/authenticator, rate limiter, sweeper
   config/        flags/env configuration
   seed/          seed.json import
-  store/         core store (users/spaces) + space store (per-space SQLite)
+  store/         core store (users/sessions/spaces) + space store (per-space SQLite)
 seed/            committed seed.json (regenerate: make seed-json)
 web/
   src/
