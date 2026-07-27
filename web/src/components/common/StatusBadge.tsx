@@ -7,6 +7,8 @@ const STATUS_MAP: Record<ProjectStatus, { badge: BadgeStatus; label: string }> =
   blocked: { badge: "danger", label: "Blocked" },
   paused: { badge: "neutral", label: "Paused" },
   completed: { badge: "success", label: "Done" },
+  // Calm neutral, not danger — cancelling is a decision, not a failure.
+  cancelled: { badge: "neutral", label: "Cancelled" },
 };
 
 /** Project status rendered as a GTech Console badge with calm wording. */

@@ -22,6 +22,12 @@ import { syncAction } from "./sync";
 // seed a today-visible initial anchor on narrow viewports.
 import { visibleColumnCount } from "@/views/TimelineView/geometry";
 
+/** Contextual defaults for one quick-capture open (see AppState). */
+export interface QuickCapturePreset {
+  kind?: ItemKind;
+  projectId?: string;
+}
+
 /** Timeline display filters. null means "all". */
 export interface Filters {
   projectIds: string[] | null;
@@ -48,6 +54,10 @@ export interface AppState {
   anchorDate: string;
   filters: Filters;
   quickCaptureOpen: boolean;
+  /** Context the quick-capture dialog should preselect on open: kind (the
+   *  Projects list's "+ New project"), and/or project ("Log progress" from
+   *  inside a project). null = plain capture, auto-suggest steering. */
+  quickCapturePreset: QuickCapturePreset | null;
   navCollapsed: boolean;
   railCollapsed: boolean;
   searchQuery: string;
@@ -59,6 +69,13 @@ export type AppAction =
   | { type: "CLOSE_PROJECT" }
   | { type: "ADD_PROJECT"; project: Project }
   | { type: "UPDATE_PROJECT"; id: string; patch: Partial<Project> }
+  | {
+      /** Delete a project and everything it owns, mirroring the server
+       *  cascade: activities/tasks/notes go with it; inbox suggestions and
+       *  reminders are kept but detached. */
+      type: "REMOVE_PROJECT";
+      projectId: string;
+    }
   | { type: "SELECT_ACTIVITY"; id: string | null }
   | { type: "SET_ZOOM"; zoom: ZoomLevel }
   | { type: "SET_ANCHOR"; date: string }
@@ -71,7 +88,7 @@ export type AppAction =
       visibleColumns?: number;
     }
   | { type: "SET_FILTERS"; patch: Partial<Filters> }
-  | { type: "SET_QUICK_CAPTURE"; open: boolean }
+  | { type: "SET_QUICK_CAPTURE"; open: boolean; preset?: QuickCapturePreset }
   | { type: "SET_SEARCH_QUERY"; query: string }
   | { type: "TOGGLE_NAV" }
   | { type: "TOGGLE_RAIL" }
@@ -129,6 +146,31 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         projects: patchById(state.projects, action.id, action.patch),
       };
+    case "REMOVE_PROJECT": {
+      const pid = action.projectId;
+      // Mirror the server cascade exactly: owned content is deleted,
+      // loose references (inbox suggestions, reminders) are detached.
+      const selectedActivityRemoved =
+        state.selectedActivityId !== null &&
+        state.activities.some(
+          (a) => a.id === state.selectedActivityId && a.projectId === pid
+        );
+      return {
+        ...state,
+        projects: state.projects.filter((p) => p.id !== pid),
+        activities: state.activities.filter((a) => a.projectId !== pid),
+        tasks: state.tasks.filter((t) => t.projectId !== pid),
+        notes: state.notes.filter((n) => n.projectId !== pid),
+        reminders: state.reminders.map((r) =>
+          r.projectId === pid ? { ...r, projectId: undefined } : r
+        ),
+        inbox: state.inbox.map((i) =>
+          i.suggestedProjectId === pid ? { ...i, suggestedProjectId: undefined } : i
+        ),
+        selectedProjectId: state.selectedProjectId === pid ? null : state.selectedProjectId,
+        selectedActivityId: selectedActivityRemoved ? null : state.selectedActivityId,
+      };
+    }
     case "SELECT_ACTIVITY":
       return { ...state, selectedActivityId: action.id };
     case "SET_ZOOM":
@@ -162,7 +204,11 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "SET_FILTERS":
       return { ...state, filters: { ...state.filters, ...action.patch } };
     case "SET_QUICK_CAPTURE":
-      return { ...state, quickCaptureOpen: action.open };
+      return {
+        ...state,
+        quickCaptureOpen: action.open,
+        quickCapturePreset: action.open ? (action.preset ?? null) : null,
+      };
     case "SET_SEARCH_QUERY":
       return { ...state, searchQuery: action.query };
     case "TOGGLE_NAV":
@@ -278,6 +324,7 @@ function initialState(data: SpaceData): AppState {
       showCompleted: false,
     },
     quickCaptureOpen: false,
+    quickCapturePreset: null,
     navCollapsed,
     railCollapsed,
     searchQuery: "",

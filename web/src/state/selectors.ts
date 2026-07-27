@@ -1,5 +1,14 @@
-import type { ActivityEntry, Project } from "@/domain/types";
+import type { ActivityEntry, Project, ProjectStatus } from "@/domain/types";
 import type { AppState } from "./AppStore";
+
+/** Statuses that close a project's lifecycle (completed or cancelled).
+ *  Closed projects hide behind the "Done" toggle and render muted. */
+const CLOSED_STATUSES: ReadonlySet<ProjectStatus> = new Set(["completed", "cancelled"]);
+
+/** True when the project is closed — completed or cancelled. */
+export function isClosedProject(project: Project): boolean {
+  return CLOSED_STATUSES.has(project.status);
+}
 
 export function projectById(state: AppState, id: string | undefined | null): Project | undefined {
   return state.projects.find((p) => p.id === id);
@@ -8,7 +17,7 @@ export function projectById(state: AppState, id: string | undefined | null): Pro
 /** Projects visible under the current filters (rail + timeline rows). */
 export function visibleProjects(state: AppState): Project[] {
   let list = state.projects;
-  if (!state.filters.showCompleted) list = list.filter((p) => p.status !== "completed");
+  if (!state.filters.showCompleted) list = list.filter((p) => !isClosedProject(p));
   if (state.filters.projectIds) {
     const allowed = new Set(state.filters.projectIds);
     list = list.filter((p) => allowed.has(p.id));

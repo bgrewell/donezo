@@ -4,6 +4,7 @@ import { Button, Dialog, Input, cn } from "@grewelltech/console";
 import type { ActivityType, ItemKind, ProjectColor } from "@/domain/types";
 import { ApiError, api } from "@/api/client";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { isClosedProject } from "@/state/selectors";
 import { useSession } from "@/components/auth/session";
 import { newId } from "@/lib/id";
 import { nowLocalISO, todayISO } from "@/lib/time";
@@ -152,6 +153,12 @@ export function QuickCapture() {
   React.useEffect(() => {
     if (!open) return;
     resetMeta();
+    // An opener may preset context ("+ New project" → kind project; "Log
+    // progress" inside a project → kind activity + that project). A preset
+    // kind is a manual pick, so auto-suggest stops steering this capture.
+    const preset = state.quickCapturePreset;
+    if (preset?.kind) setManualKind(preset.kind);
+    if (preset?.projectId) setProjectId(preset.projectId);
     setPlaceholderTick((t) => t + 1);
     // A dropdown still open under Ctrl+K would float above the modal, own
     // Alt+digits, and eat the first Escape — dismiss it now. The menu's
@@ -198,7 +205,7 @@ export function QuickCapture() {
   const kind = manualKind ?? suggested;
   const showSuggested = manualKind === null && raw.length > 0;
 
-  const openProjects = state.projects.filter((p) => p.status !== "completed");
+  const openProjects = state.projects.filter((p) => !isClosedProject(p));
   const defaultColor = firstUnusedColor(state.projects);
   const pickedColor = projectColor ?? defaultColor;
 

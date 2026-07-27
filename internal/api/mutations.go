@@ -82,6 +82,25 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
+// handleDeleteProject removes a project and everything it owns in one
+// transaction. Owned content (activities, tasks, notes) is deleted with
+// the project; loose references are detached instead — inbox suggestions
+// and reminders keep their rows with the project column nulled. The
+// response reports the per-table counts the frontend shows in its
+// confirmation aftermath.
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	deleted, err := s.spaces.DeleteProjectCascade(r.Context(), sp.ID, r.PathValue("pid"))
+	if err != nil {
+		s.writeStoreError(w, "project", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]store.ProjectCascadeResult{"deleted": deleted})
+}
+
 // ─── Activities ─────────────────────────────────────────────────────────
 
 // handleCreateActivity creates an activity entry.

@@ -26,8 +26,9 @@ var (
 	// projectColors mirrors ProjectColor (also used for space colors —
 	// spaces key into the same --dz-pj-* ramp).
 	projectColors = []string{"blue", "green", "tan", "violet", "rose", "orange", "steel"}
-	// projectStatuses mirrors ProjectStatus.
-	projectStatuses = []string{"active", "waiting", "blocked", "paused", "completed"}
+	// projectStatuses mirrors ProjectStatus. Both "completed" and
+	// "cancelled" are closed states; the server treats them alike.
+	projectStatuses = []string{"active", "waiting", "blocked", "paused", "completed", "cancelled"}
 	// activityTypes mirrors ActivityType.
 	activityTypes = []string{"work", "research", "meeting", "decision", "blocker", "milestone"}
 	// activitySources mirrors ActivityEntry["source"].

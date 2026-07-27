@@ -19,7 +19,13 @@ export type ProjectColor =
   | "orange"
   | "steel";
 
-export type ProjectStatus = "active" | "waiting" | "blocked" | "paused" | "completed";
+export type ProjectStatus =
+  | "active"
+  | "waiting"
+  | "blocked"
+  | "paused"
+  | "completed"
+  | "cancelled";
 
 /** A workspace: an isolated set of projects/activities/tasks/notes/
  *  reminders/inbox, stored server-side in its own database. Space colors

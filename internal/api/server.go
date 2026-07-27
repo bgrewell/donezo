@@ -124,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
 	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
 	mux.HandleFunc("PATCH /api/spaces/{id}/projects/{pid}", s.handlePatchProject)
+	mux.HandleFunc("DELETE /api/spaces/{id}/projects/{pid}", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/spaces/{id}/activities", s.handleCreateActivity)
 	mux.HandleFunc("PATCH /api/spaces/{id}/activities/{aid}", s.handlePatchActivity)
 	mux.HandleFunc("DELETE /api/spaces/{id}/activities/{aid}", s.handleDeleteActivity)
@@ -155,7 +156,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/unarchive":           http.MethodPost,
 		"/api/spaces/{id}/state":               http.MethodGet,
 		"/api/spaces/{id}/projects":            http.MethodPost,
-		"/api/spaces/{id}/projects/{pid}":      http.MethodPatch,
+		"/api/spaces/{id}/projects/{pid}":      "PATCH, DELETE",
 		"/api/spaces/{id}/activities":          http.MethodPost,
 		"/api/spaces/{id}/activities/{aid}":    "PATCH, DELETE",
 		"/api/spaces/{id}/tasks":               http.MethodPost,

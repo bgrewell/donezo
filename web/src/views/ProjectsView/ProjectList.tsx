@@ -1,4 +1,5 @@
 import {
+  Button,
   cn,
   SectionLabel,
   Table,
@@ -10,30 +11,42 @@ import {
 } from "@grewelltech/console";
 
 import { useAppDispatch, useAppState } from "@/state/AppStore";
-import { latestActivityDate, openTaskCount } from "@/state/selectors";
+import { isClosedProject, latestActivityDate, openTaskCount } from "@/state/selectors";
 import { relativeFromToday } from "@/lib/time";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { StatusBadge } from "@/components/common/StatusBadge";
 
-/** Master list of all projects, completed ones dimmed at the bottom. */
+/** Master list of all projects, closed ones (done/cancelled) dimmed at the bottom. */
 export function ProjectList() {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
   const projects = [...state.projects].sort(
-    (a, b) => Number(a.status === "completed") - Number(b.status === "completed")
+    (a, b) => Number(isClosedProject(a)) - Number(isClosedProject(b))
   );
 
   const open = (projectId: string) => dispatch({ type: "OPEN_PROJECT", projectId });
 
   return (
     <div className="mx-auto max-w-[1000px] px-4 py-6 sm:px-6 lg:px-8">
-      <SectionLabel
-        className="mb-3 mt-0"
-        trailing={<span className="text-gtc-text">{projects.length}</span>}
-      >
-        Projects
-      </SectionLabel>
+      <div className="mb-3 flex items-center gap-3">
+        <SectionLabel
+          className="mb-0 mt-0 flex-1"
+          trailing={<span className="text-gtc-text">{projects.length}</span>}
+        >
+          Projects
+        </SectionLabel>
+        <Button
+          variant="ghost"
+          size="sm"
+          noGlyph
+          onClick={() =>
+            dispatch({ type: "SET_QUICK_CAPTURE", open: true, preset: { kind: "project" } })
+          }
+        >
+          + New project
+        </Button>
+      </div>
       <p className="mb-5 max-w-[70ch] font-sans text-[0.85rem] text-gtc-muted">
         Every stream of work. Open one to resume where you left off.
       </p>
@@ -52,14 +65,14 @@ export function ProjectList() {
         </TableHeader>
         <TableBody>
           {projects.map((p) => {
-            const completed = p.status === "completed";
+            const closed = isClosedProject(p);
             const latest = latestActivityDate(state, p.id);
             const openTasks = openTaskCount(state, p.id);
             return (
               <TableRow
                 key={p.id}
                 onClick={() => open(p.id)}
-                className={cn("cursor-pointer", completed && "opacity-60")}
+                className={cn("cursor-pointer", closed && "opacity-60")}
               >
                 <TableCell>
                   <button
@@ -70,7 +83,7 @@ export function ProjectList() {
                     }}
                     className="flex items-center gap-2.5 rounded-gtc text-left outline-none focus-visible:shadow-gtc-focus"
                   >
-                    <ProjectMark color={p.color} size={8} muted={completed} />
+                    <ProjectMark color={p.color} size={8} muted={closed} />
                     <span className="font-sans text-[0.9rem] font-medium text-gtc-text">
                       {p.name}
                     </span>

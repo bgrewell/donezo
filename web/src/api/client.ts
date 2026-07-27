@@ -177,6 +177,31 @@ export function revokeInvite(id: string): Promise<void> {
   return api.del(`/api/invites/${encodeURIComponent(id)}`);
 }
 
+/** Counts returned by DELETE project: deleted rows plus references that
+ *  were detached (kept, project link nulled) rather than removed. */
+export interface ProjectCascade {
+  project: number;
+  activities: number;
+  tasks: number;
+  notes: number;
+  detachedInbox: number;
+  detachedReminders: number;
+}
+
+/** DELETE /api/spaces/{id}/projects/{pid} — remove a project and all the
+ *  content it owns; raw captures and reminders survive, detached. */
+export async function deleteProject(
+  spaceId: string,
+  projectId: string
+): Promise<ProjectCascade> {
+  return (
+    await request<{ deleted: ProjectCascade }>(
+      "DELETE",
+      `/api/spaces/${encodeURIComponent(spaceId)}/projects/${encodeURIComponent(projectId)}`
+    )
+  ).deleted;
+}
+
 export async function fetchSpaces(): Promise<Space[]> {
   return (await api.get<{ spaces: Space[] }>("/api/spaces")).spaces;
 }

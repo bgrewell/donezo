@@ -85,6 +85,7 @@ as `404`):
 | `GET /api/spaces/{id}/state`                       | Full space content (projects, activities, tasks, notes, reminders, inbox) |
 | `POST /api/spaces/{id}/projects`                   | Create a project → `201`                                               |
 | `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`) |
+| `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional cascade → `200 {deleted}` with per-table counts: owned activities/tasks/notes are deleted; inbox suggestions and reminders survive with the project reference nulled |
 | `POST /api/spaces/{id}/activities`                 | Create an activity entry → `201`                                       |
 | `PATCH /api/spaces/{id}/activities/{aid}`          | Partial update                                                         |
 | `DELETE /api/spaces/{id}/activities/{aid}`         | Delete → `204`                                                         |

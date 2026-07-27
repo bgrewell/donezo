@@ -173,7 +173,19 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			name: "project status outside the union is 400", method: http.MethodPost,
 			path:       "/api/spaces/sandbox/projects",
 			body:       strings.Replace(projectBody, `"status":"active"`, `"status":"zombie"`, 1),
-			wantStatus: http.StatusBadRequest, wantInBody: "status must be one of active, waiting, blocked, paused, completed",
+			wantStatus: http.StatusBadRequest, wantInBody: "status must be one of active, waiting, blocked, paused, completed, cancelled",
+		},
+		{
+			name: "create project with cancelled status round-trips", method: http.MethodPost,
+			path:       "/api/spaces/sandbox/projects",
+			body:       strings.Replace(projectBody, `"status":"active"`, `"status":"cancelled"`, 1),
+			wantStatus: http.StatusCreated, wantInBody: `"status":"cancelled"`,
+			checkState: func(t *testing.T, state map[string]json.RawMessage) {
+				t.Helper()
+				if !strings.Contains(string(state["projects"]), `"status":"cancelled"`) {
+					t.Errorf("cancelled project missing from state: %s", state["projects"])
+				}
+			},
 		},
 		{
 			name: "project color outside the ramp is 400", method: http.MethodPost,
@@ -308,10 +320,22 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			wantInBody: `unknown field 'nickname'`,
 		},
 		{
+			name:   "patch project status to cancelled round-trips",
+			method: http.MethodPatch, path: "/api/spaces/sandbox/projects/loom",
+			body: `{"status":"cancelled"}`, wantStatus: http.StatusOK,
+			wantInBody: `"status":"cancelled"`,
+			checkState: func(t *testing.T, state map[string]json.RawMessage) {
+				t.Helper()
+				if !strings.Contains(string(state["projects"]), `"status":"cancelled"`) {
+					t.Errorf("state missing cancelled status: %s", state["projects"])
+				}
+			},
+		},
+		{
 			name:   "patch project status outside the union is 400",
 			method: http.MethodPatch, path: "/api/spaces/sandbox/projects/loom",
 			body: `{"status":"zombie"}`, wantStatus: http.StatusBadRequest,
-			wantInBody: "status must be one of",
+			wantInBody: "status must be one of active, waiting, blocked, paused, completed, cancelled",
 		},
 		{
 			name:   "patch unknown project is 404",
@@ -366,6 +390,52 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			wantInBody: "space not found",
 		},
 		// ── deletes ─────────────────────────────────────────────────────
+		{
+			name: "delete project cascades and reports counts",
+			seed: []step{
+				{http.MethodPost, "/api/spaces/sandbox/activities", activityBody},
+				{http.MethodPost, "/api/spaces/sandbox/tasks",
+					strings.Replace(taskBody, `"title"`, `"projectId":"loom","title"`, 1)},
+				{http.MethodPost, "/api/spaces/sandbox/notes",
+					strings.Replace(noteBody, `"title"`, `"projectId":"loom","title"`, 1)},
+				{http.MethodPost, "/api/spaces/sandbox/reminders",
+					strings.Replace(reminderBody, `"text"`, `"projectId":"loom","text"`, 1)},
+				{http.MethodPost, "/api/spaces/sandbox/inbox",
+					strings.Replace(inboxBody, `"suggestedKind"`, `"suggestedProjectId":"loom","suggestedKind"`, 1)},
+			},
+			method: http.MethodDelete, path: "/api/spaces/sandbox/projects/loom",
+			wantStatus: http.StatusOK,
+			wantInBody: `"deleted":{"project":1,"activities":1,"tasks":1,"notes":1,` +
+				`"detachedInbox":1,"detachedReminders":1}`,
+			checkState: func(t *testing.T, state map[string]json.RawMessage) {
+				t.Helper()
+				// Owned content dies with the project…
+				for _, key := range []string{"projects", "activities", "tasks", "notes"} {
+					if string(state[key]) != "[]" {
+						t.Errorf("%s after cascade = %s, want []", key, state[key])
+					}
+				}
+				// …while loose references survive, detached.
+				reminders := string(state["reminders"])
+				if !strings.Contains(reminders, `"id":"rem-1"`) || strings.Contains(reminders, "projectId") {
+					t.Errorf("reminder not detached: %s", reminders)
+				}
+				inbox := string(state["inbox"])
+				if !strings.Contains(inbox, `"id":"inb-1"`) || strings.Contains(inbox, "suggestedProjectId") {
+					t.Errorf("inbox item not detached: %s", inbox)
+				}
+			},
+		},
+		{
+			name:   "delete unknown project is 404",
+			method: http.MethodDelete, path: "/api/spaces/sandbox/projects/ghost",
+			wantStatus: http.StatusNotFound, wantInBody: "project not found",
+		},
+		{
+			name:   "delete project in foreign space is 404",
+			method: http.MethodDelete, path: "/api/spaces/private/projects/loom",
+			wantStatus: http.StatusNotFound, wantInBody: "space not found",
+		},
 		{
 			name:   "delete activity round-trips",
 			seed:   []step{{http.MethodPost, "/api/spaces/sandbox/activities", activityBody}},
@@ -609,6 +679,7 @@ func TestArchivedSpaceWriteGuard(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/spaces/sandbox/projects", projectBody},
 		{http.MethodPatch, "/api/spaces/sandbox/projects/loom", `{"name":"Nope"}`},
+		{http.MethodDelete, "/api/spaces/sandbox/projects/loom", ""},
 		{http.MethodPost, "/api/spaces/sandbox/activities", activityBody},
 		{http.MethodPatch, "/api/spaces/sandbox/activities/act-9", `{"title":"Nope"}`},
 		{http.MethodDelete, "/api/spaces/sandbox/activities/act-9", ""},
@@ -793,6 +864,7 @@ func TestMutationEndpointsRequireAuth(t *testing.T) {
 		{http.MethodPost, "/api/spaces/sandbox/unarchive"},
 		{http.MethodPost, "/api/spaces/sandbox/projects"},
 		{http.MethodPatch, "/api/spaces/sandbox/projects/loom"},
+		{http.MethodDelete, "/api/spaces/sandbox/projects/loom"},
 		{http.MethodPost, "/api/spaces/sandbox/activities"},
 		{http.MethodPatch, "/api/spaces/sandbox/activities/act-1"},
 		{http.MethodDelete, "/api/spaces/sandbox/activities/act-1"},

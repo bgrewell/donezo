@@ -14,6 +14,7 @@ const STATUS_TEXT: Record<ProjectStatus, { word: string; cls: string }> = {
   blocked: { word: "blocked", cls: "text-gtc-danger" },
   paused: { word: "paused", cls: "text-gtc-muted" },
   completed: { word: "done", cls: "text-gtc-success" },
+  cancelled: { word: "cancelled", cls: "text-gtc-muted" },
 };
 
 /** Sticky left rail cell for a project row. The whole cell opens the project. */

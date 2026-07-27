@@ -8,7 +8,7 @@
  * banner (no rollback machinery in v1).
  */
 
-import { api } from "@/api/client";
+import { api, deleteProject } from "@/api/client";
 import type { AppAction } from "./AppStore";
 
 /** Server-clearable PATCH keys per entity: exactly the fields the backend
@@ -63,6 +63,10 @@ export function syncAction(spaceId: string, action: AppAction): Promise<unknown>
       return api.post(`${base}/projects`, action.project);
     case "UPDATE_PROJECT":
       return api.patch(`${base}/projects/${action.id}`, patchBody(action.patch, CLEARABLE.project));
+    case "REMOVE_PROJECT":
+      // The store already applied the optimistic local cascade; the
+      // server's returned counts are not surfaced (kept simple).
+      return deleteProject(spaceId, action.projectId);
     case "ADD_ACTIVITY":
       return api.post(`${base}/activities`, action.entry);
     case "UPDATE_ACTIVITY":

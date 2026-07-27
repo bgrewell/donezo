@@ -5,7 +5,7 @@ import { nextMonday } from "date-fns";
 
 import type { InboxItem, ItemKind, Project, ProjectColor } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
-import { projectById } from "@/state/selectors";
+import { isClosedProject, projectById } from "@/state/selectors";
 import { newId } from "@/lib/id";
 import { addDaysISO, relativeFromToday, toISODate, todayISO } from "@/lib/time";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -95,7 +95,7 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
   const [remindChoice, setRemindChoice] = React.useState<RemindChoice>("tomorrow");
   const [due, setDue] = React.useState("");
 
-  const openProjects = state.projects.filter((p) => p.status !== "completed");
+  const openProjects = state.projects.filter((p) => !isClosedProject(p));
   const needsProject = kind === "activity" && !projectId;
   const selectId = `inbox-project-${item.id}`;
   const dueId = `inbox-due-${item.id}`;
