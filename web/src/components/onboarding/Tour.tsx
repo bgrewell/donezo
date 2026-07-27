@@ -261,6 +261,14 @@ function TourOverlay({ stepIndex }: { stepIndex: number }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.timeStamp <= mountedAt) return;
       const card = cardRef.current;
+      // A key that originated inside another dialog belongs to it — even
+      // when React already unmounted that dialog while this event was
+      // still bubbling (capture's Enter creates and closes synchronously,
+      // so the DOM query below would come up empty). closest() still sees
+      // the detached ancestors of the unmounted target.
+      const target = e.target instanceof Element ? e.target : null;
+      const targetDialog = target?.closest('[role="dialog"]');
+      if (targetDialog && targetDialog !== card) return;
       const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       if (dialogs.some((d) => d !== card)) return;
 
