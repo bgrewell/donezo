@@ -19,7 +19,7 @@ LDFLAGS := -X 'main.appVersion=$(VERSION)' \
            -X 'main.appCommitHash=$(COMMIT_HASH)' \
            -X 'main.appBranch=$(BRANCH)'
 
-.PHONY: build test lint seed-json clean
+.PHONY: build test lint seed-json clean dev-upgrade dev-snapshots
 
 ## build: production web bundle + donezod binary at bin/donezod
 build:
@@ -39,6 +39,18 @@ lint:
 ## seed-json: regenerate seed/seed.json from the frontend mock dataset
 seed-json:
 	cd web && node --experimental-strip-types scripts/export-seed.mjs
+
+## dev-upgrade: rebuild donezod and roll the dev service (auto-snapshots
+## the data dir via the unit's ExecStartPre before the new binary starts)
+dev-upgrade:
+	go build -ldflags="$(LDFLAGS)" -o bin/donezod ./cmd/donezod
+	systemctl --user restart donezod-dev
+	@sleep 1.5
+	@curl -sf http://localhost:8787/api/healthz >/dev/null && echo "donezod-dev upgraded and healthy" || (echo "donezod-dev unhealthy after upgrade — check: journalctl --user -u donezod-dev"; exit 1)
+
+## dev-snapshots: list dev data snapshots (restore with scripts/dev-restore.sh <ts>)
+dev-snapshots:
+	@./scripts/dev-restore.sh
 
 ## clean: remove build outputs
 clean:

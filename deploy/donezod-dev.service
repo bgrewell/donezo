@@ -4,6 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
+# Snapshot the data dir before every start — the previous process has
+# already exited here, so the SQLite files are quiescent and copies are
+# consistent. Keeps the last 20 under ~/.local/share/donezo-dev-snapshots.
+ExecStartPre=/home/ben/repos/donezo/scripts/dev-snapshot.sh
 ExecStart=/home/ben/repos/donezo/bin/donezod --data-dir %h/.local/share/donezo-dev --port 8787
 Restart=always
 RestartSec=2
