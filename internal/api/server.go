@@ -111,7 +111,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/setup", s.handleAuthSetup)
 	mux.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("POST /api/auth/register", s.handleAuthRegister)
 	mux.HandleFunc("GET /api/auth/me", s.handleAuthMe)
+	mux.HandleFunc("GET /api/invites", s.handleListInvites)
+	mux.HandleFunc("POST /api/invites", s.handleCreateInvite)
+	mux.HandleFunc("DELETE /api/invites/{id}", s.handleRevokeInvite)
 	mux.HandleFunc("GET /api/spaces", s.handleListSpaces)
 	mux.HandleFunc("POST /api/spaces", s.handleCreateSpace)
 	mux.HandleFunc("PATCH /api/spaces/{id}", s.handlePatchSpace)
@@ -141,7 +145,10 @@ func (s *Server) Handler() http.Handler {
 		"/api/auth/setup":                      http.MethodPost,
 		"/api/auth/login":                      http.MethodPost,
 		"/api/auth/logout":                     http.MethodPost,
+		"/api/auth/register":                   http.MethodPost,
 		"/api/auth/me":                         http.MethodGet,
+		"/api/invites":                         "GET, POST",
+		"/api/invites/{id}":                    http.MethodDelete,
 		"/api/spaces":                          "GET, POST",
 		"/api/spaces/{id}":                     http.MethodPatch,
 		"/api/spaces/{id}/archive":             http.MethodPost,

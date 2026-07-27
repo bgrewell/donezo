@@ -57,11 +57,11 @@ func (s *CoreStore) GetSessionUser(ctx context.Context, tokenHash string) (Sessi
 	var u User
 	err := s.db.QueryRowContext(ctx,
 		`SELECT s.token_hash, s.user_id, s.created_at, s.expires_at, s.last_seen_at,
-		        u.id, u.username, u.display_name, u.password_hash, u.created_at
+		        u.id, u.username, u.display_name, u.role, u.password_hash, u.created_at
 		 FROM sessions s JOIN users u ON u.id = s.user_id
 		 WHERE s.token_hash = ?`, tokenHash).
 		Scan(&sess.TokenHash, &sess.UserID, &sess.CreatedAt, &sess.ExpiresAt, &sess.LastSeenAt,
-			&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.CreatedAt)
+			&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PasswordHash, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, User{}, fmt.Errorf("store: session: %w", ErrNotFound)
 	}

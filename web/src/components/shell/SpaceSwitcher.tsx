@@ -5,8 +5,19 @@ import { Button, Input, cn } from "@grewelltech/console";
 import type { ProjectColor, Space } from "@/domain/types";
 import { useSession } from "@/components/auth/session";
 import { useSyncErrors } from "@/state/AppStore";
+import { projectColorVar } from "@/lib/projectColors";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
+import { Tip } from "@/components/ui/Tooltip";
+
+/** How long the "space created" confirmation stays up. */
+const CREATED_NOTICE_MS = 4000;
+
+// Set just before a successful create switches spaces: the whole shell
+// is keyed on the space id, so the switch remounts this component and
+// React state can't carry the confirmation across. Consumed on mount by
+// the freshly mounted switcher in the new space.
+let announceCreatedSpace = false;
 
 const COLOR_RAMP: ProjectColor[] = ["blue", "green", "tan", "violet", "rose", "orange", "steel"];
 
@@ -142,8 +153,9 @@ function RowIconButton({
 type Mode = { kind: "list" } | { kind: "new" } | { kind: "rename"; id: string };
 
 /**
- * The NavRail brand area: the active space (color square + name) as a
- * trigger for the space menu — switch, create, rename, archive.
+ * The color-tick space row below the NavRail brand: the active space
+ * (tick + wash in its color, square + name) as a trigger for the space
+ * menu — switch, create, rename, archive.
  */
 export function SpaceSwitcher({ collapsed }: { collapsed: boolean }) {
   const session = useSession();
@@ -156,6 +168,19 @@ export function SpaceSwitcher({ collapsed }: { collapsed: boolean }) {
   // sync failure dies with the per-space store, so leaving must be the
   // user's explicit choice, never a side effect of navigation.
   const [confirmSwitch, setConfirmSwitch] = React.useState<Space | null>(null);
+  // Transient confirmation after arriving in a just-created space.
+  const [createdNotice, setCreatedNotice] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!announceCreatedSpace) return;
+    announceCreatedSpace = false;
+    setCreatedNotice(true);
+  }, []);
+  React.useEffect(() => {
+    if (!createdNotice) return;
+    const t = window.setTimeout(() => setCreatedNotice(false), CREATED_NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [createdNotice]);
 
   const active =
     session.spaces.find((s) => s.id === session.activeSpaceId) ?? session.spaces[0];
@@ -254,26 +279,59 @@ export function SpaceSwitcher({ collapsed }: { collapsed: boolean }) {
 
   return (
     <Popover open={open} onOpenChange={openChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Space: ${active?.name ?? "none"}. Open space menu`}
+      <Tip content="Switch or create spaces" side="bottom">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Space: ${active?.name ?? "none"}. Switch or create spaces`}
+            style={
+              active
+                ? {
+                    background: `color-mix(in srgb, ${projectColorVar(active.color)} 8%, transparent)`,
+                  }
+                : undefined
+            }
+            className={cn(
+              "relative flex h-[38px] w-full min-w-0 items-center border-b border-gtc-line outline-none transition-colors",
+              "font-mono text-[0.72rem] font-medium uppercase tracking-chrome text-gtc-text",
+              "hover:text-gtc-accent-bright focus-visible:shadow-gtc-focus",
+              collapsed ? "justify-center gap-1 px-0" : "gap-2 px-3.5"
+            )}
+          >
+            {/* Space-color tick — the nav's active-item language, but in
+                the space's own color: this row is "where you are". */}
+            {active && (
+              <span
+                aria-hidden
+                className="absolute inset-y-[7px] left-0 w-0.5"
+                style={{ background: projectColorVar(active.color) }}
+              />
+            )}
+            {active && <ProjectMark color={active.color} size={collapsed ? 10 : 8} />}
+            {!collapsed && (
+              <span className="min-w-0 flex-1 truncate text-left">{active?.name ?? "donezo"}</span>
+            )}
+            {/* Persistent chevron — collapsed included — so the row always
+                reads as a menu, never static furniture. */}
+            <ChevronDown
+              className={cn("shrink-0 text-gtc-muted", collapsed ? "h-3 w-3" : "h-3.5 w-3.5")}
+              aria-hidden
+            />
+          </button>
+        </PopoverTrigger>
+      </Tip>
+      {createdNotice && (
+        <div
+          role="status"
           className={cn(
-            "flex h-full min-w-0 items-center outline-none transition-colors",
-            "font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text",
-            "hover:text-gtc-accent-bright focus-visible:shadow-gtc-focus",
-            collapsed ? "justify-center px-0" : "w-full gap-2 px-1.5"
+            "pointer-events-none absolute left-1.5 top-full z-40 mt-1 whitespace-nowrap",
+            "rounded-gtc border border-gtc-line bg-gtc-panel px-2 py-1",
+            "font-mono text-[0.62rem] uppercase tracking-label text-gtc-accent"
           )}
         >
-          {active && <ProjectMark color={active.color} size={collapsed ? 10 : 8} />}
-          {!collapsed && (
-            <>
-              <span className="min-w-0 flex-1 truncate text-left">{active?.name ?? "donezo"}</span>
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gtc-muted" aria-hidden />
-            </>
-          )}
-        </button>
-      </PopoverTrigger>
+          space created — you&rsquo;re in it
+        </div>
+      )}
       <PopoverContent align="start" sideOffset={4} className="w-64 p-2">
         {confirmSwitch ? (
           <div className="space-y-2.5 px-1 py-1">
@@ -311,6 +369,45 @@ export function SpaceSwitcher({ collapsed }: { collapsed: boolean }) {
           </div>
         ) : (
           <>
+            {/* Creation is pinned to the top — the single discoverable
+                path to a new space, always in the same place. */}
+            {mode.kind === "new" ? (
+              <SpaceForm
+                initialName=""
+                initialColor={COLOR_RAMP[session.spaces.length % COLOR_RAMP.length]}
+                submitLabel="Create"
+                onSubmit={async (name, color) => {
+                  // Flagged before the switch: success remounts the whole
+                  // keyed shell, and the fresh switcher shows the notice.
+                  announceCreatedSpace = true;
+                  try {
+                    await session.createSpace(name, color);
+                  } catch (err) {
+                    announceCreatedSpace = false;
+                    throw err;
+                  }
+                  setOpen(false);
+                  setMode({ kind: "list" });
+                }}
+                onCancel={() => setMode({ kind: "list" })}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMode({ kind: "new" })}
+                className={cn(
+                  "flex h-8 w-full items-center gap-2 rounded-gtc px-2 outline-none",
+                  "font-mono text-[0.72rem] uppercase tracking-chrome text-gtc-text",
+                  "transition-colors hover:bg-gtc-tint-accent hover:text-gtc-accent-bright focus-visible:shadow-gtc-focus"
+                )}
+              >
+                <Plus className="h-3.5 w-3.5 text-gtc-accent" aria-hidden />
+                New space
+              </button>
+            )}
+
+            <div className="my-1.5 h-px bg-gtc-line" />
+
             <div className="px-1 pb-1.5 pt-0.5 font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
               Spaces
             </div>
@@ -331,49 +428,22 @@ export function SpaceSwitcher({ collapsed }: { collapsed: boolean }) {
               </p>
             )}
 
-            <div className="my-1.5 h-px bg-gtc-line" />
-
-            {mode.kind === "new" ? (
-              <SpaceForm
-                initialName=""
-                initialColor={COLOR_RAMP[session.spaces.length % COLOR_RAMP.length]}
-                submitLabel="Create"
-                onSubmit={async (name, color) => {
-                  await session.createSpace(name, color);
-                  setOpen(false);
-                  setMode({ kind: "list" });
-                }}
-                onCancel={() => setMode({ kind: "list" })}
-              />
-            ) : (
-              <div className="flex items-center justify-between gap-2">
+            {archived.length > 0 && (
+              <>
+                <div className="my-1.5 h-px bg-gtc-line" />
                 <button
                   type="button"
-                  onClick={() => setMode({ kind: "new" })}
+                  onClick={() => setShowArchived((v) => !v)}
+                  aria-pressed={showArchived}
                   className={cn(
-                    "flex h-7 items-center gap-1.5 rounded-gtc px-2 outline-none",
-                    "font-mono text-[0.68rem] uppercase tracking-chrome text-gtc-muted",
-                    "transition-colors hover:bg-gtc-tint-accent hover:text-gtc-text focus-visible:shadow-gtc-focus"
+                    "h-7 rounded-gtc px-2 font-mono text-[0.62rem] uppercase tracking-label outline-none",
+                    "transition-colors focus-visible:shadow-gtc-focus",
+                    showArchived ? "text-gtc-accent" : "text-gtc-muted hover:text-gtc-text"
                   )}
                 >
-                  <Plus className="h-3 w-3" aria-hidden />
-                  New space…
+                  {showArchived ? "Hide archived" : `Show archived (${archived.length})`}
                 </button>
-                {archived.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowArchived((v) => !v)}
-                    aria-pressed={showArchived}
-                    className={cn(
-                      "h-7 rounded-gtc px-2 font-mono text-[0.62rem] uppercase tracking-label outline-none",
-                      "transition-colors focus-visible:shadow-gtc-focus",
-                      showArchived ? "text-gtc-accent" : "text-gtc-muted hover:text-gtc-text"
-                    )}
-                  >
-                    {showArchived ? "Hide archived" : `Show archived (${archived.length})`}
-                  </button>
-                )}
-              </div>
+              </>
             )}
           </>
         )}

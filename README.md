@@ -73,7 +73,11 @@ as `404`):
 | `POST /api/auth/setup`                             | First-run: create the owner + session; `409` after                     |
 | `POST /api/auth/login`                             | `{username, password}` → session cookie + `{user}`                     |
 | `POST /api/auth/logout`                            | Delete the session, expire the cookie                                  |
-| `GET /api/auth/me`                                 | `{user}` or `401`                                                      |
+| `POST /api/auth/register`                          | `{code, username, displayName?, password}` → member account + `main` space + session |
+| `GET /api/auth/me`                                 | `{user}` (includes `role`) or `401`                                    |
+| `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
+| `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
+| `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -115,7 +119,29 @@ the seeded account by setting its password. Setup with a fresh username on
 an unseeded data dir works the same way; once any user has a password,
 setup answers `409`. The once-only invariant is enforced atomically at the
 SQL layer, so concurrent setup requests racing on a fresh instance produce
-exactly one owner.
+exactly one owner. The owner is the instance **admin**; databases created
+before roles existed are migrated in place, promoting the first
+credentialed user to admin.
+
+**Roles & invites:** every user is `admin` or `member` (`/api/auth/me`
+reports which; non-admins get `403 {"error":"admin required"}` on admin
+endpoints). The admin mints invite codes — `dz-XXXXX-XXXXX`, Crockford
+base32, ~50 bits — via `POST /api/invites`. The plaintext code appears
+only in that one `201`: the database stores its SHA-256 plus a display
+prefix, so codes can be listed and revoked but never re-read. A new user
+redeems a code with `POST /api/auth/register`, which atomically claims
+the invite (a single guarded `UPDATE`, so two racing registrations with
+one code produce exactly one account), creates the member and their
+first space `main`, and issues a session. Codes are matched
+case-insensitively — `dz-abcde-fghjk` claims `dz-ABCDE-FGHJK` — so a
+code survives being retyped, not just pasted. Unknown, used, expired,
+and revoked codes all fail with the same `403 {"error":"invalid or
+expired invite code"}` — registration is not an invite-state oracle —
+while a taken username is its own `409` that does not consume the code.
+That `409` is a deliberate, bounded disclosure: it is visible only to
+someone the admin already handed a valid code (anonymous login keeps
+its uniform `401`), and every registration attempt — including the
+`409` — spends the shared login/setup rate-limit budget.
 
 Security posture:
 

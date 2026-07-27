@@ -26,8 +26,8 @@ func TestMigrate(t *testing.T) {
 		{
 			name:        "core set",
 			fsysDir:     "migrations/core",
-			wantApplied: 1,
-			wantTables:  []string{"users", "sessions", "spaces"},
+			wantApplied: 2,
+			wantTables:  []string{"users", "sessions", "spaces", "invites"},
 		},
 		{
 			name:        "space set",
@@ -104,6 +104,137 @@ func TestMigrate(t *testing.T) {
 			}
 			if rows != tt.wantApplied {
 				t.Errorf("schema_migrations rows = %d, want %d", rows, tt.wantApplied)
+			}
+		})
+	}
+}
+
+// TestCoreMigrationUpgradeFromV1 proves the roles migration is safe on
+// existing data: a core.db created at schema version 1 (pre-roles) with
+// real user rows upgrades in place through the ordinary constructor —
+// the role column appears, the right user is promoted to admin, and the
+// invites table works.
+func TestCoreMigrationUpgradeFromV1(t *testing.T) {
+	t.Parallel()
+	type oldUser struct {
+		username string
+		hash     string // "" = never completed setup
+	}
+	tests := []struct {
+		name string
+		// users are inserted in order, so ids ascend with the slice.
+		users     []oldUser
+		wantAdmin string // username promoted to admin; "" for none
+	}{
+		{
+			name: "lowest-id credentialed user is promoted",
+			users: []oldUser{
+				{username: "seeded", hash: ""}, // dormant seed row must not win
+				{username: "owner", hash: "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA"},
+				{username: "other", hash: "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaQ"},
+			},
+			wantAdmin: "owner",
+		},
+		{
+			name: "lowest-id user when nobody is credentialed yet",
+			users: []oldUser{
+				{username: "first", hash: ""},
+				{username: "second", hash: ""},
+			},
+			wantAdmin: "first",
+		},
+		{
+			name:  "empty users table upgrades cleanly",
+			users: nil,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			dir := t.TempDir()
+
+			// Build the pre-migration fixture: core.db at exactly schema
+			// version 1, populated the way a phase-2 deployment would be.
+			db, err := openDB(filepath.Join(dir, "core.db"))
+			if err != nil {
+				t.Fatalf("openDB: %v", err)
+			}
+			migs, err := loadMigrations(coreMigrationFS, "migrations/core")
+			if err != nil {
+				t.Fatalf("loadMigrations: %v", err)
+			}
+			if len(migs) < 2 || migs[0].version != 1 {
+				t.Fatalf("core migration set = %+v, want version 1 first and a later version to upgrade to", migs)
+			}
+			if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
+				version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+			)`); err != nil {
+				t.Fatalf("create schema_migrations: %v", err)
+			}
+			now := func() string { return fixedNow }
+			if err := applyMigration(ctx, db, migs[0], now); err != nil {
+				t.Fatalf("apply v1: %v", err)
+			}
+			for _, u := range tt.users {
+				// The v1 schema has no role column; this INSERT would fail
+				// if the fixture were accidentally built on the new schema.
+				if _, err := db.ExecContext(ctx,
+					`INSERT INTO users (username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?)`,
+					u.username, u.username, u.hash, fixedNow); err != nil {
+					t.Fatalf("insert v1 user %s: %v", u.username, err)
+				}
+			}
+			if err := db.Close(); err != nil {
+				t.Fatalf("close fixture db: %v", err)
+			}
+
+			// Reopen through the real constructor — the exact upgrade path
+			// donezod takes at startup on an existing data dir.
+			s, err := NewCoreStore(WithDataDir(dir), WithClock(fixedClock))
+			if err != nil {
+				t.Fatalf("NewCoreStore over v1 fixture: %v", err)
+			}
+			defer func() {
+				if err := s.Close(); err != nil {
+					t.Errorf("close store: %v", err)
+				}
+			}()
+
+			var adminID int64
+			for _, u := range tt.users {
+				got, err := s.GetUserByUsername(ctx, u.username)
+				if err != nil {
+					t.Fatalf("user %s after upgrade: %v", u.username, err)
+				}
+				want := RoleMember
+				if u.username == tt.wantAdmin {
+					want = RoleAdmin
+					adminID = got.ID
+				}
+				if got.Role != want {
+					t.Errorf("user %s role = %q, want %q", u.username, got.Role, want)
+				}
+				if got.PasswordHash != u.hash {
+					t.Errorf("user %s hash changed across upgrade: %q", u.username, got.PasswordHash)
+				}
+			}
+
+			// The invites table is not just present — it works.
+			listed, err := s.ListInvites(ctx)
+			if err != nil {
+				t.Fatalf("ListInvites after upgrade: %v", err)
+			}
+			if len(listed) != 0 {
+				t.Errorf("upgraded invites table not empty: %d rows", len(listed))
+			}
+			if tt.wantAdmin != "" {
+				if _, err := s.CreateInvite(ctx, Invite{
+					ID: "inv-upgrade", CodeHash: "hash", CodePrefix: "dz-TESTS", CreatedBy: adminID,
+				}, time.Hour); err != nil {
+					t.Errorf("CreateInvite after upgrade: %v", err)
+				}
 			}
 		})
 	}

@@ -7,11 +7,24 @@ package store
 // CreatedAt/UpdatedAt on Project and ActivityEntry are server-side columns
 // that do not exist in the frontend types; they are excluded from JSON.
 
+// Roles a User can hold. Exactly one admin exists per instance in
+// practice: first-run setup creates the owner as admin (and the roles
+// migration backfills the first credentialed user on upgraded
+// databases); everyone who joins through an invite code is a member.
+const (
+	// RoleAdmin may manage invites in addition to everything members do.
+	RoleAdmin = "admin"
+	// RoleMember is the default role for every non-owner account.
+	RoleMember = "member"
+)
+
 // User is a row in core.db's users table.
 type User struct {
 	ID          int64  `json:"id"`
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
+	// Role is RoleAdmin for the instance owner, RoleMember otherwise.
+	Role string `json:"role"`
 	// PasswordHash is empty until phase 2 introduces authentication.
 	PasswordHash string `json:"-"`
 	CreatedAt    string `json:"createdAt"`

@@ -18,9 +18,10 @@ import type { ProjectColor, Space } from "@/domain/types";
 import { ACTIVE_SPACE_STORAGE_KEY, SessionContext, type Session } from "./session";
 import { AuthScreen, AuthErrorLine, ConnectingScreen, authErrorMessage } from "./AuthScreen";
 import { LoginScreen } from "./LoginScreen";
+import { RegisterScreen } from "./RegisterScreen";
 import { SetupScreen } from "./SetupScreen";
 
-type Phase = "connecting" | "setup" | "login" | "booting" | "ready" | "offline";
+type Phase = "connecting" | "setup" | "login" | "register" | "booting" | "ready" | "offline";
 
 function readStoredSpaceId(): string | null {
   try {
@@ -232,7 +233,16 @@ export function AuthGate({
     );
   }
   if (phase === "setup") return <SetupScreen onDone={(u) => void boot(u)} />;
-  if (phase === "login") return <LoginScreen onDone={(u) => void boot(u)} />;
+  if (phase === "login") {
+    return (
+      <LoginScreen onDone={(u) => void boot(u)} onRegister={() => setPhase("register")} />
+    );
+  }
+  if (phase === "register") {
+    // Success boots exactly like login — the server already created the
+    // member's "main" space, so the zero-spaces auto-create never fires.
+    return <RegisterScreen onDone={(u) => void boot(u)} onBack={() => setPhase("login")} />;
+  }
 
   if (!user || !activeSpaceId || !data) return <ConnectingScreen />;
 

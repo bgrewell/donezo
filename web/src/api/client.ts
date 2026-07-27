@@ -39,7 +39,32 @@ export interface ApiUser {
   id: number;
   username: string;
   displayName: string;
+  /** "admin" (the instance owner) or "member" (invited accounts). */
+  role: "admin" | "member";
   createdAt: string;
+}
+
+/** One invite in the admin list (GET /api/invites) — never the code. */
+export interface Invite {
+  id: string;
+  /** First characters of the code, for recognizing it in the list. */
+  codePrefix: string;
+  /** Lifecycle state derived by the server at list time. */
+  status: "active" | "used" | "expired" | "revoked";
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedBy?: string;
+  usedAt?: string;
+  revokedAt?: string;
+}
+
+/** A freshly minted invite — the only place the plaintext code exists. */
+export interface CreatedInvite {
+  id: string;
+  code: string;
+  codePrefix: string;
+  expiresAt: string;
 }
 
 /** GET /api/spaces/{id}/state — the full content of one space. */
@@ -118,8 +143,38 @@ export async function login(username: string, password: string): Promise<ApiUser
   return (await api.post<{ user: ApiUser }>("/api/auth/login", { username, password })).user;
 }
 
+/** Redeem an invite code into a fresh member account (plus its "main"
+ *  space and a session). Every unusable code answers a uniform 403;
+ *  a taken username is a 409. */
+export async function register(
+  code: string,
+  username: string,
+  displayName: string,
+  password: string
+): Promise<ApiUser> {
+  const body = { code, username, displayName, password };
+  return (await api.post<{ user: ApiUser }>("/api/auth/register", body)).user;
+}
+
 export function logout(): Promise<void> {
   return api.post<void>("/api/auth/logout");
+}
+
+// ─── Invites (admin only) ─────────────────────────────────────────────────
+
+/** Mint an invite code. The plaintext code appears only in this response. */
+export async function createInvite(expiresInDays?: number): Promise<CreatedInvite> {
+  const body = expiresInDays !== undefined ? { expiresInDays } : undefined;
+  return (await api.post<{ invite: CreatedInvite }>("/api/invites", body)).invite;
+}
+
+export async function fetchInvites(): Promise<Invite[]> {
+  return (await api.get<{ invites: Invite[] }>("/api/invites")).invites;
+}
+
+/** Revoke an invite (idempotent server-side). */
+export function revokeInvite(id: string): Promise<void> {
+  return api.del(`/api/invites/${encodeURIComponent(id)}`);
 }
 
 export async function fetchSpaces(): Promise<Space[]> {

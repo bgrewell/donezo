@@ -5,3 +5,4 @@
 - [dev-auto-login requires --seed](gotcha_dev_auto_login.md) — StaticAuthenticator hardcodes user id=1; breaks FK-backed writes if unseeded
 - [Test style conventions](testing_conventions_donezo.md) — table-driven + t.Parallel() + tt:=tt capture, newTestServer fixture shape
 - [Connection-cache design tradeoff](note_connection_cache_growth.md) — SpaceStore.conns never evicts; known/accepted for personal-scale use
+- [Roles + invites security review](feature_roles_invites.md) — atomic-claim pattern to reuse; compensation-atomicity gap; invite code case-sensitivity bug

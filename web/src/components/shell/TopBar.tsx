@@ -1,5 +1,8 @@
+import * as React from "react";
 import { Bell, CircleHelp, Palette, Plus, Search } from "lucide-react";
 import { Avatar, Button, cn } from "@grewelltech/console";
+
+import { InvitesDialog } from "@/components/admin/InvitesDialog";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -37,6 +40,7 @@ export function TopBar() {
   const { theme, setTheme, font, setFont, fontSize, setFontSize } = useTheme();
   const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
   const { user, logout } = useSession();
+  const [invitesOpen, setInvitesOpen] = React.useState(false);
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -232,9 +236,17 @@ export function TopBar() {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {/* Members never see the invites entry point; the server enforces
+              the admin requirement on the endpoints regardless. */}
+          {user.role === "admin" && (
+            <DropdownMenuItem onSelect={() => setInvitesOpen(true)}>Invites…</DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {user.role === "admin" && (
+        <InvitesDialog open={invitesOpen} onClose={() => setInvitesOpen(false)} />
+      )}
       <ShortcutsSheet />
     </header>
   );

@@ -46,8 +46,8 @@ func (s *CoreStore) Close() error {
 	return s.db.Close()
 }
 
-// CreateUser inserts a new user with an empty password hash (phase 2 sets
-// real credentials) and returns the stored row.
+// CreateUser inserts a new member user with an empty password hash
+// (phase 2 sets real credentials) and returns the stored row.
 func (s *CoreStore) CreateUser(ctx context.Context, username, displayName string) (User, error) {
 	if username == "" {
 		return User{}, errors.New("store: username is required")
@@ -55,11 +55,12 @@ func (s *CoreStore) CreateUser(ctx context.Context, username, displayName string
 	u := User{
 		Username:    username,
 		DisplayName: displayName,
+		Role:        RoleMember,
 		CreatedAt:   s.opts.now(),
 	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (username, display_name, password_hash, created_at) VALUES (?, ?, '', ?)`,
-		u.Username, u.DisplayName, u.CreatedAt)
+		`INSERT INTO users (username, display_name, role, password_hash, created_at) VALUES (?, ?, ?, '', ?)`,
+		u.Username, u.DisplayName, u.Role, u.CreatedAt)
 	if err != nil {
 		return User{}, fmt.Errorf("store: create user %q: %w", username, err)
 	}
@@ -87,8 +88,8 @@ func (s *CoreStore) DeleteUser(ctx context.Context, id int64) error {
 func (s *CoreStore) GetUserByUsername(ctx context.Context, username string) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, display_name, password_hash, created_at FROM users WHERE username = ?`,
-		username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.CreatedAt)
+		`SELECT id, username, display_name, role, password_hash, created_at FROM users WHERE username = ?`,
+		username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PasswordHash, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, fmt.Errorf("store: user %q: %w", username, ErrNotFound)
 	}
@@ -154,9 +155,10 @@ const noCredentialedUserGuard = `NOT EXISTS (SELECT 1 FROM users WHERE password_
 // SetupOwner atomically performs first-run setup: while no user has a
 // password yet, it gives username one — claiming the seeded
 // password-less row in place if the username exists, creating the user
-// otherwise — and returns the resulting user. Once any user is
-// credentialed (including losing a race against a concurrent call) it
-// returns ErrSetupComplete and writes nothing.
+// otherwise — and returns the resulting user. The owner is the instance
+// admin, so both paths assign RoleAdmin. Once any user is credentialed
+// (including losing a race against a concurrent call) it returns
+// ErrSetupComplete and writes nothing.
 func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passwordHash string) (User, error) {
 	if username == "" {
 		return User{}, errors.New("store: username is required")
@@ -169,9 +171,9 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 	}
 	// Claim path: the seeded password-less row, updated in place.
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET password_hash = ?, display_name = ?
+		`UPDATE users SET password_hash = ?, display_name = ?, role = ?
 		 WHERE username = ? AND password_hash = '' AND `+noCredentialedUserGuard,
-		passwordHash, displayName, username)
+		passwordHash, displayName, RoleAdmin, username)
 	if err != nil {
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
 	}
@@ -188,13 +190,14 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 	u := User{
 		Username:     username,
 		DisplayName:  displayName,
+		Role:         RoleAdmin,
 		PasswordHash: passwordHash,
 		CreatedAt:    s.opts.now(),
 	}
 	res, err = s.db.ExecContext(ctx,
-		`INSERT INTO users (username, display_name, password_hash, created_at)
-		 SELECT ?, ?, ?, ? WHERE `+noCredentialedUserGuard,
-		u.Username, u.DisplayName, u.PasswordHash, u.CreatedAt)
+		`INSERT INTO users (username, display_name, role, password_hash, created_at)
+		 SELECT ?, ?, ?, ?, ? WHERE `+noCredentialedUserGuard,
+		u.Username, u.DisplayName, u.Role, u.PasswordHash, u.CreatedAt)
 	if err != nil {
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
 	}

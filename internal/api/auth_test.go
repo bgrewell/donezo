@@ -77,6 +77,9 @@ type authFixture struct {
 	core    *store.CoreStore
 	hasher  *countingHasher
 	clock   *testClock
+	// dir is the data directory both stores share; fault-injection
+	// tests break its "spaces" subdirectory to make EnsureSpace fail.
+	dir string
 }
 
 // newAuthFixture builds the fixture; opts are applied after (and can
@@ -109,7 +112,7 @@ func newAuthFixture(t *testing.T, opts ...ServerOption) *authFixture {
 		WithRateLimiter(auth.NewRateLimiter(auth.WithLimiterClock(clock.Now))),
 	}
 	srv := NewServer(core, spaces, append(base, opts...)...)
-	return &authFixture{t: t, handler: srv.Handler(), core: core, hasher: hasher, clock: clock}
+	return &authFixture{t: t, handler: srv.Handler(), core: core, hasher: hasher, clock: clock, dir: dir}
 }
 
 // seedUser creates a password-less user, mirroring what --seed does.

@@ -6,13 +6,17 @@ import { AuthScreen, AuthErrorLine, authErrorMessage } from "./AuthScreen";
 
 /** Sign-in screen shown whenever the session cookie is absent or stale.
  *  `notice` adds a calm context line above the form (e.g. the session
- *  expired mid-use and the gate is overlaying re-auth). */
+ *  expired mid-use and the gate is overlaying re-auth). `onRegister`
+ *  adds the quiet invite-code link — omitted in the re-auth overlay,
+ *  where a signed-out registration would clash with the mounted app. */
 export function LoginScreen({
   notice,
   onDone,
+  onRegister,
 }: {
   notice?: string;
   onDone: (user: ApiUser) => void;
+  onRegister?: () => void;
 }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -69,6 +73,15 @@ export function LoginScreen({
         <Button variant="primary" className="w-full" disabled={!ready} onClick={() => void submit()}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>
+        {onRegister && (
+          <button
+            type="button"
+            onClick={onRegister}
+            className="block w-full rounded-gtc py-0.5 text-center font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted outline-none transition-colors hover:text-gtc-text focus-visible:shadow-gtc-focus"
+          >
+            Have an invite code?
+          </button>
+        )}
       </div>
     </AuthScreen>
   );

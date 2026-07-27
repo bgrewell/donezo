@@ -200,7 +200,15 @@ export default function TimelineView() {
               <EmptyState
                 title="No projects visible"
                 hint="Loosen the project filter, or show completed projects with Done."
-              />
+              >
+                {/* A truly fresh space has no projects to unhide — point
+                    newcomers at the space switcher instead. */}
+                {state.projects.length === 0 && (
+                  <p className="m-0 max-w-[42ch] text-[0.85rem] text-gtc-muted">
+                    New here? Spaces live under the donezo mark, top-left.
+                  </p>
+                )}
+              </EmptyState>
             </div>
           )}
           {/* Filler lane: the column grid (and weekend wash) continues below

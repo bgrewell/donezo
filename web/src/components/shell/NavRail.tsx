@@ -38,13 +38,27 @@ export function NavRail() {
         navCollapsed ? "w-[var(--dz-nav-w)]" : "w-[var(--dz-nav-w-expanded)]"
       )}
     >
-      {/* Brand area — the active space doubles as the space switcher. */}
+      {/* Brand — pure identity, no interaction. */}
       <div
         className={cn(
           "flex h-[var(--dz-topbar-h)] shrink-0 items-center border-b border-gtc-line",
-          navCollapsed ? "justify-center" : "px-2"
+          navCollapsed ? "justify-center" : "px-3.5"
         )}
       >
+        <span className="select-none font-mono text-[0.8rem] font-semibold uppercase tracking-chrome text-gtc-text">
+          {navCollapsed ? (
+            <span className="text-gtc-accent">dz</span>
+          ) : (
+            <>
+              donezo <span className="text-gtc-accent">//</span>
+            </>
+          )}
+        </span>
+      </div>
+
+      {/* Space switcher — its own color-tick row directly below the brand.
+          relative: anchors the switcher's transient "space created" line. */}
+      <div className="relative shrink-0">
         <SpaceSwitcher collapsed={navCollapsed} />
       </div>
 

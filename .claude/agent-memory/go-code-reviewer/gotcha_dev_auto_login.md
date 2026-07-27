@@ -1,15 +1,29 @@
 ---
 name: gotcha-dev-auto-login
-description: donezod's --dev-auto-login flag hardcodes user id=1 via StaticAuthenticator without verifying that row actually exists in core.db — breaks any FK-backed write (e.g. POST /api/spaces) unless --seed also ran.
+description: FIXED as of the roles/invites session (2026-07-26/27) — cmd/donezod/main.go now calls seed.EnsureDevUser to create the dev user row if missing, instead of hardcoding an unverified id=1. Kept for history; don't cite the old bug as current.
 metadata:
   type: project
 ---
 
-`cmd/donezod/main.go`'s `serve()` wires `--dev-auto-login` to
+**Status: fixed, superseded.** As of a review on 2026-07-27 (branch
+feature/backend-core, roles+invites session), `cmd/donezod/main.go`'s
+`serve()` calls `seed.EnsureDevUser(ctx, core)` before wiring
+`StaticAuthenticator`, and the README's security-posture section now
+documents this: "on an unseeded data dir the dev user row is created at
+startup so user-scoped writes like `POST /api/spaces` work without
+`--seed`." The fix was already present on the branch before this
+session started (not part of the roles/invites diff itself), so it must
+have landed in an earlier commit. Verify `seed.EnsureDevUser` still
+exists before citing this if a lot of time has passed.
+
+Original bug description below, kept for context on what was wrong and
+why the fix matters:
+
+`cmd/donezod/main.go`'s `serve()` used to wire `--dev-auto-login` to
 `api.StaticAuthenticator{User: store.User{ID: 1, Username: seed.Username,
-DisplayName: seed.DisplayName}}` — a fixed user struct that is **never
+DisplayName: seed.DisplayName}}` — a fixed user struct that was **never
 checked against core.db**. If the data dir wasn't also seeded (via
-`--seed <path>`), no row with id=1 exists in the `users` table.
+`--seed <path>`), no row with id=1 existed in the `users` table.
 
 Consequence, reproduced live on 2026-07-26: starting
 `donezod --data-dir /tmp/x --dev-auto-login` (no `--seed`) and then
