@@ -22,7 +22,7 @@ type SessionPruner interface {
 // until its context is canceled.
 type Sweeper struct {
 	sessions SessionPruner
-	limiter  *RateLimiter
+	limiters []*RateLimiter
 	interval time.Duration
 	logger   *log.Logger
 }
@@ -41,8 +41,14 @@ func WithSweepInterval(d time.Duration) SweeperOption {
 }
 
 // WithSweepLimiter also prunes the given rate limiter on every sweep.
+// Safe to pass more than once — every process rate limiter (login/setup,
+// MCP tool calls, ...) should be registered so none grows unbounded.
 func WithSweepLimiter(l *RateLimiter) SweeperOption {
-	return func(s *Sweeper) { s.limiter = l }
+	return func(s *Sweeper) {
+		if l != nil {
+			s.limiters = append(s.limiters, l)
+		}
+	}
 }
 
 // WithSweepLogger reports sweep results and failures to l. Without a
@@ -76,7 +82,7 @@ func (s *Sweeper) Run(ctx context.Context) {
 	}
 }
 
-// sweep performs one pass over sessions and, if configured, the rate
+// sweep performs one pass over sessions and every configured rate
 // limiter.
 func (s *Sweeper) sweep(ctx context.Context) {
 	n, err := s.sessions.DeleteExpiredSessions(ctx)
@@ -86,8 +92,8 @@ func (s *Sweeper) sweep(ctx context.Context) {
 	case n > 0:
 		s.logf("swept %d expired session(s)", n)
 	}
-	if s.limiter != nil {
-		s.limiter.Sweep()
+	for _, l := range s.limiters {
+		l.Sweep()
 	}
 }
 

@@ -26,8 +26,8 @@ func TestMigrate(t *testing.T) {
 		{
 			name:        "core set",
 			fsysDir:     "migrations/core",
-			wantApplied: 2,
-			wantTables:  []string{"users", "sessions", "spaces", "invites"},
+			wantApplied: 3,
+			wantTables:  []string{"users", "sessions", "spaces", "invites", "api_tokens"},
 		},
 		{
 			name:        "space set",
@@ -237,6 +237,93 @@ func TestCoreMigrationUpgradeFromV1(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCoreMigrationUpgradeFromV2 proves the api_tokens migration is safe
+// on existing data: a core.db created at schema version 2 (pre-tokens)
+// with a real user upgrades in place through the ordinary constructor —
+// existing rows are untouched and the new api_tokens table is not just
+// present but usable end to end (create, list without the hash, look up).
+func TestCoreMigrationUpgradeFromV2(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// Build the pre-migration fixture: core.db at exactly schema version 2,
+	// with one credentialed user, the way a phase-3 deployment would be.
+	db, err := openDB(filepath.Join(dir, "core.db"))
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	migs, err := loadMigrations(coreMigrationFS, "migrations/core")
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	if len(migs) < 3 || migs[1].version != 2 {
+		t.Fatalf("core migration set = %+v, want a version 2 to seed and a later version to upgrade to", migs)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	now := func() string { return fixedNow }
+	for _, m := range migs[:2] { // apply v1 and v2 only
+		if err := applyMigration(ctx, db, m, now); err != nil {
+			t.Fatalf("apply %s: %v", m.name, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO users (username, display_name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"owner", "Owner", RoleAdmin, "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA", fixedNow); err != nil {
+		t.Fatalf("insert v2 user: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close fixture db: %v", err)
+	}
+
+	// Reopen through the real constructor — the exact upgrade path donezod
+	// takes at startup on an existing data dir.
+	s, err := NewCoreStore(WithDataDir(dir), WithClock(fixedClock))
+	if err != nil {
+		t.Fatalf("NewCoreStore over v2 fixture: %v", err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	}()
+
+	owner, err := s.GetUserByUsername(ctx, "owner")
+	if err != nil {
+		t.Fatalf("owner after upgrade: %v", err)
+	}
+	if owner.Role != RoleAdmin {
+		t.Errorf("owner role = %q, want %q (row changed across upgrade)", owner.Role, RoleAdmin)
+	}
+
+	// The api_tokens table is not just present — it works.
+	created, err := s.CreateAPIToken(ctx, APIToken{
+		ID: "tok-upgrade", UserID: owner.ID, Name: "laptop",
+		TokenHash: "deadbeef", TokenPrefix: "dzmcp-ABCDEF", Scope: ScopeReadWrite,
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIToken after upgrade: %v", err)
+	}
+	listed, err := s.ListAPITokens(ctx, owner.ID)
+	if err != nil {
+		t.Fatalf("ListAPITokens after upgrade: %v", err)
+	}
+	if len(listed) != 1 || listed[0].TokenHash != "" {
+		t.Errorf("listing = %+v, want one token with no hash", listed)
+	}
+	gotUser, tokenID, scope, err := s.GetUserByAPIToken(ctx, created.TokenHash)
+	if err != nil {
+		t.Fatalf("GetUserByAPIToken after upgrade: %v", err)
+	}
+	if gotUser.ID != owner.ID || tokenID != "tok-upgrade" || scope != ScopeReadWrite {
+		t.Errorf("lookup = (%d,%q,%q), want (%d,tok-upgrade,%q)", gotUser.ID, tokenID, scope, owner.ID, ScopeReadWrite)
 	}
 }
 

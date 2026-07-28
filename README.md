@@ -99,6 +99,9 @@ as `404`):
 | `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
 | `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
 | `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
+| `POST /api/tokens`                                 | Any user: `{name, scope}` (`read_only`/`read_write`) → `201 {id, token, tokenPrefix, scope, name, createdAt}` — the MCP bearer token, plaintext **only here** |
+| `GET /api/tokens`                                  | Any user: own tokens with `tokenPrefix`, `scope`, `createdAt`, `lastUsedAt`, `revokedAt`; never the token or its hash |
+| `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -187,6 +190,109 @@ Security posture:
   without `--seed`). It exists solely for frontend dev/tests and is
   refused unless the data dir is under `/tmp` or
   `DONEZOD_I_KNOW_WHAT_IM_DOING=1` is set. Never expose such an instance.
+
+## MCP endpoint (`/mcp`)
+
+**New to this?** [`docs/mcp.md`](docs/mcp.md) is the end-user walkthrough —
+what a connected model can and can't do, token scopes, and setup for Claude
+Code/Desktop/Managed Agents. What follows here is the technical reference.
+
+donezo exposes a [Model Context Protocol](https://modelcontextprotocol.io)
+server at `POST /mcp` so a user's LLM (Claude Code, Claude Desktop, a
+managed agent, any MCP client) can read and manage that user's donezo data.
+It is a **stateless Streamable HTTP** server built on the official
+[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk); `internal/mcp`
+is a thin wrapper that adds donezo's bearer auth, scope enforcement, rate
+limiting, and the curated tool surface. The SDK requires Go ≥ 1.25, which the
+module's `go` directive now targets (the toolchain is fetched automatically
+via `GOTOOLCHAIN`).
+
+- **Transport.** Streamable HTTP over `POST /mcp`, stateless (one ephemeral
+  session per request, no session ids); responses are a single
+  `application/json` body. Requests must send `Content-Type: application/json`
+  and an `Accept` listing both `application/json` and `text/event-stream` (as
+  the transport requires). `GET /mcp` answers `405`. The protocol version is
+  negotiated by the SDK — latest `2026-07-28`, also supporting `2025-11-25`,
+  `2025-06-18`, `2025-03-26`, and `2024-11-05`; `initialize` echoes the
+  client's requested version when supported. Request bodies are capped at
+  1 MiB (`413` past it). The server advertises the `tools` capability (plus
+  the SDK's default `logging`) and exposes `tools/list`, `tools/call`,
+  `initialize`/`server/discover`, `ping`, and `notifications/initialized`.
+- **Auth.** `Authorization: Bearer dzmcp-…` only — validated against the
+  `api_tokens` table (SHA-256 of the token; revoked tokens are rejected).
+  Session cookies are **not** accepted, so `/mcp` has no CSRF surface.
+  Missing, malformed, unknown, and revoked tokens all answer `401` with
+  `WWW-Authenticate: Bearer`. `tools/call` is rate-limited to 120 calls per
+  minute per token, and each authenticated call refreshes the token's
+  `lastUsedAt` (throttled to once per minute).
+
+**Token flow.** Mint a token from the session API (`POST /api/tokens`, any
+authenticated user — not admin-gated); the plaintext is shown once and
+stored only as a hash. Tokens are `dzmcp-` followed by 26 Crockford base32
+symbols (~130 bits); the first 12 characters are kept as a display prefix.
+The frontend "Connect your AI…" dialog wraps mint/list/revoke.
+
+**Scopes.** A token is `read_only` or `read_write`, fixed at creation.
+`tools/list` returns **only the tools the scope permits** — a `read_only`
+token sees the six read tools; a `read_write` token sees all fourteen. A
+write call made with a `read_only` token is refused with a clear `isError`
+tool result (never a silent no-op).
+
+**Tool surface.** Curated and workflow-shaped; every description tells the
+model *when* to reach for it. Ids are server-generated (callers never mint
+them), lists are capped at 50 with a truncation note, and each tool resolves
+its `space_id` to a space the caller owns (foreign/unknown spaces read as
+"space not found"; writes also require the space to be live).
+
+| Tool | Scope | Purpose |
+| ---- | ----- | ------- |
+| `list_spaces` | read | Discover your spaces (call first). |
+| `get_space_overview` | read | The orient call: projects with status/focus/next-action, plus open-task and pending-inbox counts. |
+| `get_project` | read | Full project incl. `resumeContext`, open tasks, last 10 activities. |
+| `search` | read | Case-insensitive substring across projects/activities/tasks/notes/reminders/inbox (same matching as the web UI). |
+| `get_timeline` | read | Activities in a date range, chronological — for reflection. |
+| `list_inbox` | read | Pending raw captures. |
+| `capture_to_inbox` | write | Zero-decision capture into any owned space — the default when classification is uncertain. |
+| `log_activity` | write | Record a PAST fact on a project (timeline); never for future work. |
+| `create_task` | write | A FUTURE possibility with a lifecycle. |
+| `complete_task` | write | Mark done; with `log_activity` (default true) also logs today's activity from the task title. |
+| `create_note` | write | Durable reference text. |
+| `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). |
+| `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. |
+| `update_project` | write | Manage designations: `nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`. |
+
+### Connecting a client
+
+Replace `<your-donezo-url>` with your donezo address and `<token>` with a
+token from `POST /api/tokens` (or the "Connect your AI…" dialog).
+
+**Claude Code** — one command registers donezo as an HTTP MCP server:
+
+```sh
+claude mcp add --transport http donezo <your-donezo-url>/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+**Claude Desktop** — add a **custom connector**: Settings → Connectors → Add
+custom connector, URL `<your-donezo-url>/mcp`, header
+`Authorization: Bearer <token>`.
+
+**Managed Agents** — declare the server without inline auth and supply the
+token from the vault as a `static_bearer` credential keyed by the same URL:
+
+```json
+{
+  "mcp_servers": [
+    { "type": "url", "name": "donezo", "url": "<your-donezo-url>/mcp" }
+  ],
+  "tools": [{ "type": "mcp_toolset", "mcp_server_name": "donezo" }]
+}
+```
+
+Store the token as a `static_bearer` vault credential for
+`<your-donezo-url>/mcp` and attach the vault via `vault_ids`; Anthropic
+injects it on every call. A conceptual, end-user-facing walkthrough lives in
+[`docs/mcp.md`](docs/mcp.md).
 
 ## Design system
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -176,6 +178,77 @@ func TestAPIEndpoints(t *testing.T) {
 				tt.check(t, rec.Body.Bytes())
 			}
 		})
+	}
+}
+
+// TestWithMCPRateLimiterAppliesToMountedHandler proves the Server actually
+// threads a WithMCPRateLimiter option down into the /mcp handler it mounts
+// (internal/api/server.go builds that handler internally, so this is the
+// only place a wiring regression there would be caught): a limiter capped
+// at one call per minute blocks the second tools/call over real HTTP.
+func TestWithMCPRateLimiterAppliesToMountedHandler(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	core, err := store.NewCoreStore(store.WithDataDir(dir), store.WithClock(fixedClock))
+	if err != nil {
+		t.Fatalf("NewCoreStore: %v", err)
+	}
+	spaces, err := store.NewSpaceStore(store.WithDataDir(dir), store.WithClock(fixedClock))
+	if err != nil {
+		t.Fatalf("NewSpaceStore: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = core.Close()
+		_ = spaces.Close()
+	})
+
+	ctx := context.Background()
+	ben, err := core.CreateUser(ctx, "ben", "Ben")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := core.CreateSpace(ctx, store.Space{ID: "sandbox", UserID: ben.ID, Name: "Sandbox", Color: "blue"}); err != nil {
+		t.Fatalf("create space: %v", err)
+	}
+	token, hash, prefix, err := auth.NewAPIToken()
+	if err != nil {
+		t.Fatalf("NewAPIToken: %v", err)
+	}
+	if _, err := core.CreateAPIToken(ctx, store.APIToken{
+		ID: "tok-1", UserID: ben.ID, Name: "tok-1", TokenHash: hash, TokenPrefix: prefix,
+		Scope: store.ScopeReadWrite,
+	}); err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	limiter := auth.NewRateLimiter(auth.WithLimit(1), auth.WithWindow(time.Minute), auth.WithLimiterClock(fixedClock))
+	quiet := log.New(io.Discard, "", 0)
+	srv := NewServer(core, spaces, WithLogger(quiet), WithMCPRateLimiter(limiter))
+
+	call := func() (status int, isError bool) {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_spaces","arguments":{}}}`
+		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		// The stateless Streamable HTTP transport requires the client to
+		// advertise it can accept both a JSON body and an SSE stream.
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		var resp struct {
+			Result struct {
+				IsError bool `json:"isError"`
+			} `json:"result"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		return rec.Code, resp.Result.IsError
+	}
+
+	if status, isErr := call(); status != http.StatusOK || isErr {
+		t.Fatalf("call 1: status=%d isError=%v, want 200 and not rate-limited", status, isErr)
+	}
+	if status, isErr := call(); status != http.StatusOK || !isErr {
+		t.Errorf("call 2: status=%d isError=%v, want 200 and rate-limited (the injected 1/min limiter must govern the mounted handler)", status, isErr)
 	}
 }
 

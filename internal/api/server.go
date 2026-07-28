@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/auth"
+	"github.com/bgrewell/donezo/internal/mcp"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -22,10 +23,12 @@ type Server struct {
 	auth       Authenticator
 	passwords  auth.PasswordHasher
 	limiter    *auth.RateLimiter
+	mcpLimiter *auth.RateLimiter
 	clock      func() time.Time
 	trustProxy bool
 	logger     *log.Logger
 	ui         fs.FS
+	version    string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -49,6 +52,14 @@ func WithPasswordHasher(h auth.PasswordHasher) ServerOption {
 // limiter with a background sweeper.
 func WithRateLimiter(l *auth.RateLimiter) ServerOption {
 	return func(s *Server) { s.limiter = l }
+}
+
+// WithMCPRateLimiter replaces the default per-token tools/call rate
+// limiter (120 calls per minute) on the /mcp endpoint. The caller can
+// share the limiter with a background sweeper so its idle entries are
+// pruned, same as WithRateLimiter.
+func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
+	return func(s *Server) { s.mcpLimiter = l }
 }
 
 // WithTrustProxy declares that a reverse proxy donezod trusts sits
@@ -76,6 +87,16 @@ func WithClock(clock func() time.Time) ServerOption {
 // WithLogger replaces the default stderr request logger.
 func WithLogger(l *log.Logger) ServerOption {
 	return func(s *Server) { s.logger = l }
+}
+
+// WithServerVersion sets the build version reported by the MCP endpoint's
+// initialize handshake (serverInfo.version). Defaults to "dev".
+func WithServerVersion(v string) ServerOption {
+	return func(s *Server) {
+		if v != "" {
+			s.version = v
+		}
+	}
 }
 
 // WithWebUI serves the given filesystem — a production web bundle with
@@ -111,6 +132,9 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 	if s.limiter == nil {
 		s.limiter = auth.NewRateLimiter(auth.WithLimiterClock(s.clock))
 	}
+	if s.version == "" {
+		s.version = "dev"
+	}
 	return s
 }
 
@@ -128,6 +152,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/invites", s.handleListInvites)
 	mux.HandleFunc("POST /api/invites", s.handleCreateInvite)
 	mux.HandleFunc("DELETE /api/invites/{id}", s.handleRevokeInvite)
+	mux.HandleFunc("GET /api/tokens", s.handleListTokens)
+	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
+	mux.HandleFunc("DELETE /api/tokens/{id}", s.handleDeleteToken)
 	mux.HandleFunc("GET /api/spaces", s.handleListSpaces)
 	mux.HandleFunc("POST /api/spaces", s.handleCreateSpace)
 	mux.HandleFunc("PATCH /api/spaces/{id}", s.handlePatchSpace)
@@ -162,6 +189,8 @@ func (s *Server) Handler() http.Handler {
 		"/api/auth/me":                         http.MethodGet,
 		"/api/invites":                         "GET, POST",
 		"/api/invites/{id}":                    http.MethodDelete,
+		"/api/tokens":                          "GET, POST",
+		"/api/tokens/{id}":                     http.MethodDelete,
 		"/api/spaces":                          "GET, POST",
 		"/api/spaces/{id}":                     http.MethodPatch,
 		"/api/spaces/{id}/archive":             http.MethodPost,
@@ -187,6 +216,22 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	}
+	// The MCP endpoint: a stateless Streamable HTTP server (built on the
+	// official MCP Go SDK) with its own bearer-token auth. It is not under
+	// /api/, so the session-cookie auth middleware passes it through
+	// untouched (no cookies accepted, no CSRF surface); the mcp handler
+	// authenticates every request itself.
+	mcpOpts := []mcp.Option{
+		mcp.WithClock(s.clock),
+		mcp.WithLogger(s.logger),
+		mcp.WithVersion(s.version),
+		mcp.WithTrustProxy(s.trustProxy),
+	}
+	if s.mcpLimiter != nil {
+		mcpOpts = append(mcpOpts, mcp.WithRateLimiter(s.mcpLimiter))
+	}
+	mcpHandler := mcp.NewHandler(s.core, s.spaces, mcpOpts...)
+	mux.Handle("/mcp", mcpHandler)
 	// The "/" catch-all: the web bundle when one is wired in (release
 	// builds, via WithWebUI), otherwise the API-only JSON 404. Either
 	// way every /api/* pattern registered above is more specific and

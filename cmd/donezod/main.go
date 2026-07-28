@@ -154,9 +154,12 @@ func runSeed(ctx context.Context, path string, core *store.CoreStore, spaces *st
 // the lifetime of the server.
 func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) error {
 	limiter := auth.NewRateLimiter()
+	mcpLimiter := auth.NewRateLimiter(auth.WithLimit(120), auth.WithWindow(time.Minute))
 	opts := []api.ServerOption{
 		api.WithRateLimiter(limiter),
+		api.WithMCPRateLimiter(mcpLimiter),
 		api.WithTrustProxy(cfg.TrustProxy),
+		api.WithServerVersion(appVersion),
 	}
 	if webui.Available() {
 		fmt.Fprintln(os.Stderr, "donezod: serving embedded web UI")
@@ -183,6 +186,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 	sweepCtx, stopSweep := context.WithCancel(context.Background())
 	sweeper := auth.NewSweeper(core,
 		auth.WithSweepLimiter(limiter),
+		auth.WithSweepLimiter(mcpLimiter),
 		auth.WithSweepLogger(log.New(os.Stderr, "donezod ", log.LstdFlags)),
 	)
 	sweepDone := make(chan struct{})
