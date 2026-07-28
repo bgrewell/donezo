@@ -40,6 +40,13 @@ jobs:
         with:
           go-version-file: donezo/go.mod
 
+      # The design system is source-distributed TypeScript: donezo's web
+      # typecheck compiles its .tsx, which resolves @types/react from the
+      # design-system's OWN node_modules — so its dev deps must be present.
+      - name: Install design-system dev dependencies
+        working-directory: design-system
+        run: npm ci --no-audit --no-fund
+
       - name: Install web dependencies
         working-directory: donezo/web
         run: npm ci --no-audit --no-fund
