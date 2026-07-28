@@ -66,6 +66,22 @@ unit still passes `--trust-proxy`; remove that flag from the unit if
 clients will reach donezod directly, since proxy headers are then
 attacker-controlled.
 
+## First run
+
+Open the address you configured (`DONEZO_DOMAIN`, or `http://<host>:8787`
+with `DONEZO_NO_CADDY=1`). The first thing you'll see is a setup screen —
+pick a username and password to create the **owner** account. There's no
+separate admin panel to find first; the first account created is always
+the owner.
+
+To let someone else in, open the avatar menu → **Invites** and generate a
+code. Codes are single-use and expire (7 days by default); hand one to
+whoever you're inviting, and they register with it from the login
+screen. Each person gets their own account and their own private
+starting space — nobody sees anyone else's data by default. The technical
+detail on roles, invite codes, and the registration flow is in
+[`docs/api.md`](api.md#roles--invites).
+
 ## Upgrades and backups
 
 **To upgrade, re-run the same install command.** When the installer finds
