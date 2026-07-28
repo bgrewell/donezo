@@ -15,6 +15,27 @@ Monorepo:
   registry and sessions. Cookie-session authentication with argon2id
   passwords (phase 2).
 
+## Install
+
+Self-hosted install on a systemd Linux host (amd64/arm64; automatic Caddy
+reverse-proxy setup on Debian/Ubuntu):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bgrewell/donezo/main/install.sh | sudo bash
+```
+
+Re-run the same command to upgrade in place — the data directory is backed
+up to `/var/backups/donezo` first. Uninstall (keeps data and backups):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bgrewell/donezo/main/uninstall.sh | sudo bash
+```
+
+Both scripts are configured with `DONEZO_*` environment variables
+(`DONEZO_DOMAIN`, `DONEZO_PORT`, `DONEZO_DATA_DIR`, `DONEZO_UNATTENDED`,
+`DONEZO_NO_CADDY`, ...). See [docs/install.md](docs/install.md) for the
+full reference, upgrade/backup details, and the build-from-commit path.
+
 ## Development
 
 ### Frontend (`web/`)
@@ -216,3 +237,8 @@ web/
 
 Views are hash-routed (`#/timeline`, `#/projects/loom`, …) so they are
 bookmarkable and screenshot-addressable.
+
+## License
+
+donezo is released under the [GNU AGPL-3.0](LICENSE).
+Copyright (C) 2026 Ben Grewell.
