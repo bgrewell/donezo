@@ -369,7 +369,17 @@ func instructions(scope string) string {
 		"raw captures. Always call list_spaces first to discover space ids, then " +
 		"get_space_overview(space_id) to orient before acting in a space. Use log_activity " +
 		"for things that already happened and create_task for things that might happen; when " +
-		"unsure how to classify something, capture_to_inbox is the zero-decision default."
+		"unsure how to classify something, capture_to_inbox is the zero-decision default. " +
+		"Your token reaches every space its owner owns, not just one — there is no 'active' " +
+		"space over MCP, so always pass the space_id the user actually means (ask if it isn't " +
+		"clear from context) rather than assuming the first or most recent one. " +
+		"capture_to_inbox in particular is designed to write into whichever space the captured " +
+		"thought belongs to, even if you are mid-conversation about a different one. This " +
+		"surface does not create, rename, archive, or delete spaces, delete projects, or manage " +
+		"tokens/invites/other users — those stay in the web app; say so plainly rather than " +
+		"improvising a workaround if asked. tools/call is rate-limited per token; a limited " +
+		"call returns an isError result naming how long to wait — relay that to the user rather " +
+		"than silently retrying in a loop."
 	switch scope {
 	case store.ScopeReadWrite:
 		return base + " This token has read_write scope: both read and write tools are available."

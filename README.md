@@ -193,6 +193,10 @@ Security posture:
 
 ## MCP endpoint (`/mcp`)
 
+**New to this?** [`docs/mcp.md`](docs/mcp.md) is the end-user walkthrough —
+what a connected model can and can't do, token scopes, and setup for Claude
+Code/Desktop/Managed Agents. What follows here is the technical reference.
+
 donezo exposes a [Model Context Protocol](https://modelcontextprotocol.io)
 server at `POST /mcp` so a user's LLM (Claude Code, Claude Desktop, a
 managed agent, any MCP client) can read and manage that user's donezo data.

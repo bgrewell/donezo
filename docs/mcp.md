@@ -8,8 +8,17 @@ tasks, notes, captures, and activity you see in the app.
 
 Each connection authenticates with a **per-user API token** you mint from
 the app (avatar menu → **Connect your AI…**). A token acts as you: anything
-the model does with it is attributed to your account and scoped to your
-spaces. Treat tokens like passwords.
+the model does with it is attributed to your account. Treat tokens like
+passwords.
+
+A token is **account-wide, not space-scoped** — it reaches every space you
+own, the same way you do when signed into the app. There is no such thing
+as "the active space" over MCP: every tool call names the space it acts on
+explicitly. This is deliberate, not a gap — it's what lets `capture_to_inbox`
+drop a thought into your Personal space while you're deep in a work
+conversation with the model. If you want a boundary between spaces, use
+scope (below) or simply don't hand a token to a model you don't want
+touching a given space's content at all.
 
 ## What the MCP server exposes
 
@@ -41,6 +50,16 @@ is a summary, not the source of truth:
 The 6 `read` tools work with either scope; the 8 `write` tools require a
 `read_write` token. Which of these a token may call is governed by its
 **scope** (below).
+
+### What this doesn't do
+
+MCP is a tool surface for **doing work**, not for administering the
+account. It cannot create, rename, archive, or delete a space; delete a
+project (only the web app's typed-name confirmation can); or manage
+tokens, invites, or other users. If you ask a connected model for one of
+these, a well-behaved model will say so plainly and point you at the app
+rather than improvise a workaround — that instruction is built into what
+the server tells the model at connection time.
 
 ## Token scopes
 
@@ -136,3 +155,8 @@ header works the same way: point it at `<your-donezo-url>/mcp` and send
 - **One token per client.** Give each device or client its own token so you
   can revoke one without disturbing the others, and so `last used` in the
   token list tells you what's still active.
+- **Rate limits are generous, not absent.** Each token is capped at 120 tool
+  calls per minute — far more than an interactive conversation needs, but
+  enough to stop a runaway or looping agent from hammering your data. If a
+  call is limited, the model gets back a plain-text result saying how long
+  to wait; it should tell you rather than silently retrying.
