@@ -229,6 +229,9 @@ func TestWithMCPRateLimiterAppliesToMountedHandler(t *testing.T) {
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_spaces","arguments":{}}}`
 		req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
+		// The stateless Streamable HTTP transport requires the client to
+		// advertise it can accept both a JSON body and an SSE stream.
+		req.Header.Set("Accept", "application/json, text/event-stream")
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)

@@ -216,14 +216,16 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	}
-	// The MCP endpoint: a hand-rolled stateless JSON-RPC server with its
-	// own bearer-token auth. It is not under /api/, so the session-cookie
-	// auth middleware passes it through untouched (no cookies accepted, no
-	// CSRF surface); the mcp handler authenticates every request itself.
+	// The MCP endpoint: a stateless Streamable HTTP server (built on the
+	// official MCP Go SDK) with its own bearer-token auth. It is not under
+	// /api/, so the session-cookie auth middleware passes it through
+	// untouched (no cookies accepted, no CSRF surface); the mcp handler
+	// authenticates every request itself.
 	mcpOpts := []mcp.Option{
 		mcp.WithClock(s.clock),
 		mcp.WithLogger(s.logger),
 		mcp.WithVersion(s.version),
+		mcp.WithTrustProxy(s.trustProxy),
 	}
 	if s.mcpLimiter != nil {
 		mcpOpts = append(mcpOpts, mcp.WithRateLimiter(s.mcpLimiter))

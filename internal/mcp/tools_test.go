@@ -9,6 +9,10 @@ import (
 	"github.com/bgrewell/donezo/internal/store"
 )
 
+// These exercise each tool's behavior end-to-end through the SDK client (see
+// fixture.callTool in mcp_test.go), so they assert donezo's ownership, scope,
+// validation, and store effects over the real wire protocol.
+
 // parseToolJSON decodes a happy tool result's JSON text into dst.
 func parseToolJSON(t *testing.T, text string, dst any) {
 	t.Helper()
@@ -46,7 +50,7 @@ func TestReadToolsForeignSpaceNotFound(t *testing.T) {
 		{"get_timeline", `{"space_id":"private","from_date":"2026-01-01","to_date":"2026-12-31"}`},
 		{"get_space_overview", `{"space_id":"nope"}`},
 	} {
-		text, isErr := f.callTool(t, f.rwToken, tc.tool, tc.args)
+		text, isErr := f.callTool(t, f.rw, tc.tool, tc.args)
 		if !isErr || !strings.Contains(text, "space not found") {
 			t.Errorf("%s on foreign/unknown space: isErr=%v text=%s", tc.tool, isErr, text)
 		}
@@ -63,7 +67,7 @@ func TestCrossSpaceCaptureWorks(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create second space: %v", err)
 	}
-	text, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"second","text":"remember this"}`)
+	text, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"second","text":"remember this"}`)
 	if isErr {
 		t.Fatalf("capture into second space: %s", text)
 	}
@@ -79,7 +83,7 @@ func TestCrossSpaceCaptureWorks(t *testing.T) {
 func TestWriteToolsRejectForeignSpace(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	text, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"private","text":"x"}`)
+	text, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"private","text":"x"}`)
 	if !isErr || !strings.Contains(text, "space not found") {
 		t.Errorf("write into foreign space: isErr=%v text=%s", isErr, text)
 	}
@@ -91,7 +95,7 @@ func TestWriteToolsRejectArchivedSpace(t *testing.T) {
 	if _, err := f.core.SetSpaceArchived(context.Background(), "sandbox", true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
-	text, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"sandbox","text":"x"}`)
+	text, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"sandbox","text":"x"}`)
 	if !isErr || !strings.Contains(text, "archived") {
 		t.Errorf("write into archived space: isErr=%v text=%s", isErr, text)
 	}
@@ -112,7 +116,7 @@ func TestGetSpaceOverview(t *testing.T) {
 	}
 	f.seedInbox(t, "triage me")
 
-	text, isErr := f.callTool(t, f.rwToken, "get_space_overview", `{"space_id":"sandbox"}`)
+	text, isErr := f.callTool(t, f.rw, "get_space_overview", `{"space_id":"sandbox"}`)
 	if isErr {
 		t.Fatalf("overview: %s", text)
 	}
@@ -152,7 +156,7 @@ func TestGetProject(t *testing.T) {
 		}
 	}
 
-	text, isErr := f.callTool(t, f.rwToken, "get_project", `{"space_id":"sandbox","project_id":"loom"}`)
+	text, isErr := f.callTool(t, f.rw, "get_project", `{"space_id":"sandbox","project_id":"loom"}`)
 	if isErr {
 		t.Fatalf("get_project: %s", text)
 	}
@@ -178,7 +182,7 @@ func TestGetProject(t *testing.T) {
 		t.Errorf("recentActivities = %+v, want newest first", got.RecentActivities)
 	}
 
-	if _, isErr := f.callTool(t, f.rwToken, "get_project", `{"space_id":"sandbox","project_id":"ghost"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "get_project", `{"space_id":"sandbox","project_id":"ghost"}`); !isErr {
 		t.Error("unknown project should be an isError result")
 	}
 }
@@ -194,7 +198,7 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("task: %v", err)
 	}
 
-	text, isErr := f.callTool(t, f.rwToken, "search", `{"space_id":"sandbox","query":"APPLES"}`)
+	text, isErr := f.callTool(t, f.rw, "search", `{"space_id":"sandbox","query":"APPLES"}`)
 	if isErr {
 		t.Fatalf("search: %s", text)
 	}
@@ -207,7 +211,7 @@ func TestSearch(t *testing.T) {
 		t.Errorf("search apples: notes=%d tasks=%d", len(got.Notes), len(got.Tasks))
 	}
 
-	if text, isErr := f.callTool(t, f.rwToken, "search", `{"space_id":"sandbox","query":"  "}`); !isErr {
+	if text, isErr := f.callTool(t, f.rw, "search", `{"space_id":"sandbox","query":"  "}`); !isErr {
 		t.Errorf("blank query should be isError, got %s", text)
 	}
 }
@@ -223,7 +227,7 @@ func TestGetTimeline(t *testing.T) {
 			t.Fatalf("activity: %v", err)
 		}
 	}
-	text, isErr := f.callTool(t, f.rwToken, "get_timeline", `{"space_id":"sandbox","from_date":"2026-07-01","to_date":"2026-07-31"}`)
+	text, isErr := f.callTool(t, f.rw, "get_timeline", `{"space_id":"sandbox","from_date":"2026-07-01","to_date":"2026-07-31"}`)
 	if isErr {
 		t.Fatalf("timeline: %s", text)
 	}
@@ -241,7 +245,7 @@ func TestGetTimeline(t *testing.T) {
 		`{"space_id":"sandbox","from_date":"nope","to_date":"2026-07-31"}`,
 		`{"space_id":"sandbox","from_date":"2026-08-01","to_date":"2026-07-01"}`,
 	} {
-		if _, isErr := f.callTool(t, f.rwToken, "get_timeline", bad); !isErr {
+		if _, isErr := f.callTool(t, f.rw, "get_timeline", bad); !isErr {
 			t.Errorf("bad timeline args %s should be isError", bad)
 		}
 	}
@@ -257,7 +261,7 @@ func TestListInbox(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("inbox: %v", err)
 	}
-	text, isErr := f.callTool(t, f.rwToken, "list_inbox", `{"space_id":"sandbox"}`)
+	text, isErr := f.callTool(t, f.rw, "list_inbox", `{"space_id":"sandbox"}`)
 	if isErr {
 		t.Fatalf("list_inbox: %s", text)
 	}
@@ -275,13 +279,13 @@ func TestListInbox(t *testing.T) {
 func TestCaptureToInbox(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"sandbox"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"sandbox"}`); !isErr {
 		t.Error("missing text should be isError")
 	}
-	if _, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"sandbox","text":"x","suggested_kind":"bogus"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"sandbox","text":"x","suggested_kind":"bogus"}`); !isErr {
 		t.Error("bad suggested_kind should be isError")
 	}
-	text, isErr := f.callTool(t, f.rwToken, "capture_to_inbox", `{"space_id":"sandbox","text":"call mum","suggested_kind":"task"}`)
+	text, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"sandbox","text":"call mum","suggested_kind":"task"}`)
 	if isErr {
 		t.Fatalf("capture: %s", text)
 	}
@@ -297,17 +301,17 @@ func TestCaptureToInbox(t *testing.T) {
 func TestLogActivity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rwToken, "log_activity", `{"space_id":"sandbox","title":"x"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","title":"x"}`); !isErr {
 		t.Error("missing project_id should be isError")
 	}
-	if _, isErr := f.callTool(t, f.rwToken, "log_activity", `{"space_id":"sandbox","project_id":"loom","title":"x","type":"bogus"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","project_id":"loom","title":"x","type":"bogus"}`); !isErr {
 		t.Error("bad type should be isError")
 	}
 	// Non-existent project -> foreign key rejection surfaces cleanly.
-	if text, isErr := f.callTool(t, f.rwToken, "log_activity", `{"space_id":"sandbox","project_id":"ghost","title":"x"}`); !isErr || !strings.Contains(text, "project") {
+	if text, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","project_id":"ghost","title":"x"}`); !isErr || !strings.Contains(text, "project") {
 		t.Errorf("bad project ref: isErr=%v text=%s", isErr, text)
 	}
-	text, isErr := f.callTool(t, f.rwToken, "log_activity", `{"space_id":"sandbox","project_id":"loom","title":"shipped v1","effort_hours":2.5}`)
+	text, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","project_id":"loom","title":"shipped v1","effort_hours":2.5}`)
 	if isErr {
 		t.Fatalf("log_activity: %s", text)
 	}
@@ -327,13 +331,13 @@ func TestLogActivity(t *testing.T) {
 func TestCreateTask(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rwToken, "create_task", `{"space_id":"sandbox"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "create_task", `{"space_id":"sandbox"}`); !isErr {
 		t.Error("missing title should be isError")
 	}
-	if _, isErr := f.callTool(t, f.rwToken, "create_task", `{"space_id":"sandbox","title":"x","due":"soon"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "create_task", `{"space_id":"sandbox","title":"x","due":"soon"}`); !isErr {
 		t.Error("bad due should be isError")
 	}
-	text, isErr := f.callTool(t, f.rwToken, "create_task", `{"space_id":"sandbox","title":"write tests","due":"2026-08-01"}`)
+	text, isErr := f.callTool(t, f.rw, "create_task", `{"space_id":"sandbox","title":"write tests","due":"2026-08-01"}`)
 	if isErr {
 		t.Fatalf("create_task: %s", text)
 	}
@@ -363,12 +367,12 @@ func TestCompleteTask(t *testing.T) {
 	}
 
 	// Unknown task.
-	if text, isErr := f.callTool(t, f.rwToken, "complete_task", `{"space_id":"sandbox","task_id":"ghost"}`); !isErr || !strings.Contains(text, "task not found") {
+	if text, isErr := f.callTool(t, f.rw, "complete_task", `{"space_id":"sandbox","task_id":"ghost"}`); !isErr || !strings.Contains(text, "task not found") {
 		t.Errorf("unknown task: isErr=%v text=%s", isErr, text)
 	}
 
 	// With project + default log_activity=true: task done AND an activity logged.
-	text, isErr := f.callTool(t, f.rwToken, "complete_task", `{"space_id":"sandbox","task_id":"twp"}`)
+	text, isErr := f.callTool(t, f.rw, "complete_task", `{"space_id":"sandbox","task_id":"twp"}`)
 	if isErr {
 		t.Fatalf("complete twp: %s", text)
 	}
@@ -387,7 +391,7 @@ func TestCompleteTask(t *testing.T) {
 	}
 
 	// Task without a project: completes, but no activity.
-	text, _ = f.callTool(t, f.rwToken, "complete_task", `{"space_id":"sandbox","task_id":"tnp","log_activity":true}`)
+	text, _ = f.callTool(t, f.rw, "complete_task", `{"space_id":"sandbox","task_id":"tnp","log_activity":true}`)
 	parseToolJSON(t, text, &got)
 	if got.Task.Status != "done" || got.LoggedActivity {
 		t.Errorf("complete tnp = %+v (expected done, no activity)", got)
@@ -405,10 +409,10 @@ func TestCompleteTask(t *testing.T) {
 func TestCreateNoteAndReminder(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rwToken, "create_note", `{"space_id":"sandbox"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "create_note", `{"space_id":"sandbox"}`); !isErr {
 		t.Error("missing body should be isError")
 	}
-	text, isErr := f.callTool(t, f.rwToken, "create_note", `{"space_id":"sandbox","body":"a longer body here"}`)
+	text, isErr := f.callTool(t, f.rw, "create_note", `{"space_id":"sandbox","body":"a longer body here"}`)
 	if isErr {
 		t.Fatalf("create_note: %s", text)
 	}
@@ -422,10 +426,10 @@ func TestCreateNoteAndReminder(t *testing.T) {
 		t.Errorf("note title default = %q", note.Note.Title)
 	}
 
-	if _, isErr := f.callTool(t, f.rwToken, "create_reminder", `{"space_id":"sandbox","text":"x","remind_at":"whenever"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "create_reminder", `{"space_id":"sandbox","text":"x","remind_at":"whenever"}`); !isErr {
 		t.Error("bad remind_at should be isError")
 	}
-	if _, isErr := f.callTool(t, f.rwToken, "create_reminder", `{"space_id":"sandbox","text":"standup","remind_at":"2026-07-28T09:00:00"}`); isErr {
+	if _, isErr := f.callTool(t, f.rw, "create_reminder", `{"space_id":"sandbox","text":"standup","remind_at":"2026-07-28T09:00:00"}`); isErr {
 		t.Error("valid reminder should succeed")
 	}
 	rems, err := f.spaces.ListReminders(context.Background(), "sandbox")
@@ -443,22 +447,22 @@ func TestClassifyInboxItem(t *testing.T) {
 	ctx := context.Background()
 
 	// Unknown inbox id.
-	if text, isErr := f.callTool(t, f.rwToken, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"ghost","kind":"note"}`); !isErr || !strings.Contains(text, "inbox item not found") {
+	if text, isErr := f.callTool(t, f.rw, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"ghost","kind":"note"}`); !isErr || !strings.Contains(text, "inbox item not found") {
 		t.Errorf("unknown inbox: isErr=%v text=%s", isErr, text)
 	}
 
 	// Reminder without remind_at.
 	f.seedInbox(t, "raw text")
-	if _, isErr := f.callTool(t, f.rwToken, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"reminder"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"reminder"}`); !isErr {
 		t.Error("reminder classify without remind_at should be isError")
 	}
 	// Activity without project.
-	if _, isErr := f.callTool(t, f.rwToken, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"activity"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"activity"}`); !isErr {
 		t.Error("activity classify without project_id should be isError")
 	}
 
 	// Happy: convert to a note; the inbox item flips to converted.
-	text, isErr := f.callTool(t, f.rwToken, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"note"}`)
+	text, isErr := f.callTool(t, f.rw, "classify_inbox_item", `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"note"}`)
 	if isErr {
 		t.Fatalf("classify note: %s", text)
 	}
@@ -493,7 +497,7 @@ func TestClassifyInboxItemActivity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.seedInbox(t, "shipped the thing")
-	text, isErr := f.callTool(t, f.rwToken, "classify_inbox_item",
+	text, isErr := f.callTool(t, f.rw, "classify_inbox_item",
 		`{"space_id":"sandbox","inbox_id":"inb-seed","kind":"activity","project_id":"loom","type":"milestone"}`)
 	if isErr {
 		t.Fatalf("classify activity: %s", text)
@@ -510,13 +514,13 @@ func TestClassifyInboxItemActivity(t *testing.T) {
 func TestUpdateProject(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rwToken, "update_project", `{"space_id":"sandbox","project_id":"loom","status":"bogus"}`); !isErr {
+	if _, isErr := f.callTool(t, f.rw, "update_project", `{"space_id":"sandbox","project_id":"loom","status":"bogus"}`); !isErr {
 		t.Error("bad status should be isError")
 	}
-	if text, isErr := f.callTool(t, f.rwToken, "update_project", `{"space_id":"sandbox","project_id":"ghost","status":"paused"}`); !isErr || !strings.Contains(text, "project not found") {
+	if text, isErr := f.callTool(t, f.rw, "update_project", `{"space_id":"sandbox","project_id":"ghost","status":"paused"}`); !isErr || !strings.Contains(text, "project not found") {
 		t.Errorf("unknown project: isErr=%v text=%s", isErr, text)
 	}
-	text, isErr := f.callTool(t, f.rwToken, "update_project",
+	text, isErr := f.callTool(t, f.rw, "update_project",
 		`{"space_id":"sandbox","project_id":"loom","next_action":"draft the RFC","status":"waiting","waiting_on":"review","alt_next_actions":["ping Sam"]}`)
 	if isErr {
 		t.Fatalf("update_project: %s", text)
@@ -538,7 +542,7 @@ func TestUpdateProject(t *testing.T) {
 
 	// Clearing waiting_on with an empty string. Verify against the store so
 	// an omitted (nil) field in the response cannot mask a stale pointer.
-	if _, isErr := f.callTool(t, f.rwToken, "update_project", `{"space_id":"sandbox","project_id":"loom","waiting_on":""}`); isErr {
+	if _, isErr := f.callTool(t, f.rw, "update_project", `{"space_id":"sandbox","project_id":"loom","waiting_on":""}`); isErr {
 		t.Fatalf("clear waiting_on: %s", text)
 	}
 	proj, err := f.spaces.GetProject(context.Background(), "sandbox", "loom")

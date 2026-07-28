@@ -3,18 +3,19 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/bgrewell/donezo/internal/store"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// This file defines the curated tool surface and the tools/list and
-// tools/call dispatch. Every description is prescriptive about WHEN to use
-// the tool and carries donezo's ontology, so the calling LLM reaches for
-// the right verb. Input schemas are strict (additionalProperties:false,
-// explicit required lists, enums mirroring web/src/domain/types.ts).
+// This file defines the curated tool surface and registers it with the SDK
+// server. Every description is prescriptive about WHEN to use the tool and
+// carries donezo's ontology, so the calling LLM reaches for the right verb.
+// Input schemas are strict (additionalProperties:false, explicit required
+// lists, enums mirroring web/src/domain/types.ts) and are handed to the SDK
+// verbatim as raw JSON Schema (Tool.InputSchema accepts any value that
+// marshals to a JSON schema object). Scope, rate limiting, and tools/list
+// filtering live in the gate middleware (see mcp.go), not here.
 
 // Enum unions mirrored from web/src/domain/types.ts (and internal/api's
 // validate.go). The MCP layer validates against them before writing,
@@ -61,72 +62,51 @@ var toolByName = func() map[string]tool {
 	return m
 }()
 
-// handleToolsList returns the tools the caller's scope permits: read_only
-// tokens see only the read tools, read_write tokens see all. Pagination is
-// not used — the surface is small enough to return whole.
-func (h *Handler) handleToolsList(w http.ResponseWriter, req rpcRequest, c caller) {
-	readWrite := c.scope == store.ScopeReadWrite
-	list := make([]map[string]any, 0, len(tools))
+// registerTools adds every tool in the curated surface to the SDK server
+// using raw JSON Schema, wrapping each handler so it reads the caller from
+// the request context and reports its result in the SDK's shape. All 14
+// tools are registered on the single server; scope filtering of tools/list
+// and the write-tool scope gate happen in the gate middleware.
+func registerTools(server *mcpsdk.Server, h *Handler) {
 	for _, t := range tools {
-		if t.write && !readWrite {
-			continue
+		server.AddTool(&mcpsdk.Tool{
+			Name:        t.name,
+			Title:       t.title,
+			Description: t.description,
+			InputSchema: t.inputSchema,
+		}, h.adaptTool(t.handler))
+	}
+}
+
+// adaptTool wraps a donezo toolHandler as an SDK mcp.ToolHandler. It resolves
+// the caller stored in the request context by withAuth, passes the raw
+// arguments straight through (each handler decodes and validates its own),
+// and packages the (text, isError) result as a single text content block.
+// Handler-level validation failures surface as isError results — never
+// protocol errors — so the LLM can read the reason and self-correct.
+func (h *Handler) adaptTool(fn toolHandler) mcpsdk.ToolHandler {
+	return func(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		c, ok := callerFrom(ctx)
+		if !ok {
+			// withAuth guarantees a caller on every dispatched request; this
+			// is a defensive guard, not a reachable path.
+			return toolTextResult("authentication required", true), nil
 		}
-		list = append(list, map[string]any{
-			"name":        t.name,
-			"title":       t.title,
-			"description": t.description,
-			"inputSchema": t.inputSchema,
-		})
+		args := req.Params.Arguments
+		if len(args) == 0 {
+			args = json.RawMessage("{}")
+		}
+		text, isErr := fn(ctx, h, c, args)
+		return toolTextResult(text, isErr), nil
 	}
-	h.writeRPCResult(w, req.ID, map[string]any{"tools": list})
 }
 
-// handleToolsCall validates and runs a tool. Unknown tools are a protocol
-// error (-32602, matching the spec's example); rate-limit, scope, and
-// handler-validation failures are returned as isError tool results so the
-// LLM can read the reason and adjust.
-func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req rpcRequest, c caller) {
-	var params struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	// Rate-limit before any other check: an unknown tool name or malformed
-	// params must still cost budget, or the ceiling is trivially free to
-	// probe around.
-	if over, secs := h.rateLimited(c.tokenID); over {
-		h.writeRPCResult(w, req.ID, toolResult(fmt.Sprintf(
-			"Rate limit exceeded (%d tool calls per minute per token). Wait about %d seconds and retry.",
-			mcpToolCallLimit, secs), true))
-		return
-	}
-	if len(req.Params) == 0 || json.Unmarshal(req.Params, &params) != nil || params.Name == "" {
-		h.writeRPCError(w, http.StatusOK, req.ID, codeInvalidParams, "tools/call requires a tool name")
-		return
-	}
-	t, ok := toolByName[params.Name]
-	if !ok {
-		h.writeRPCError(w, http.StatusOK, req.ID, codeInvalidParams, "Unknown tool: "+params.Name)
-		return
-	}
-	if t.write && c.scope != store.ScopeReadWrite {
-		h.writeRPCResult(w, req.ID, toolResult(
-			"This tool requires a read_write token. Your token is read_only, so it cannot make changes.", true))
-		return
-	}
-	args := params.Arguments
-	if len(args) == 0 {
-		args = json.RawMessage("{}")
-	}
-	text, isErr := t.handler(r.Context(), h, c, args)
-	h.writeRPCResult(w, req.ID, toolResult(text, isErr))
-}
-
-// toolResult builds a tools/call result: one text content block plus the
+// toolTextResult builds a tools/call result: one text content block plus the
 // isError flag.
-func toolResult(text string, isError bool) map[string]any {
-	return map[string]any{
-		"content": []map[string]any{{"type": "text", "text": text}},
-		"isError": isError,
+func toolTextResult(text string, isError bool) *mcpsdk.CallToolResult {
+	return &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: text}},
+		IsError: isError,
 	}
 }
 

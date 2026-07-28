@@ -196,19 +196,24 @@ Security posture:
 donezo exposes a [Model Context Protocol](https://modelcontextprotocol.io)
 server at `POST /mcp` so a user's LLM (Claude Code, Claude Desktop, a
 managed agent, any MCP client) can read and manage that user's donezo data.
-It is a **hand-rolled, stateless Streamable HTTP** server: the official and
-community Go MCP SDKs both require Go ≥ 1.25, which would force a toolchain
-bump off donezod's pinned 1.22.4, so `internal/mcp` implements exactly the
-JSON-RPC 2.0 methods a tool-only server needs.
+It is a **stateless Streamable HTTP** server built on the official
+[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk); `internal/mcp`
+is a thin wrapper that adds donezo's bearer auth, scope enforcement, rate
+limiting, and the curated tool surface. The SDK requires Go ≥ 1.25, which the
+module's `go` directive now targets (the toolchain is fetched automatically
+via `GOTOOLCHAIN`).
 
-- **Transport.** JSON-RPC 2.0 over `POST /mcp`, responses as a single
-  `application/json` body (no SSE, no session ids). `GET /mcp` answers `405`
-  (the endpoint offers no server-initiated streams). Methods handled:
-  `initialize` (echoes the client's protocol version when recognized, else
-  negotiates to `2025-06-18`; advertises the `tools` capability),
-  `notifications/initialized` (accepted, `202`, no body), `tools/list`,
-  `tools/call`, and `ping`. Batches are rejected (`-32600`); parse and
-  request faults use the JSON-RPC codes `-32700`/`-32600`/`-32601`/`-32602`.
+- **Transport.** Streamable HTTP over `POST /mcp`, stateless (one ephemeral
+  session per request, no session ids); responses are a single
+  `application/json` body. Requests must send `Content-Type: application/json`
+  and an `Accept` listing both `application/json` and `text/event-stream` (as
+  the transport requires). `GET /mcp` answers `405`. The protocol version is
+  negotiated by the SDK — latest `2026-07-28`, also supporting `2025-11-25`,
+  `2025-06-18`, `2025-03-26`, and `2024-11-05`; `initialize` echoes the
+  client's requested version when supported. Request bodies are capped at
+  1 MiB (`413` past it). The server advertises the `tools` capability (plus
+  the SDK's default `logging`) and exposes `tools/list`, `tools/call`,
+  `initialize`/`server/discover`, `ping`, and `notifications/initialized`.
 - **Auth.** `Authorization: Bearer dzmcp-…` only — validated against the
   `api_tokens` table (SHA-256 of the token; revoked tokens are rejected).
   Session cookies are **not** accepted, so `/mcp` has no CSRF surface.

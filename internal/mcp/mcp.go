@@ -1,26 +1,35 @@
 // Package mcp implements donezod's Model Context Protocol endpoint: a
-// hand-rolled, stateless Streamable HTTP server that lets a user's LLM
-// manage their donezo data through a curated set of tools.
+// stateless Streamable HTTP server that lets a user's LLM manage their
+// donezo data through a curated set of tools.
 //
-// It speaks JSON-RPC 2.0 over POST /mcp and responds with a single
-// application/json body (no SSE, no server-initiated streams, no session
-// ids). The official and community Go MCP SDKs both require Go >= 1.25,
-// which would force a toolchain bump off donezod's pinned 1.22.4, so this
-// minimal server implements exactly the methods a tool-only server needs:
-// initialize, notifications/initialized, tools/list, tools/call, and ping.
+// The wire protocol is provided by the official Go SDK
+// (github.com/modelcontextprotocol/go-sdk), served over plain net/http as a
+// stateless Streamable HTTP handler mounted at POST /mcp. This package is a
+// thin wrapper around the SDK that supplies donezo's own concerns:
 //
-// Authentication is a per-user API token in the Authorization: Bearer
-// header (see internal/auth and the api_tokens store) — session cookies
-// are deliberately not accepted, so /mcp carries no CSRF surface. Tool
-// handlers call the store layer directly with the same ownership checks
-// the REST handlers use.
+//   - Authentication: a per-user API token in the Authorization: Bearer
+//     header (see internal/auth and the api_tokens store). Session cookies
+//     are deliberately not accepted, so /mcp carries no CSRF surface. A
+//     donezo-specific HTTP middleware (withAuth) resolves the token to a
+//     caller BEFORE the SDK handler runs, answering 401 with a
+//     WWW-Authenticate challenge on any missing, malformed, unknown, or
+//     revoked credential, and storing the resolved caller in the request
+//     context under an unexported key.
+//   - Scope, rate limiting, and instructions: a single SDK receiving
+//     middleware (the gate) reads the caller back out of the request context
+//     and centralizes the read_only-vs-read_write scope check, the per-token
+//     tools/call rate limit (applied before tool dispatch), the scope-aware
+//     filtering of tools/list, and the scope-aware initialize instructions.
+//
+// Tool handlers call the store layer directly with the same ownership checks
+// the REST handlers use; entity ids are always server-generated.
 package mcp
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"io"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -28,85 +37,41 @@ import (
 	"strings"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/store"
 )
-
-// ProtocolVersion is the latest MCP revision this server implements. When
-// a client requests a different but recognized revision, initialize echoes
-// the client's; otherwise it negotiates to this one.
-const ProtocolVersion = "2025-06-18"
 
 // serverName is the MCP serverInfo.name reported at initialize.
 const serverName = "donezo"
 
 // mcpToolCallLimit is the per-token tools/call budget per minute. It is
 // generous — an interactive LLM makes far fewer calls — but bounds a
-// runaway agent's write rate against the store.
+// runaway agent's write rate against the store. It is also the figure named
+// in the rate-limit tool result, independent of any tighter limiter a test
+// injects.
 const mcpToolCallLimit = 120
 
 // maxMCPBodyBytes bounds a request body; JSON-RPC tool calls are small.
+// Requests past it are rejected by the SDK transport with 413.
 const maxMCPBodyBytes = 1 << 20
 
-// supportedVersions are the protocol revisions initialize will echo back
-// when the client asks for them. Any unrecognized request negotiates to
-// ProtocolVersion.
-var supportedVersions = map[string]bool{
-	"2025-06-18": true,
-	"2025-03-26": true,
-	"2024-11-05": true,
-}
-
-// JSON-RPC 2.0 error codes.
-const (
-	codeParseError     = -32700
-	codeInvalidRequest = -32600
-	codeMethodNotFound = -32601
-	codeInvalidParams  = -32602
-	codeInternalError  = -32603
-)
-
-// rpcRequest is one decoded JSON-RPC request. ID is raw so a string,
-// number, or absent (notification) id all round-trip unchanged.
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-}
-
-// rpcError is the error object of a JSON-RPC error response.
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}
-
-// rpcResultEnvelope and rpcErrorEnvelope are kept distinct so a response
-// carries exactly one of result/error (never both, never neither) — a
-// shared struct with omitempty would drop an empty-object result like
-// ping's, which JSON-RPC requires to be present.
-type rpcResultEnvelope struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result"`
-}
-
-type rpcErrorEnvelope struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Error   rpcError        `json:"error"`
-}
-
-// Handler serves the MCP endpoint over the donezo stores. Construct it
-// with NewHandler and mount its ServeHTTP at /mcp.
+// Handler serves the MCP endpoint over the donezo stores. Construct it with
+// NewHandler and mount its ServeHTTP at /mcp. It wraps a single SDK
+// *mcp.Server (all 14 tools registered) with donezo's bearer-auth HTTP
+// middleware and a scope/rate-limit receiving middleware.
 type Handler struct {
-	core    *store.CoreStore
-	spaces  *store.SpaceStore
-	limiter *auth.RateLimiter
-	clock   func() time.Time
-	logger  *log.Logger
-	version string
+	core       *store.CoreStore
+	spaces     *store.SpaceStore
+	limiter    *auth.RateLimiter
+	clock      func() time.Time
+	logger     *log.Logger
+	version    string
+	trustProxy bool
+
+	server      *mcpsdk.Server
+	httpHandler http.Handler
 }
 
 // Option configures a Handler (functional options pattern).
@@ -147,6 +112,17 @@ func WithRateLimiter(l *auth.RateLimiter) Option {
 	return func(h *Handler) { h.limiter = l }
 }
 
+// WithTrustProxy mirrors api.WithTrustProxy: pass true only when a trusted
+// reverse proxy sits directly in front of donezod. It controls the SDK
+// transport's DNS-rebinding guard (see the comment on
+// DisableLocalhostProtection in build()) — disabled behind a trusted proxy,
+// where the guard would reject every legitimate request, and left enabled
+// for a direct-exposure instance with no proxy, where it adds a second,
+// independent layer under bearer-token auth against loopback rebinding.
+func WithTrustProxy(trust bool) Option {
+	return func(h *Handler) { h.trustProxy = trust }
+}
+
 // NewHandler builds an MCP Handler over the given stores. By default
 // tools/call is rate-limited to 120 calls per minute per token, timestamps
 // use time.Now, and logs go to stderr.
@@ -168,7 +144,56 @@ func NewHandler(core *store.CoreStore, spaces *store.SpaceStore, opts ...Option)
 			auth.WithLimiterClock(h.clock),
 		)
 	}
+	h.build()
 	return h
+}
+
+// build constructs the SDK server, registers the tool surface, installs the
+// scope/rate-limit receiving middleware, and wraps the stateless Streamable
+// HTTP handler in donezo's bearer-auth middleware. It runs once, at
+// construction.
+func (h *Handler) build() {
+	h.server = mcpsdk.NewServer(
+		&mcpsdk.Implementation{Name: serverName, Version: h.version},
+		&mcpsdk.ServerOptions{
+			// Instructions are set per request by the gate middleware, tailored
+			// to the caller's scope; the static field is a scope-agnostic
+			// fallback for any path that skips the middleware.
+			Instructions: instructions(""),
+		},
+	)
+	registerTools(h.server, h)
+	h.server.AddReceivingMiddleware(h.gate)
+
+	streamable := mcpsdk.NewStreamableHTTPHandler(
+		func(*http.Request) *mcpsdk.Server { return h.server },
+		&mcpsdk.StreamableHTTPOptions{
+			// Stateless: one ephemeral session per POST, GET/DELETE -> 405.
+			Stateless: true,
+			// Respond with a single application/json body rather than an SSE
+			// stream, matching the endpoint's request/response tool surface.
+			JSONResponse: true,
+			// Preserve the 1 MiB body cap (SDK rejects overflow with 413).
+			MaxRequestBodyBytes: maxMCPBodyBytes,
+			// Bearer-token auth (never cookies, never ambient credentials a
+			// browser could be tricked into sending) is a complete substitute
+			// for this guard, independent of network position — a request
+			// that reaches it without a valid token still gets 401 before any
+			// data is read or written. Behind a trusted reverse proxy the
+			// guard would actively break every legitimate request (loopback
+			// socket, public Host header), so it must be off there; with no
+			// proxy in front, leave it on as a second, independent layer
+			// against loopback DNS rebinding.
+			DisableLocalhostProtection: h.trustProxy,
+		},
+	)
+	h.httpHandler = h.withAuth(streamable)
+}
+
+// ServeHTTP implements http.Handler by delegating to the auth-wrapped
+// stateless Streamable HTTP handler.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.httpHandler.ServeHTTP(w, r)
 }
 
 // caller carries the identity resolved from the bearer token for the life
@@ -179,81 +204,48 @@ type caller struct {
 	scope   string
 }
 
-// ServeHTTP implements the stateless Streamable HTTP transport. Only POST
-// is accepted; GET (server-initiated streams) answers 405 as the spec
-// permits for servers that do not offer them.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
-			"error": "the MCP endpoint accepts POST only (no server-initiated streams)",
-		})
-		return
-	}
+// callerCtxKey is the unexported key under which a resolved caller is stored
+// in the request context by withAuth and read back by the gate middleware
+// and tool handlers.
+type callerCtxKey struct{}
 
-	c, ok := h.authenticate(w, r)
-	if !ok {
-		return
-	}
-	// Best-effort last-used bookkeeping; the store throttles to once/minute
-	// and a failed write must never reject an otherwise valid request.
-	_ = h.core.TouchAPITokenLastUsed(r.Context(), c.tokenID)
-
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxMCPBodyBytes))
-	if err != nil {
-		h.writeRPCError(w, http.StatusBadRequest, nil, codeInvalidRequest, "request body is too large")
-		return
-	}
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		h.writeRPCError(w, http.StatusBadRequest, nil, codeInvalidRequest, "empty request body")
-		return
-	}
-	// JSON-RPC batching was removed in the 2025-06-18 revision; reject the
-	// array form politely rather than silently mishandling it.
-	if trimmed[0] == '[' {
-		h.writeRPCError(w, http.StatusBadRequest, nil, codeInvalidRequest,
-			"JSON-RPC batch requests are not supported; send one request per POST")
-		return
-	}
-	var req rpcRequest
-	if err := json.Unmarshal(trimmed, &req); err != nil {
-		h.writeRPCError(w, http.StatusBadRequest, nil, codeParseError, "invalid JSON")
-		return
-	}
-	if req.JSONRPC != "2.0" || req.Method == "" {
-		h.writeRPCError(w, http.StatusBadRequest, req.ID, codeInvalidRequest,
-			"not a valid JSON-RPC 2.0 request")
-		return
-	}
-	h.dispatch(w, r, req, c)
+// withCaller returns ctx carrying c.
+func withCaller(ctx context.Context, c caller) context.Context {
+	return context.WithValue(ctx, callerCtxKey{}, c)
 }
 
-// dispatch routes a well-formed request to its method handler. Any method
-// under notifications/ is a fire-and-forget notification: accept it with
-// 202 and no body.
-func (h *Handler) dispatch(w http.ResponseWriter, r *http.Request, req rpcRequest, c caller) {
-	if strings.HasPrefix(req.Method, "notifications/") {
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-	switch req.Method {
-	case "initialize":
-		h.handleInitialize(w, req, c)
-	case "ping":
-		h.writeRPCResult(w, req.ID, struct{}{})
-	case "tools/list":
-		h.handleToolsList(w, req, c)
-	case "tools/call":
-		h.handleToolsCall(w, r, req, c)
-	default:
-		h.writeRPCError(w, http.StatusOK, req.ID, codeMethodNotFound, "method not found: "+req.Method)
-	}
+// callerFrom returns the caller stored in ctx, if any. The SDK plumbs the
+// HTTP request context through to receiving middleware and tool handlers
+// (stateless sessions connect with the request context), so a caller set by
+// withAuth is visible to both.
+func callerFrom(ctx context.Context) (caller, bool) {
+	c, ok := ctx.Value(callerCtxKey{}).(caller)
+	return c, ok
+}
+
+// withAuth authenticates POST requests before the SDK handler runs. Non-POST
+// requests are passed straight through so the stateless transport answers
+// them with 405 (Allow: POST), matching the endpoint's POST-only contract.
+func (h *Handler) withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		c, ok := h.authenticate(w, r)
+		if !ok {
+			return
+		}
+		// Best-effort last-used bookkeeping; the store throttles to once/minute
+		// and a failed write must never reject an otherwise valid request.
+		_ = h.core.TouchAPITokenLastUsed(r.Context(), c.tokenID)
+		next.ServeHTTP(w, r.WithContext(withCaller(r.Context(), c)))
+	})
 }
 
 // authenticate resolves the Authorization: Bearer token to a caller. It
-// accepts only bearer tokens — never session cookies — and answers 401
-// with a WWW-Authenticate challenge on any missing, malformed, unknown, or
+// accepts only bearer tokens — never session cookies — and answers 401 with
+// a WWW-Authenticate challenge on any missing, malformed, unknown, or
 // revoked credential.
 func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (caller, bool) {
 	// RFC 7235 defines the auth-scheme token as case-insensitive; match it
@@ -290,33 +282,86 @@ func (h *Handler) unauthorized(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": msg})
 }
 
-// handleInitialize answers the capability handshake: it echoes the
-// client's protocol version when recognized (else negotiates to
-// ProtocolVersion), advertises the tools capability, and returns
-// serverInfo plus scope-aware usage instructions.
-func (h *Handler) handleInitialize(w http.ResponseWriter, req rpcRequest, c caller) {
-	var params struct {
-		ProtocolVersion string `json:"protocolVersion"`
+// gate is the SDK receiving middleware that centralizes donezo's per-request
+// policy. It runs after withAuth has stored the caller in the request
+// context, so callerFrom always resolves here.
+//
+//   - tools/call: the per-token rate limit is applied FIRST — before the tool
+//     name is even read — so an unknown-tool or bad-arguments call still costs
+//     budget and cannot be used to probe around the ceiling for free. Then the
+//     single scope gate: a write tool invoked by a read_only token is refused
+//     with an isError result (and the handler, hence any store write, is never
+//     reached).
+//   - tools/list: the result is filtered to the tools the caller's scope
+//     permits (read_only sees the read tools only).
+//   - initialize: the result's instructions are tailored to the caller's
+//     scope.
+func (h *Handler) gate(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+	return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
+		c, _ := callerFrom(ctx)
+		switch method {
+		case "tools/call":
+			if over, secs := h.rateLimited(c.tokenID); over {
+				return toolTextResult(fmt.Sprintf(
+					"Rate limit exceeded (%d tool calls per minute per token). Wait about %d seconds and retry.",
+					mcpToolCallLimit, secs), true), nil
+			}
+			if p, ok := req.GetParams().(*mcpsdk.CallToolParamsRaw); ok {
+				if t, found := toolByName[p.Name]; found && t.write && c.scope != store.ScopeReadWrite {
+					return toolTextResult(
+						"This tool requires a read_write token. Your token is read_only, so it cannot make changes.", true), nil
+				}
+			}
+			return next(ctx, method, req)
+		case "tools/list":
+			res, err := next(ctx, method, req)
+			if err != nil {
+				return res, err
+			}
+			if c.scope != store.ScopeReadWrite {
+				if lr, ok := res.(*mcpsdk.ListToolsResult); ok {
+					lr.Tools = filterReadTools(lr.Tools)
+				}
+			}
+			return res, nil
+		case "initialize", "server/discover":
+			// Tailor the orientation to the caller's scope on both the legacy
+			// initialize handshake and the sessionless server/discover used by
+			// the 2026-07-28+ protocol.
+			res, err := next(ctx, method, req)
+			if err == nil {
+				switch r := res.(type) {
+				case *mcpsdk.InitializeResult:
+					r.Instructions = instructions(c.scope)
+				case *mcpsdk.DiscoverResult:
+					r.Instructions = instructions(c.scope)
+				}
+			}
+			return res, err
+		default:
+			return next(ctx, method, req)
+		}
 	}
-	if len(req.Params) > 0 {
-		// Tolerant: unusable params still initialize at the default version.
-		_ = json.Unmarshal(req.Params, &params)
+}
+
+// filterReadTools returns the subset of tools a read_only caller may see:
+// the read (non-write) tools. It keeps the shared *Tool pointers untouched,
+// only dropping write entries from the slice.
+func filterReadTools(all []*mcpsdk.Tool) []*mcpsdk.Tool {
+	out := make([]*mcpsdk.Tool, 0, len(all))
+	for _, t := range all {
+		if meta, ok := toolByName[t.Name]; ok && meta.write {
+			continue
+		}
+		out = append(out, t)
 	}
-	version := ProtocolVersion
-	if params.ProtocolVersion != "" && supportedVersions[params.ProtocolVersion] {
-		version = params.ProtocolVersion
-	}
-	h.writeRPCResult(w, req.ID, map[string]any{
-		"protocolVersion": version,
-		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": serverName, "version": h.version},
-		"instructions":    instructions(c.scope),
-	})
+	return out
 }
 
 // instructions is the prescriptive orientation returned at initialize,
-// tailored to the token's scope so the calling LLM knows which verbs it
-// may use.
+// tailored to the token's scope so the calling LLM knows which verbs it may
+// use. An empty scope yields the scope-agnostic base (used as the SDK's
+// static fallback).
 func instructions(scope string) string {
 	base := "donezo is a personal work-memory system. Data is organized into spaces " +
 		"(isolated workspaces); each space holds projects, activities (PAST facts on a " +
@@ -325,43 +370,19 @@ func instructions(scope string) string {
 		"get_space_overview(space_id) to orient before acting in a space. Use log_activity " +
 		"for things that already happened and create_task for things that might happen; when " +
 		"unsure how to classify something, capture_to_inbox is the zero-decision default."
-	if scope == store.ScopeReadWrite {
+	switch scope {
+	case store.ScopeReadWrite:
 		return base + " This token has read_write scope: both read and write tools are available."
-	}
-	return base + " This token has read_only scope: only the read tools are listed and callable; " +
-		"minting a read_write token unlocks the write tools."
-}
-
-// ─── Response writers ─────────────────────────────────────────────────────
-
-// writeRPCResult writes a JSON-RPC success response (always HTTP 200).
-func (h *Handler) writeRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	writeJSON(w, http.StatusOK, rpcResultEnvelope{JSONRPC: "2.0", ID: id, Result: result})
-}
-
-// writeRPCError writes a JSON-RPC error response at the given HTTP status:
-// 400 for transport-level faults (unparseable / not a valid request) where
-// no proper response can be formed, 200 for method-level errors carrying
-// the request id.
-func (h *Handler) writeRPCError(w http.ResponseWriter, httpStatus int, id json.RawMessage, code int, msg string) {
-	writeJSON(w, httpStatus, rpcErrorEnvelope{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error:   rpcError{Code: code, Message: msg},
-	})
-}
-
-// writeJSON serializes v with the given status code.
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("mcp: encode response: %v", err)
+	case store.ScopeReadOnly:
+		return base + " This token has read_only scope: only the read tools are listed and callable; " +
+			"minting a read_write token unlocks the write tools."
+	default:
+		return base
 	}
 }
 
-// rateLimited applies the per-token tools/call rate limit, reporting
-// whether the caller is over budget and, if so, a retry hint in seconds.
+// rateLimited applies the per-token tools/call rate limit, reporting whether
+// the caller is over budget and, if so, a retry hint in seconds.
 func (h *Handler) rateLimited(tokenID string) (bool, int) {
 	ok, retry := h.limiter.Allow(tokenID)
 	if ok {
@@ -374,7 +395,7 @@ func (h *Handler) rateLimited(tokenID string) (bool, int) {
 	return true, secs
 }
 
-// ctxNow renders the handler clock as an RFC 3339 UTC timestamp.
+// nowRFC3339 renders the handler clock as an RFC 3339 UTC timestamp.
 func (h *Handler) nowRFC3339() string {
 	return h.clock().UTC().Format(time.RFC3339)
 }
@@ -382,4 +403,15 @@ func (h *Handler) nowRFC3339() string {
 // today renders the handler clock as a yyyy-MM-dd date.
 func (h *Handler) today() string {
 	return h.clock().UTC().Format("2006-01-02")
+}
+
+// writeJSON serializes v with the given status code. It backs the bearer-auth
+// middleware's error responses (401/500), which are emitted before the SDK
+// handler runs.
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("mcp: encode response: %v", err)
+	}
 }
