@@ -67,6 +67,30 @@ export interface CreatedInvite {
   expiresAt: string;
 }
 
+/** What an API token may do over MCP: read the account, or read and write. */
+export type ApiTokenScope = "read_only" | "read_write";
+
+/** One API token in the user's list (GET /api/tokens) — never the secret. */
+export interface ApiToken {
+  id: string;
+  name: string;
+  /** First characters of the token, for recognizing it in the list. */
+  tokenPrefix: string;
+  scope: ApiTokenScope;
+  createdAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+}
+
+/** A freshly minted API token — the only place the full secret exists. */
+export interface CreatedApiToken {
+  id: string;
+  token: string;
+  tokenPrefix: string;
+  scope: ApiTokenScope;
+  createdAt: string;
+}
+
 /** GET /api/spaces/{id}/state — the full content of one space. */
 export interface SpaceData {
   projects: Project[];
@@ -175,6 +199,28 @@ export async function fetchInvites(): Promise<Invite[]> {
 /** Revoke an invite (idempotent server-side). */
 export function revokeInvite(id: string): Promise<void> {
   return api.del(`/api/invites/${encodeURIComponent(id)}`);
+}
+
+// ─── API tokens (per-user, for MCP) ───────────────────────────────────────
+
+/** Mint an API token for the current user. The plaintext secret appears
+ *  only in this response — the server stores just its hash. */
+export function createApiToken(
+  name: string,
+  scope: ApiTokenScope
+): Promise<CreatedApiToken> {
+  return api.post<CreatedApiToken>("/api/tokens", { name, scope });
+}
+
+/** List the current user's tokens — prefixes and metadata only, never the
+ *  secret. Each user sees only their own. */
+export async function fetchApiTokens(): Promise<ApiToken[]> {
+  return (await api.get<{ tokens: ApiToken[] }>("/api/tokens")).tokens;
+}
+
+/** Revoke one of the current user's tokens (idempotent server-side). */
+export function revokeApiToken(id: string): Promise<void> {
+  return api.del(`/api/tokens/${encodeURIComponent(id)}`);
 }
 
 /** Counts returned by DELETE project: deleted rows plus references that

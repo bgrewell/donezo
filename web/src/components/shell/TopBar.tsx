@@ -3,6 +3,7 @@ import { Bell, CircleHelp, Palette, Plus, Search } from "lucide-react";
 import { Avatar, Button, cn } from "@grewelltech/console";
 
 import { InvitesDialog } from "@/components/admin/InvitesDialog";
+import { McpTokensDialog } from "@/components/settings/McpTokensDialog";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -41,6 +42,7 @@ export function TopBar() {
   const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
   const { user, logout } = useSession();
   const [invitesOpen, setInvitesOpen] = React.useState(false);
+  const [mcpOpen, setMcpOpen] = React.useState(false);
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -241,12 +243,17 @@ export function TopBar() {
           {user.role === "admin" && (
             <DropdownMenuItem onSelect={() => setInvitesOpen(true)}>Invites…</DropdownMenuItem>
           )}
+          {/* Every user can mint their own MCP tokens; the server scopes the
+              endpoints to the caller regardless. */}
+          <DropdownMenuItem onSelect={() => setMcpOpen(true)}>Connect your AI…</DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {user.role === "admin" && (
         <InvitesDialog open={invitesOpen} onClose={() => setInvitesOpen(false)} />
       )}
+      <McpTokensDialog open={mcpOpen} onClose={() => setMcpOpen(false)} />
       <ShortcutsSheet />
     </header>
   );

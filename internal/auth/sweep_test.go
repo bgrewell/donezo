@@ -109,6 +109,50 @@ func TestSweeperOptionValidation(t *testing.T) {
 	}
 }
 
+// TestSweeperRunMultipleLimiters proves every rate limiter registered via
+// repeated WithSweepLimiter calls is pruned — donezod shares one Sweeper
+// across the login/setup limiter and the MCP tools/call limiter, so a
+// regression here would leave one of them growing unbounded.
+func TestSweeperRunMultipleLimiters(t *testing.T) {
+	t.Parallel()
+	clock := newLimiterClock()
+	first := NewRateLimiter(WithWindow(time.Minute), WithLimiterClock(clock.Now))
+	second := NewRateLimiter(WithWindow(time.Minute), WithLimiterClock(clock.Now))
+	first.Allow("stale-key")
+	second.Allow("stale-key")
+	clock.Advance(2 * time.Minute)
+
+	pruner := &fakePruner{calls: make(chan struct{}, 8)}
+	s := NewSweeper(pruner,
+		WithSweepInterval(10*time.Millisecond),
+		WithSweepLimiter(first),
+		WithSweepLimiter(second),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+
+	waitForCall(t, pruner, "startup sweep")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+
+	for name, l := range map[string]*RateLimiter{"first": first, "second": second} {
+		l.mu.Lock()
+		_, staleKept := l.attempts["stale-key"]
+		l.mu.Unlock()
+		if staleKept {
+			t.Errorf("%s limiter: sweep did not prune it", name)
+		}
+	}
+}
+
 // lockedWriter serializes writes so the sweeper goroutine and the test
 // can share one buffer.
 type lockedWriter struct {
