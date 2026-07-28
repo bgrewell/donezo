@@ -14,10 +14,11 @@ items only — backend/persistence work tracks separately once it starts.
 
 ## Next feature
 
-- **Next-action lifecycle** (design approved, see memory): "Done" on the
-  Focus next action logs a prefilled activity + completes matching task +
-  inline promotion of an alternate; "Start instead" swap on alternates;
-  needs `UPDATE_PROJECT` action. Build on top of the real backend.
+- **Action queues** (Ben, 2026-07-27): evolve next-action beyond text —
+  cheap, interrelated, project-tied action chains where completing one
+  auto-surfaces the next in line, instead of the user re-deciding from
+  the task list each time. The alternates-promotion flow (shipping in the
+  project editing & lifecycle pass) is the v1; queues are v2.
 
 ## Upstream candidates (design-system / @grewelltech/console)
 

@@ -1,0 +1,42 @@
+# donezod production unit template (system-level).
+#
+# Assumes the release binary (built with `make release-build`, web UI
+# embedded) installed at /usr/local/bin/donezod. Setup:
+#
+#   sudo useradd --system --home-dir /var/lib/donezo --shell /usr/sbin/nologin donezo
+#   sudo install -d -o donezo -g donezo -m 0750 /var/lib/donezo
+#   sudo cp donezod.service.example /etc/systemd/system/donezod.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now donezod
+#
+# Optional environment overrides (DONEZOD_PORT, DONEZOD_SEED, ...) go in
+# /etc/donezo/donezod.env; the leading "-" below makes the file optional.
+#
+# --trust-proxy assumes a reverse proxy (TLS-terminating) directly in
+# front of donezod. Remove it if clients connect to :8787 directly —
+# with no proxy the forwarded headers are attacker-controlled.
+
+[Unit]
+Description=donezod — donezo backend API server with embedded web UI
+After=network.target
+
+[Service]
+Type=simple
+User=donezo
+Group=donezo
+ExecStart=/usr/local/bin/donezod --data-dir /var/lib/donezo --port 8787 --trust-proxy
+EnvironmentFile=-/etc/donezo/donezod.env
+Restart=always
+RestartSec=2
+
+# Hardening: the service needs nothing beyond its data dir and the port.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/donezo
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

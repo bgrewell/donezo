@@ -1,0 +1,78 @@
+# Release workflow: on a v* tag push, build the embedded-UI donezod binary
+# for linux amd64+arm64, package release tarballs, and publish a GitHub
+# release with sha256 checksums. Asset naming contract (install.sh depends
+# on it): donezo_<tag>_linux_<arch>.tar.gz + checksums.txt.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out donezo
+        uses: actions/checkout@v4
+        with:
+          path: donezo
+
+      # web/package.json declares @grewelltech/console as a file: dependency
+      # on a sibling clone of the design-system repo (file:../../design-system,
+      # resolved relative to web/), so it must sit next to the donezo checkout.
+      - name: Check out design-system
+        uses: actions/checkout@v4
+        with:
+          repository: grewelltech/design-system
+          path: design-system
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: donezo/go.mod
+
+      - name: Install web dependencies
+        working-directory: donezo/web
+        run: npm ci --no-audit --no-fund
+
+      - name: Build and package (amd64 + arm64)
+        working-directory: donezo
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+              make release-build "VERSION=${version}"
+            staging="dist/stage_${arch}"
+            mkdir -p "${staging}/deploy"
+            # release-build emits bin/donezod-release (dev builds own bin/donezod)
+            install -m 0755 bin/donezod-release "${staging}/donezod"
+            install -m 0644 README.md "${staging}/README.md"
+            install -m 0644 LICENSE "${staging}/LICENSE"
+            install -m 0644 deploy/donezod.service.example \
+              "${staging}/deploy/donezod.service.example"
+            tar -czf "dist/donezo_${version}_linux_${arch}.tar.gz" \
+              -C "${staging}" donezod README.md LICENSE deploy
+            rm -rf "${staging}"
+          done
+          (cd dist && sha256sum donezo_*_linux_*.tar.gz > checksums.txt)
+          cat dist/checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            donezo/dist/donezo_*_linux_*.tar.gz
+            donezo/dist/checksums.txt

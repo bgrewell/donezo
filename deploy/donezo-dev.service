@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ben/repos/donezo
+WorkingDirectory=/home/ben/repos/donezo/web
 Environment=PATH=/home/ben/.nvm/versions/node/v23.10.0/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/ben/.nvm/versions/node/v23.10.0/bin/npm run dev
 Restart=always
