@@ -3,3 +3,8 @@ web/dist/
 web/.peek/
 bin/
 *.local
+# Build-time staging copy of web/dist for `make release-build` (go:embed).
+internal/webui/dist/
+
+# Claude Code session tooling (agent memory, local settings)
+.claude/
