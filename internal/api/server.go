@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"time"
@@ -24,6 +25,7 @@ type Server struct {
 	clock      func() time.Time
 	trustProxy bool
 	logger     *log.Logger
+	ui         fs.FS
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -74,6 +76,16 @@ func WithClock(clock func() time.Time) ServerOption {
 // WithLogger replaces the default stderr request logger.
 func WithLogger(l *log.Logger) ServerOption {
 	return func(s *Server) { s.logger = l }
+}
+
+// WithWebUI serves the given filesystem — a production web bundle with
+// index.html at its root — for every non-/api path: files by path,
+// index.html for "/" and as the SPA fallback for unknown paths.
+// Release builds pass webui.FS() (the go:embed'd web/dist); tests
+// inject fixture filesystems. Without this option non-/api paths keep
+// the JSON 404 behavior of API-only builds.
+func WithWebUI(fsys fs.FS) ServerOption {
+	return func(s *Server) { s.ui = fsys }
 }
 
 // NewServer builds a Server around the given stores. By default
@@ -175,9 +187,17 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		})
 	}
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusNotFound, "not found")
-	})
+	// The "/" catch-all: the web bundle when one is wired in (release
+	// builds, via WithWebUI), otherwise the API-only JSON 404. Either
+	// way every /api/* pattern registered above is more specific and
+	// wins, so the API surface is identical in both modes.
+	if s.ui != nil {
+		mux.Handle("/", s.webUIHandler())
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		})
+	}
 	return s.withLogging(s.withAuth(mux))
 }
 

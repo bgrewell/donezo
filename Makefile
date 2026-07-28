@@ -6,10 +6,12 @@
 #   - Backend dev loop: `go run ./cmd/donezod --data-dir /tmp/donezo-dev \
 #     --seed seed/seed.json --port 8787`. --seed is a no-op on an
 #     already-seeded dir (safe to leave set); use a fresh dir to reseed.
-#   - Phase 1 serves the API only; the web bundle is NOT embedded yet
-#     (planned for phase 3 via go:embed of web/dist).
+#   - Dev builds serve the API only; `make release-build` produces the
+#     single-file release binary with the web bundle embedded via
+#     go:embed behind the embedui build tag.
 
-VERSION     ?= 0.1.0-dev
+# Release version: env VERSION wins, then git describe, then a dev stamp.
+VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
 BUILD_DATE  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 COMMIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BRANCH      := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
@@ -19,12 +21,25 @@ LDFLAGS := -X 'main.appVersion=$(VERSION)' \
            -X 'main.appCommitHash=$(COMMIT_HASH)' \
            -X 'main.appBranch=$(BRANCH)'
 
-.PHONY: build test lint seed-json clean dev-upgrade dev-snapshots
+.PHONY: build release-build test lint seed-json clean dev-upgrade dev-snapshots
 
 ## build: production web bundle + donezod binary at bin/donezod
 build:
 	npm --prefix web run build
 	go build -ldflags="$(LDFLAGS)" -o bin/donezod ./cmd/donezod
+
+## release-build: single-file release binary at bin/donezod-release with
+## the web bundle embedded (-tags embedui). web/dist is staged into
+## internal/webui/dist only for the compile and removed afterwards (the
+## trap cleans up even when the build fails). Cross-compile via env,
+## e.g.: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 make release-build
+## (modernc.org/sqlite is pure Go, so CGO is never needed).
+release-build:
+	npm --prefix web run build
+	rm -rf internal/webui/dist
+	cp -r web/dist internal/webui/dist
+	@trap 'rm -rf internal/webui/dist' EXIT; \
+	go build -tags embedui -ldflags="$(LDFLAGS)" -o bin/donezod-release ./cmd/donezod
 
 ## test: run all Go tests
 test:

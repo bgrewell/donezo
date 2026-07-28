@@ -23,8 +23,9 @@ func fixedClock() time.Time {
 // (the static test identity) owning space "sandbox" with one project,
 // and user other owning space "private". The static authenticator keeps
 // these endpoint tests independent of session plumbing, which has its
-// own tests in auth_test.go.
-func newTestServer(t *testing.T) *Server {
+// own tests in auth_test.go. Extra options are applied after the
+// defaults, so callers can layer on more (e.g. WithWebUI fixtures).
+func newTestServer(t *testing.T, extra ...ServerOption) *Server {
 	t.Helper()
 	dir := t.TempDir()
 	core, err := store.NewCoreStore(store.WithDataDir(dir), store.WithClock(fixedClock))
@@ -67,7 +68,8 @@ func newTestServer(t *testing.T) *Server {
 	}
 
 	quiet := log.New(io.Discard, "", 0)
-	return NewServer(core, spaces, WithLogger(quiet), WithAuthenticator(StaticAuthenticator{User: ben}))
+	opts := append([]ServerOption{WithLogger(quiet), WithAuthenticator(StaticAuthenticator{User: ben})}, extra...)
+	return NewServer(core, spaces, opts...)
 }
 
 func TestAPIEndpoints(t *testing.T) {

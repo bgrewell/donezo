@@ -1,9 +1,10 @@
 // Command donezod is the donezo backend: a SQLite-backed HTTP API server.
 //
-// Phase 1 is API-only — it serves /api/* and nothing static.
-// TODO(phase 3): go:embed web/dist here and serve the frontend from the
-// same binary (single-file deploy); until then the Vite dev server owns
-// the UI.
+// Dev builds are API-only — they serve /api/* and nothing static, with
+// the Vite dev server owning the UI. Release builds compiled with
+// -tags embedui (the Makefile's release-build target) also embed the
+// production web bundle via internal/webui and serve it from the same
+// binary: a single-file deploy.
 package main
 
 import (
@@ -24,6 +25,7 @@ import (
 	"github.com/bgrewell/donezo/internal/config"
 	"github.com/bgrewell/donezo/internal/seed"
 	"github.com/bgrewell/donezo/internal/store"
+	"github.com/bgrewell/donezo/internal/webui"
 )
 
 // Populated at build time via -ldflags (see Makefile).
@@ -155,6 +157,12 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 	opts := []api.ServerOption{
 		api.WithRateLimiter(limiter),
 		api.WithTrustProxy(cfg.TrustProxy),
+	}
+	if webui.Available() {
+		fmt.Fprintln(os.Stderr, "donezod: serving embedded web UI")
+		opts = append(opts, api.WithWebUI(webui.FS()))
+	} else {
+		fmt.Fprintln(os.Stderr, "donezod: API-only build (no embedui tag)")
 	}
 	if cfg.DevAutoLogin {
 		// config.Validate already gated this on a /tmp data dir or the
