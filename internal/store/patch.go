@@ -135,6 +135,40 @@ func (s *SpaceStore) PatchTask(ctx context.Context, spaceID, id string, apply fu
 	return t, nil
 }
 
+// PatchNote atomically applies apply to an existing note and rewrites it.
+// The load, mutation, and write run in one transaction. Returns ErrNotFound
+// if the id does not exist; a non-nil error from apply aborts the patch and
+// is returned unchanged.
+func (s *SpaceStore) PatchNote(ctx context.Context, spaceID, id string, apply func(*NoteItem) error) (NoteItem, error) {
+	if err := requireID("note", id); err != nil {
+		return NoteItem{}, err
+	}
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return NoteItem{}, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return NoteItem{}, fmt.Errorf("store: patch note %q: begin: %w", id, err)
+	}
+	defer rollbackQuietly(tx)
+	n, err := getNoteRow(ctx, tx, id)
+	if err != nil {
+		return NoteItem{}, err
+	}
+	if err := apply(&n); err != nil {
+		return NoteItem{}, err
+	}
+	n.ID = id
+	if _, err := execUpdateNote(ctx, tx, n); err != nil {
+		return NoteItem{}, fmt.Errorf("store: patch note %q: %w", id, classifyConstraint(err))
+	}
+	if err := tx.Commit(); err != nil {
+		return NoteItem{}, fmt.Errorf("store: patch note %q: commit: %w", id, err)
+	}
+	return n, nil
+}
+
 // PatchReminder atomically applies apply to an existing reminder and
 // rewrites it. The load, mutation, and write run in one transaction.
 // Returns ErrNotFound if the id does not exist; a non-nil error from apply

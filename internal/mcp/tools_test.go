@@ -50,7 +50,11 @@ func TestReadToolsForeignSpaceNotFound(t *testing.T) {
 		{"search", `{"space_id":"private","query":"x"}`},
 		{"list_inbox", `{"space_id":"private"}`},
 		{"get_timeline", `{"space_id":"private","from_date":"2026-01-01","to_date":"2026-12-31"}`},
+		{"list_tasks", `{"space_id":"private"}`},
+		{"list_notes", `{"space_id":"private"}`},
+		{"list_reminders", `{"space_id":"private"}`},
 		{"get_space_overview", `{"space_id":"nope"}`},
+		{"list_notes", `{"space_id":"nope"}`},
 	} {
 		text, isErr := f.callTool(t, f.rw, tc.tool, tc.args)
 		if !isErr || !strings.Contains(text, "space not found") {
@@ -91,15 +95,39 @@ func TestWriteToolsRejectForeignSpace(t *testing.T) {
 	}
 }
 
+// Every write tool must resolve its space through ownedLiveSpace, not
+// ownedSpace — the archived-space barrier is one character away from being
+// dropped, and the space is owned here so the ownership check cannot mask a
+// missing liveness check.
 func TestWriteToolsRejectArchivedSpace(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	if _, err := f.core.SetSpaceArchived(context.Background(), "sandbox", true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
-	text, isErr := f.callTool(t, f.rw, "capture_to_inbox", `{"space_id":"sandbox","text":"x"}`)
-	if !isErr || !strings.Contains(text, "archived") {
-		t.Errorf("write into archived space: isErr=%v text=%s", isErr, text)
+	for _, tc := range []struct {
+		tool, args string
+	}{
+		{"capture_to_inbox", `{"space_id":"sandbox","text":"x"}`},
+		{"log_activity", `{"space_id":"sandbox","project_id":"loom","title":"x"}`},
+		{"create_task", `{"space_id":"sandbox","title":"x"}`},
+		{"complete_task", `{"space_id":"sandbox","task_id":"t-1"}`},
+		{"create_note", `{"space_id":"sandbox","body":"x"}`},
+		{"create_reminder", `{"space_id":"sandbox","text":"x","remind_at":"2026-08-01T09:00:00"}`},
+		{"classify_inbox_item", `{"space_id":"sandbox","inbox_id":"i-1","kind":"task"}`},
+		{"update_project", `{"space_id":"sandbox","project_id":"loom","status":"paused"}`},
+		{"create_project", `{"space_id":"sandbox","name":"x"}`},
+		{"update_task", `{"space_id":"sandbox","task_id":"t-1","title":"x"}`},
+		{"update_note", `{"space_id":"sandbox","note_id":"n-1","body":"x"}`},
+		{"update_activity", `{"space_id":"sandbox","activity_id":"a-1","title":"x"}`},
+		{"update_reminder", `{"space_id":"sandbox","reminder_id":"r-1","text":"x"}`},
+		{"dismiss_inbox_item", `{"space_id":"sandbox","inbox_id":"i-1"}`},
+		{"delete_item", `{"space_id":"sandbox","kind":"task","item_id":"t-1"}`},
+	} {
+		text, isErr := f.callTool(t, f.rw, tc.tool, tc.args)
+		if !isErr || !strings.Contains(text, "archived") {
+			t.Errorf("%s into archived space: isErr=%v text=%s", tc.tool, isErr, text)
+		}
 	}
 }
 

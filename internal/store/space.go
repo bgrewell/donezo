@@ -645,8 +645,14 @@ func (s *SpaceStore) GetNote(ctx context.Context, spaceID, id string) (NoteItem,
 	if err != nil {
 		return NoteItem{}, err
 	}
+	return getNoteRow(ctx, db, id)
+}
+
+// getNoteRow reads one note through any querier (a *sql.DB or a *sql.Tx), so
+// PatchNote can read inside its transaction.
+func getNoteRow(ctx context.Context, q rowQuerier, id string) (NoteItem, error) {
 	var n NoteItem
-	err = db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT id, project_id, title, body, created_at FROM notes WHERE id = ?`,
 		id).Scan(&n.ID, &n.ProjectID, &n.Title, &n.Body, &n.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -659,7 +665,9 @@ func (s *SpaceStore) GetNote(ctx context.Context, spaceID, id string) (NoteItem,
 }
 
 // UpdateNote rewrites all mutable fields of an existing note. Returns
-// ErrNotFound if the id does not exist.
+// ErrNotFound if the id does not exist. Callers applying a partial update
+// should prefer PatchNote, which re-reads inside a transaction rather than
+// writing back a snapshot that may have gone stale.
 func (s *SpaceStore) UpdateNote(ctx context.Context, spaceID string, n NoteItem) (NoteItem, error) {
 	if err := requireID("note", n.ID); err != nil {
 		return NoteItem{}, err
@@ -668,9 +676,7 @@ func (s *SpaceStore) UpdateNote(ctx context.Context, spaceID string, n NoteItem)
 	if err != nil {
 		return NoteItem{}, err
 	}
-	res, err := db.ExecContext(ctx,
-		`UPDATE notes SET project_id = ?, title = ?, body = ?, created_at = ? WHERE id = ?`,
-		n.ProjectID, n.Title, n.Body, n.CreatedAt, n.ID)
+	res, err := execUpdateNote(ctx, db, n)
 	if err != nil {
 		return NoteItem{}, fmt.Errorf("store: update note %q: %w", n.ID, classifyConstraint(err))
 	}
@@ -678,6 +684,14 @@ func (s *SpaceStore) UpdateNote(ctx context.Context, spaceID string, n NoteItem)
 		return NoteItem{}, err
 	}
 	return n, nil
+}
+
+// execUpdateNote rewrites a note through any execer, so PatchNote can write
+// inside its transaction.
+func execUpdateNote(ctx context.Context, ex execer, n NoteItem) (sql.Result, error) {
+	return ex.ExecContext(ctx,
+		`UPDATE notes SET project_id = ?, title = ?, body = ?, created_at = ? WHERE id = ?`,
+		n.ProjectID, n.Title, n.Body, n.CreatedAt, n.ID)
 }
 
 // DeleteNote removes a note by id. Returns ErrNotFound if absent.

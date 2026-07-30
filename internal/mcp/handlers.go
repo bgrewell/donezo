@@ -1225,20 +1225,22 @@ func toolUpdateNote(ctx context.Context, h *Handler, c caller, args json.RawMess
 	if !ok {
 		return msg, true
 	}
-	existing, err := h.spaces.GetNote(ctx, sp.ID, a.NoteID)
-	if err != nil {
-		return h.storeErrText("note", err), true
-	}
-	if a.Title != nil {
-		existing.Title = *a.Title
-	}
-	if a.Body != nil {
-		existing.Body = *a.Body
-	}
-	if a.ProjectID != nil {
-		existing.ProjectID = optString(*a.ProjectID)
-	}
-	updated, err := h.spaces.UpdateNote(ctx, sp.ID, existing)
+	// PatchNote (not Get + Update) so the read and the write share one
+	// transaction: a concurrent update_note on the same id would otherwise
+	// be rewritten from this handler's stale snapshot, silently reverting
+	// whichever field the other call changed.
+	updated, err := h.spaces.PatchNote(ctx, sp.ID, a.NoteID, func(n *store.NoteItem) error {
+		if a.Title != nil {
+			n.Title = *a.Title
+		}
+		if a.Body != nil {
+			n.Body = *a.Body
+		}
+		if a.ProjectID != nil {
+			n.ProjectID = optString(*a.ProjectID)
+		}
+		return nil
+	})
 	if err != nil {
 		return h.storeErrText("note", err), true
 	}

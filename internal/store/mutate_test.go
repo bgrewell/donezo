@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -749,5 +751,152 @@ func TestSetSpaceArchived(t *testing.T) {
 	}
 	if _, err := s.SetSpaceArchived(ctx, "ghost", true); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPatchNote(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("apply refused")
+	tests := []struct {
+		name    string
+		apply   func(*NoteItem) error
+		wantErr error
+		check   func(t *testing.T, got NoteItem)
+	}{
+		{
+			name: "retitle and detach from the project",
+			apply: func(n *NoteItem) error {
+				n.Title = "Retitled"
+				n.ProjectID = nil
+				return nil
+			},
+			check: func(t *testing.T, got NoteItem) {
+				t.Helper()
+				if got.Title != "Retitled" || got.ProjectID != nil {
+					t.Errorf("patched note = %+v", got)
+				}
+				// Untouched fields survive the rewrite.
+				if got.Body != "Original body" || got.CreatedAt != "2026-07-01" {
+					t.Errorf("untouched fields changed: %+v", got)
+				}
+			},
+		},
+		{
+			name:    "reference to a missing project rolls back",
+			apply:   func(n *NoteItem) error { n.ProjectID = ptr("ghost"); return nil },
+			wantErr: ErrInvalidReference,
+		},
+		{
+			name:    "an apply error aborts the patch and is returned unchanged",
+			apply:   func(n *NoteItem) error { n.Title = "should not persist"; return sentinel },
+			wantErr: sentinel,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := newTestSpaceStore(t)
+			ctx := context.Background()
+			mustCreateProject(t, s, "loom")
+			if _, err := s.CreateNote(ctx, testSpace, NoteItem{
+				ID: "n-1", ProjectID: ptr("loom"), Title: "Original", Body: "Original body",
+				CreatedAt: "2026-07-01",
+			}); err != nil {
+				t.Fatalf("create note: %v", err)
+			}
+			got, err := s.PatchNote(ctx, testSpace, "n-1", tt.apply)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tt.wantErr)
+				}
+				after, gerr := s.GetNote(ctx, testSpace, "n-1")
+				if gerr != nil {
+					t.Fatalf("GetNote after: %v", gerr)
+				}
+				if after.Title != "Original" || after.ProjectID == nil || *after.ProjectID != "loom" {
+					t.Errorf("failed patch leaked: %+v", after)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PatchNote: %v", err)
+			}
+			tt.check(t, got)
+		})
+	}
+
+	t.Run("missing id", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSpaceStore(t)
+		if _, err := s.PatchNote(context.Background(), testSpace, "ghost", func(*NoteItem) error { return nil }); !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+// PatchNote re-reads inside its transaction, so two overlapping partial
+// updates to different fields both survive. The Get-then-Update pattern it
+// replaced would write back a stale snapshot and drop whichever field the
+// other caller changed.
+//
+// Runs many rounds because a single round only loses the update on an
+// unlucky interleave: measured against the non-transactional implementation,
+// one round catches it about 10% of the time, so a single-shot test would
+// pass with the bug present far more often than not.
+func TestPatchNoteConcurrentFieldUpdatesBothSurvive(t *testing.T) {
+	t.Parallel()
+	const rounds = 60
+	s := newTestSpaceStore(t)
+	ctx := context.Background()
+
+	for round := 0; round < rounds; round++ {
+		id := fmt.Sprintf("n-%d", round)
+		if _, err := s.CreateNote(ctx, testSpace, NoteItem{
+			ID: id, Title: "Original title", Body: "Original body", CreatedAt: "2026-07-01",
+		}); err != nil {
+			t.Fatalf("create note %s: %v", id, err)
+		}
+
+		// Interleave the way two concurrent update_note calls would: both
+		// enter, each changing a different field.
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[0] = s.PatchNote(ctx, testSpace, id, func(n *NoteItem) error {
+				n.Title = "Title from A"
+				return nil
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, errs[1] = s.PatchNote(ctx, testSpace, id, func(n *NoteItem) error {
+				n.Body = "Body from B"
+				return nil
+			})
+		}()
+		close(start)
+		wg.Wait()
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("round %d: PatchNote %d: %v", round, i, err)
+			}
+		}
+
+		got, err := s.GetNote(ctx, testSpace, id)
+		if err != nil {
+			t.Fatalf("round %d: GetNote: %v", round, err)
+		}
+		if got.Title != "Title from A" {
+			t.Fatalf("round %d: title = %q, want %q — B's write clobbered A's field", round, got.Title, "Title from A")
+		}
+		if got.Body != "Body from B" {
+			t.Fatalf("round %d: body = %q, want %q — A's write clobbered B's field", round, got.Body, "Body from B")
+		}
 	}
 }

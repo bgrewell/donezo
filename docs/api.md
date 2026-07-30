@@ -165,7 +165,7 @@ that means in practice.
 
 **Scopes.** A token is `read_only` or `read_write`, fixed at creation.
 `tools/list` returns **only the tools the scope permits** — a `read_only`
-token sees the six read tools; a `read_write` token sees all fourteen. A
+token sees the nine read tools; a `read_write` token sees all twenty-four. A
 write call made with a `read_only` token is refused with a clear `isError`
 tool result (never a silent no-op).
 
