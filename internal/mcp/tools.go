@@ -25,6 +25,11 @@ var (
 	projectStatuses = []string{"active", "waiting", "blocked", "paused", "completed", "cancelled"}
 	projectColors   = []string{"blue", "green", "tan", "violet", "rose", "orange", "steel"}
 	itemKinds       = []string{"task", "note", "reminder", "activity", "project"}
+	taskStatuses    = []string{"open", "waiting", "someday", "done"}
+	// deletableKinds is deliberately narrower than itemKinds: projects are
+	// not deletable over MCP because deleting one cascades to every activity,
+	// task, note and reminder it owns. That stays a web-app action.
+	deletableKinds = []string{"task", "note", "reminder", "activity", "inbox_item"}
 )
 
 // maxItems caps how many rows a read tool returns; past it the result
@@ -64,9 +69,9 @@ var toolByName = func() map[string]tool {
 
 // registerTools adds every tool in the curated surface to the SDK server
 // using raw JSON Schema, wrapping each handler so it reads the caller from
-// the request context and reports its result in the SDK's shape. All 14
-// tools are registered on the single server; scope filtering of tools/list
-// and the write-tool scope gate happen in the gate middleware.
+// the request context and reports its result in the SDK's shape. Every tool
+// is registered on the single server; scope filtering of tools/list and the
+// write-tool scope gate happen in the gate middleware.
 func registerTools(server *mcpsdk.Server, h *Handler) {
 	for _, t := range tools {
 		server.AddTool(&mcpsdk.Tool{
@@ -222,6 +227,41 @@ func buildTools() []tool {
 			}, "space_id"),
 			handler: toolListInbox,
 		},
+		{
+			name:  "list_tasks",
+			title: "List tasks",
+			description: "Tasks in a space — FUTURE work with a lifecycle. Optionally narrow to one project or " +
+				"one status. Defaults to open tasks across the whole space; pass status to see done/waiting/someday. " +
+				"Use it to find a task's id before updating or completing it.",
+			inputSchema: objectSchema(map[string]any{
+				"space_id":   strProp("The space to read."),
+				"project_id": strProp("Optional project to narrow to."),
+				"status":     enumProp("Optional status filter (defaults to open).", taskStatuses),
+			}, "space_id"),
+			handler: toolListTasks,
+		},
+		{
+			name:  "list_notes",
+			title: "List notes",
+			description: "Notes in a space — durable reference text, not actions. Optionally narrow to one " +
+				"project. Use it to find a note's id before updating or deleting it.",
+			inputSchema: objectSchema(map[string]any{
+				"space_id":   strProp("The space to read."),
+				"project_id": strProp("Optional project to narrow to."),
+			}, "space_id"),
+			handler: toolListNotes,
+		},
+		{
+			name:  "list_reminders",
+			title: "List reminders",
+			description: "Reminders in a space, soonest first. Pending only by default; pass include_done to see " +
+				"ones already marked done. Use it to find a reminder's id before updating or deleting it.",
+			inputSchema: objectSchema(map[string]any{
+				"space_id":     strProp("The space to read."),
+				"include_done": boolProp("Include reminders already marked done (default false)."),
+			}, "space_id"),
+			handler: toolListReminders,
+		},
 
 		// WRITE ─────────────────────────────────────────────────────────
 		{
@@ -340,10 +380,11 @@ func buildTools() []tool {
 		},
 		{
 			name:  "update_project",
-			title: "Update project designations",
-			description: "Manage a project's designations: nextAction, altNextActions, currentFocus, " +
-				"resumeContext, status, and waitingOn. Use it to set the single next concrete action or to move " +
-				"status. Only the fields you pass change; status is set manually here (never inferred).",
+			title: "Update project",
+			description: "Update a project: its designations (nextAction, altNextActions, currentFocus, " +
+				"resumeContext, status, waitingOn) and its descriptive fields (name, purpose, outcome, color, tags). " +
+				"Use it to set the single next concrete action or to move status. Only the fields you pass change; " +
+				"status is set manually here (never inferred).",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":         strProp("The space the project lives in."),
@@ -354,8 +395,128 @@ func buildTools() []tool {
 				"resume_context":   strProp("Context note for resuming after an interruption."),
 				"status":           enumProp("Project status (set manually).", projectStatuses),
 				"waiting_on":       strProp("Who/what is being waited on (empty string clears it)."),
+				"name":             strProp("Project name."),
+				"purpose":          strProp("Why this stream of work exists."),
+				"outcome":          strProp("What done looks like."),
+				"color":            enumProp("Project color.", projectColors),
+				"tags":             arrStrProp("Tags on the project (replaces the existing set)."),
 			}, "space_id", "project_id"),
 			handler: toolUpdateProject,
+		},
+		{
+			name:  "create_project",
+			title: "Create project",
+			description: "Create a project — a stream of work with a purpose and an outcome. Use it when the user " +
+				"is starting something substantial enough to gather activities and tasks under it. For a one-off " +
+				"action, create_task is enough. Only name is required; the rest can be filled in later.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":      strProp("The space to create the project in."),
+				"name":          strProp("Project name."),
+				"purpose":       strProp("Optional: why this stream of work exists."),
+				"outcome":       strProp("Optional: what done looks like."),
+				"color":         enumProp("Optional color (defaults to blue).", projectColors),
+				"current_focus": strProp("Optional: the current thread being pulled."),
+				"next_action":   strProp("Optional: the single next concrete action."),
+				"tags":          arrStrProp("Optional tags."),
+			}, "space_id", "name"),
+			handler: toolCreateProject,
+		},
+		{
+			name:  "update_task",
+			title: "Update task",
+			description: "Change an existing task: its title, status, due date, project, or what it is waiting on. " +
+				"Use it to correct or re-scope a task. To simply mark one done, prefer complete_task — it also logs " +
+				"the matching activity. Only the fields you pass change.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":   strProp("The space the task lives in."),
+				"task_id":    strProp("The task to update (from list_tasks or get_project)."),
+				"title":      strProp("What needs doing."),
+				"status":     enumProp("Task status.", taskStatuses),
+				"due":        strProp("Due date, yyyy-MM-dd (empty string clears it)."),
+				"project_id": strProp("Project to attach to (empty string detaches it)."),
+				"waiting_on": strProp("Who/what this task is waiting on (empty string clears it)."),
+			}, "space_id", "task_id"),
+			handler: toolUpdateTask,
+		},
+		{
+			name:  "update_note",
+			title: "Update note",
+			description: "Change an existing note's title, body, or project. Use it to correct or expand a note " +
+				"rather than creating a second one. Only the fields you pass change.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":   strProp("The space the note lives in."),
+				"note_id":    strProp("The note to update (from list_notes or search)."),
+				"title":      strProp("Note title."),
+				"body":       strProp("Note body."),
+				"project_id": strProp("Project to attach to (empty string detaches it)."),
+			}, "space_id", "note_id"),
+			handler: toolUpdateNote,
+		},
+		{
+			name:  "update_activity",
+			title: "Update activity",
+			description: "Correct a PAST fact already on the timeline: its title, details, type, date, effort, or " +
+				"project. Use it to fix a mis-logged activity — not to record something new (use log_activity). " +
+				"Only the fields you pass change.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":     strProp("The space the activity lives in."),
+				"activity_id":  strProp("The activity to update (from get_timeline or get_project)."),
+				"title":        strProp("Short description of what happened."),
+				"details":      strProp("Longer detail."),
+				"type":         enumProp("Activity type.", activityTypes),
+				"date":         strProp("The yyyy-MM-dd date it happened."),
+				"effort_hours": numProp("Rough effort in hours (0 clears it)."),
+				"project_id":   strProp("The project it belongs to."),
+			}, "space_id", "activity_id"),
+			handler: toolUpdateActivity,
+		},
+		{
+			name:  "update_reminder",
+			title: "Update reminder",
+			description: "Change an existing reminder's text, time, project, or done flag. Use it to reschedule a " +
+				"reminder or mark one handled. Only the fields you pass change.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":    strProp("The space the reminder lives in."),
+				"reminder_id": strProp("The reminder to update (from list_reminders)."),
+				"text":        strProp("What to be reminded about."),
+				"remind_at":   strProp("When to resurface, ISO datetime (e.g. 2026-07-28T09:00:00)."),
+				"done":        boolProp("Whether the reminder has been handled."),
+				"project_id":  strProp("Project to attach to (empty string detaches it)."),
+			}, "space_id", "reminder_id"),
+			handler: toolUpdateReminder,
+		},
+		{
+			name:  "dismiss_inbox_item",
+			title: "Dismiss inbox item",
+			description: "Mark a pending inbox capture dismissed — it was reviewed and needs no follow-up. This is " +
+				"the other half of triage: classify_inbox_item turns a capture into something, dismiss_inbox_item " +
+				"closes it out without creating anything. The capture itself is kept.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id": strProp("The space the inbox item lives in."),
+				"inbox_id": strProp("The pending inbox item to dismiss."),
+			}, "space_id", "inbox_id"),
+			handler: toolDismissInboxItem,
+		},
+		{
+			name:  "delete_item",
+			title: "Delete item",
+			description: "Permanently delete a task, note, reminder, activity, or inbox item. Use it for things " +
+				"created by mistake — to close out real work use complete_task, and to clear a reviewed capture use " +
+				"dismiss_inbox_item. Deleting a PROJECT is not possible here: that cascades to everything the " +
+				"project owns and stays a web-app action. Deletion cannot be undone, so confirm with the user first.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id": strProp("The space the item lives in."),
+				"kind":     enumProp("What kind of item to delete.", deletableKinds),
+				"item_id":  strProp("The id of the item to delete."),
+			}, "space_id", "kind", "item_id"),
+			handler: toolDeleteItem,
 		},
 	}
 }

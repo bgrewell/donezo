@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sort"
 	"strings"
 	"testing"
 
@@ -551,5 +553,615 @@ func TestUpdateProject(t *testing.T) {
 	}
 	if proj.WaitingOn != nil {
 		t.Errorf("waiting_on should clear to nil, got %v", *proj.WaitingOn)
+	}
+}
+
+// ─── READ tools: listing ──────────────────────────────────────────────────
+
+func TestListTasks(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	loom := "loom"
+	seed := []store.TaskItem{
+		{ID: "t-1", Title: "open unlinked", Status: "open", CreatedAt: "2026-07-26"},
+		{ID: "t-2", Title: "open on loom", Status: "open", ProjectID: &loom, CreatedAt: "2026-07-26"},
+		{ID: "t-3", Title: "done one", Status: "done", CreatedAt: "2026-07-26"},
+		{ID: "t-4", Title: "someday one", Status: "someday", CreatedAt: "2026-07-26"},
+	}
+	for _, task := range seed {
+		if _, err := f.spaces.CreateTask(ctx, "sandbox", task); err != nil {
+			t.Fatalf("seed task %s: %v", task.ID, err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		args string
+		want []string
+	}{
+		{"defaults to open", `{"space_id":"sandbox"}`, []string{"t-1", "t-2"}},
+		{"filter by project", `{"space_id":"sandbox","project_id":"loom"}`, []string{"t-2"}},
+		{"filter by status", `{"space_id":"sandbox","status":"done"}`, []string{"t-3"}},
+		{"status and project together", `{"space_id":"sandbox","status":"open","project_id":"loom"}`, []string{"t-2"}},
+		{"someday", `{"space_id":"sandbox","status":"someday"}`, []string{"t-4"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			text, isErr := f.callTool(t, f.rw, "list_tasks", tc.args)
+			if isErr {
+				t.Fatalf("list_tasks: %s", text)
+			}
+			var got struct {
+				Tasks []struct {
+					ID string `json:"id"`
+				} `json:"tasks"`
+				Count int `json:"count"`
+			}
+			parseToolJSON(t, text, &got)
+			ids := []string{}
+			for _, task := range got.Tasks {
+				ids = append(ids, task.ID)
+			}
+			sort.Strings(ids)
+			if strings.Join(ids, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("ids = %v, want %v", ids, tc.want)
+			}
+			if got.Count != len(tc.want) {
+				t.Errorf("count = %d, want %d", got.Count, len(tc.want))
+			}
+		})
+	}
+
+	if _, isErr := f.callTool(t, f.rw, "list_tasks", `{"space_id":"sandbox","status":"bogus"}`); !isErr {
+		t.Error("bad status should be isError")
+	}
+}
+
+func TestListNotes(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	loom := "loom"
+	if _, err := f.spaces.CreateNote(ctx, "sandbox", store.NoteItem{ID: "n-1", Title: "loose", Body: "b", CreatedAt: "2026-07-26"}); err != nil {
+		t.Fatalf("note: %v", err)
+	}
+	if _, err := f.spaces.CreateNote(ctx, "sandbox", store.NoteItem{ID: "n-2", Title: "on loom", Body: "b", ProjectID: &loom, CreatedAt: "2026-07-26"}); err != nil {
+		t.Fatalf("note: %v", err)
+	}
+
+	text, isErr := f.callTool(t, f.rw, "list_notes", `{"space_id":"sandbox"}`)
+	if isErr {
+		t.Fatalf("list_notes: %s", text)
+	}
+	var all struct {
+		Count int `json:"count"`
+	}
+	parseToolJSON(t, text, &all)
+	if all.Count != 2 {
+		t.Errorf("all notes count = %d, want 2", all.Count)
+	}
+
+	text, isErr = f.callTool(t, f.rw, "list_notes", `{"space_id":"sandbox","project_id":"loom"}`)
+	if isErr {
+		t.Fatalf("list_notes by project: %s", text)
+	}
+	var scoped struct {
+		Notes []struct {
+			ID string `json:"id"`
+		} `json:"notes"`
+	}
+	parseToolJSON(t, text, &scoped)
+	if len(scoped.Notes) != 1 || scoped.Notes[0].ID != "n-2" {
+		t.Errorf("project-scoped notes = %+v, want just n-2", scoped.Notes)
+	}
+}
+
+func TestListReminders(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	done := true
+	seed := []store.Reminder{
+		{ID: "r-late", Text: "later", RemindAt: "2026-08-02T09:00:00"},
+		{ID: "r-soon", Text: "sooner", RemindAt: "2026-07-30T09:00:00"},
+		{ID: "r-done", Text: "handled", RemindAt: "2026-07-29T09:00:00", Done: &done},
+	}
+	for _, r := range seed {
+		if _, err := f.spaces.CreateReminder(ctx, "sandbox", r); err != nil {
+			t.Fatalf("seed reminder %s: %v", r.ID, err)
+		}
+	}
+
+	// Pending only, soonest first.
+	text, isErr := f.callTool(t, f.rw, "list_reminders", `{"space_id":"sandbox"}`)
+	if isErr {
+		t.Fatalf("list_reminders: %s", text)
+	}
+	var got struct {
+		Reminders []struct {
+			ID string `json:"id"`
+		} `json:"reminders"`
+	}
+	parseToolJSON(t, text, &got)
+	if len(got.Reminders) != 2 || got.Reminders[0].ID != "r-soon" || got.Reminders[1].ID != "r-late" {
+		t.Errorf("pending reminders = %+v, want r-soon then r-late", got.Reminders)
+	}
+
+	// include_done widens it.
+	text, isErr = f.callTool(t, f.rw, "list_reminders", `{"space_id":"sandbox","include_done":true}`)
+	if isErr {
+		t.Fatalf("list_reminders include_done: %s", text)
+	}
+	var withDone struct {
+		Count int `json:"count"`
+	}
+	parseToolJSON(t, text, &withDone)
+	if withDone.Count != 3 {
+		t.Errorf("include_done count = %d, want 3", withDone.Count)
+	}
+}
+
+// ─── WRITE tools: create_project ──────────────────────────────────────────
+
+func TestCreateProject(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+
+	if _, isErr := f.callTool(t, f.rw, "create_project", `{"space_id":"sandbox","name":"  "}`); !isErr {
+		t.Error("blank name should be isError")
+	}
+	if _, isErr := f.callTool(t, f.rw, "create_project", `{"space_id":"sandbox","name":"X","color":"chartreuse"}`); !isErr {
+		t.Error("bad color should be isError")
+	}
+
+	text, isErr := f.callTool(t, f.rw, "create_project",
+		`{"space_id":"sandbox","name":"Datacenter","purpose":"racks","outcome":"racked","tags":["infra"]}`)
+	if isErr {
+		t.Fatalf("create_project: %s", text)
+	}
+	var got struct {
+		Project struct {
+			ID      string   `json:"id"`
+			Name    string   `json:"name"`
+			Color   string   `json:"color"`
+			Purpose string   `json:"purpose"`
+			Status  string   `json:"status"`
+			Tags    []string `json:"tags"`
+		} `json:"project"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Project.Name != "Datacenter" || got.Project.Purpose != "racks" {
+		t.Errorf("created project = %+v", got.Project)
+	}
+	if got.Project.Color != "blue" {
+		t.Errorf("color should default to blue, got %q", got.Project.Color)
+	}
+	if got.Project.Status != "active" {
+		t.Errorf("status should default to active, got %q", got.Project.Status)
+	}
+	if len(got.Project.Tags) != 1 || got.Project.Tags[0] != "infra" {
+		t.Errorf("tags = %v", got.Project.Tags)
+	}
+	if !strings.HasPrefix(got.Project.ID, "proj-") {
+		t.Errorf("id = %q, want a proj- prefix", got.Project.ID)
+	}
+	// It is really in the store, not just echoed back.
+	if _, err := f.spaces.GetProject(context.Background(), "sandbox", got.Project.ID); err != nil {
+		t.Errorf("created project missing from store: %v", err)
+	}
+}
+
+// ─── WRITE tools: updates ─────────────────────────────────────────────────
+
+func TestUpdateTask(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	due := "2026-08-01"
+	if _, err := f.spaces.CreateTask(ctx, "sandbox", store.TaskItem{
+		ID: "t-1", Title: "original", Status: "open", Due: &due, CreatedAt: "2026-07-26",
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	bad := []struct {
+		name string
+		args string
+	}{
+		{"empty title", `{"space_id":"sandbox","task_id":"t-1","title":"  "}`},
+		{"bad status", `{"space_id":"sandbox","task_id":"t-1","status":"nope"}`},
+		{"bad due", `{"space_id":"sandbox","task_id":"t-1","due":"August 1st"}`},
+		{"missing task_id", `{"space_id":"sandbox","task_id":""}`},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, isErr := f.callTool(t, f.rw, "update_task", tc.args); !isErr {
+				t.Error("should be isError")
+			}
+		})
+	}
+	if text, isErr := f.callTool(t, f.rw, "update_task", `{"space_id":"sandbox","task_id":"ghost","title":"x"}`); !isErr || !strings.Contains(text, "task not found") {
+		t.Errorf("unknown task: isErr=%v text=%s", isErr, text)
+	}
+
+	text, isErr := f.callTool(t, f.rw, "update_task",
+		`{"space_id":"sandbox","task_id":"t-1","title":"revised","status":"waiting","waiting_on":"Sam","project_id":"loom"}`)
+	if isErr {
+		t.Fatalf("update_task: %s", text)
+	}
+	var got struct {
+		Task struct {
+			Title     string  `json:"title"`
+			Status    string  `json:"status"`
+			WaitingOn *string `json:"waitingOn"`
+			ProjectID *string `json:"projectId"`
+		} `json:"task"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Task.Title != "revised" || got.Task.Status != "waiting" ||
+		got.Task.WaitingOn == nil || *got.Task.WaitingOn != "Sam" ||
+		got.Task.ProjectID == nil || *got.Task.ProjectID != "loom" {
+		t.Errorf("updated task = %+v", got.Task)
+	}
+
+	// Empty strings clear the optional columns; check the store so an omitted
+	// field in the response cannot mask a stale pointer.
+	if _, isErr := f.callTool(t, f.rw, "update_task", `{"space_id":"sandbox","task_id":"t-1","due":"","project_id":"","waiting_on":""}`); isErr {
+		t.Fatal("clearing optional fields should succeed")
+	}
+	task, err := f.spaces.GetTask(ctx, "sandbox", "t-1")
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if task.Due != nil || task.ProjectID != nil || task.WaitingOn != nil {
+		t.Errorf("optional fields should all clear, got due=%v project=%v waitingOn=%v", task.Due, task.ProjectID, task.WaitingOn)
+	}
+}
+
+func TestUpdateNote(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	loom := "loom"
+	if _, err := f.spaces.CreateNote(ctx, "sandbox", store.NoteItem{
+		ID: "n-1", Title: "old title", Body: "old body", ProjectID: &loom, CreatedAt: "2026-07-26",
+	}); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+
+	if _, isErr := f.callTool(t, f.rw, "update_note", `{"space_id":"sandbox","note_id":"n-1","body":"   "}`); !isErr {
+		t.Error("empty body should be isError")
+	}
+	if text, isErr := f.callTool(t, f.rw, "update_note", `{"space_id":"sandbox","note_id":"ghost","body":"x"}`); !isErr || !strings.Contains(text, "note not found") {
+		t.Errorf("unknown note: isErr=%v text=%s", isErr, text)
+	}
+
+	text, isErr := f.callTool(t, f.rw, "update_note",
+		`{"space_id":"sandbox","note_id":"n-1","title":"new title","body":"new body"}`)
+	if isErr {
+		t.Fatalf("update_note: %s", text)
+	}
+	var got struct {
+		Note struct {
+			Title     string  `json:"title"`
+			Body      string  `json:"body"`
+			ProjectID *string `json:"projectId"`
+		} `json:"note"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Note.Title != "new title" || got.Note.Body != "new body" {
+		t.Errorf("updated note = %+v", got.Note)
+	}
+	// An untouched field survives the patch.
+	if got.Note.ProjectID == nil || *got.Note.ProjectID != "loom" {
+		t.Errorf("projectId should be preserved, got %v", got.Note.ProjectID)
+	}
+
+	// Detaching from the project.
+	if _, isErr := f.callTool(t, f.rw, "update_note", `{"space_id":"sandbox","note_id":"n-1","project_id":""}`); isErr {
+		t.Fatal("detaching project should succeed")
+	}
+	note, err := f.spaces.GetNote(ctx, "sandbox", "n-1")
+	if err != nil {
+		t.Fatalf("get note: %v", err)
+	}
+	if note.ProjectID != nil {
+		t.Errorf("projectId should clear to nil, got %v", *note.ProjectID)
+	}
+}
+
+func TestUpdateActivity(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	effort := 2.0
+	if _, err := f.spaces.CreateActivity(ctx, "sandbox", store.ActivityEntry{
+		ID: "a-1", ProjectID: "loom", Date: "2026-07-26", Type: "work", Title: "old",
+		Details: "d", EffortHours: &effort, Source: "manual", Tags: []string{}, Links: []store.ActivityLink{},
+	}); err != nil {
+		t.Fatalf("seed activity: %v", err)
+	}
+
+	bad := []struct {
+		name string
+		args string
+	}{
+		{"bad type", `{"space_id":"sandbox","activity_id":"a-1","type":"pondering"}`},
+		{"bad date", `{"space_id":"sandbox","activity_id":"a-1","date":"yesterday"}`},
+		{"empty title", `{"space_id":"sandbox","activity_id":"a-1","title":" "}`},
+		{"negative effort", `{"space_id":"sandbox","activity_id":"a-1","effort_hours":-1}`},
+		{"blank project", `{"space_id":"sandbox","activity_id":"a-1","project_id":""}`},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, isErr := f.callTool(t, f.rw, "update_activity", tc.args); !isErr {
+				t.Error("should be isError")
+			}
+		})
+	}
+
+	text, isErr := f.callTool(t, f.rw, "update_activity",
+		`{"space_id":"sandbox","activity_id":"a-1","title":"corrected","type":"decision","date":"2026-07-27"}`)
+	if isErr {
+		t.Fatalf("update_activity: %s", text)
+	}
+	var got struct {
+		Activity struct {
+			Title       string   `json:"title"`
+			Type        string   `json:"type"`
+			Date        string   `json:"date"`
+			EffortHours *float64 `json:"effortHours"`
+		} `json:"activity"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Activity.Title != "corrected" || got.Activity.Type != "decision" || got.Activity.Date != "2026-07-27" {
+		t.Errorf("updated activity = %+v", got.Activity)
+	}
+	if got.Activity.EffortHours == nil || *got.Activity.EffortHours != 2 {
+		t.Errorf("effort should be untouched at 2, got %v", got.Activity.EffortHours)
+	}
+
+	// Zero effort clears the optional column rather than storing 0.
+	if _, isErr := f.callTool(t, f.rw, "update_activity", `{"space_id":"sandbox","activity_id":"a-1","effort_hours":0}`); isErr {
+		t.Fatal("clearing effort should succeed")
+	}
+	act, err := f.spaces.GetActivity(ctx, "sandbox", "a-1")
+	if err != nil {
+		t.Fatalf("get activity: %v", err)
+	}
+	if act.EffortHours != nil {
+		t.Errorf("effortHours should clear to nil, got %v", *act.EffortHours)
+	}
+}
+
+func TestUpdateReminder(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.spaces.CreateReminder(ctx, "sandbox", store.Reminder{
+		ID: "r-1", Text: "old", RemindAt: "2026-07-30T09:00:00",
+	}); err != nil {
+		t.Fatalf("seed reminder: %v", err)
+	}
+
+	if _, isErr := f.callTool(t, f.rw, "update_reminder", `{"space_id":"sandbox","reminder_id":"r-1","remind_at":"soon"}`); !isErr {
+		t.Error("bad remind_at should be isError")
+	}
+	if _, isErr := f.callTool(t, f.rw, "update_reminder", `{"space_id":"sandbox","reminder_id":"r-1","text":""}`); !isErr {
+		t.Error("empty text should be isError")
+	}
+
+	text, isErr := f.callTool(t, f.rw, "update_reminder",
+		`{"space_id":"sandbox","reminder_id":"r-1","text":"new","remind_at":"2026-08-05T14:30:00","done":true}`)
+	if isErr {
+		t.Fatalf("update_reminder: %s", text)
+	}
+	var got struct {
+		Reminder struct {
+			Text     string `json:"text"`
+			RemindAt string `json:"remindAt"`
+			Done     *bool  `json:"done"`
+		} `json:"reminder"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Reminder.Text != "new" || got.Reminder.RemindAt != "2026-08-05T14:30:00" {
+		t.Errorf("updated reminder = %+v", got.Reminder)
+	}
+	if got.Reminder.Done == nil || !*got.Reminder.Done {
+		t.Errorf("done should be true, got %v", got.Reminder.Done)
+	}
+
+	// And back to not-done.
+	if _, isErr := f.callTool(t, f.rw, "update_reminder", `{"space_id":"sandbox","reminder_id":"r-1","done":false}`); isErr {
+		t.Fatal("unsetting done should succeed")
+	}
+	rem, err := f.spaces.GetReminder(ctx, "sandbox", "r-1")
+	if err != nil {
+		t.Fatalf("get reminder: %v", err)
+	}
+	if rem.Done != nil && *rem.Done {
+		t.Error("done should be false")
+	}
+}
+
+func TestUpdateProjectDescriptiveFields(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+
+	if _, isErr := f.callTool(t, f.rw, "update_project", `{"space_id":"sandbox","project_id":"loom","color":"puce"}`); !isErr {
+		t.Error("bad color should be isError")
+	}
+	if _, isErr := f.callTool(t, f.rw, "update_project", `{"space_id":"sandbox","project_id":"loom","name":"  "}`); !isErr {
+		t.Error("blank name should be isError")
+	}
+
+	text, isErr := f.callTool(t, f.rw, "update_project",
+		`{"space_id":"sandbox","project_id":"loom","name":"Loom v2","purpose":"weave","outcome":"woven","color":"violet","tags":["a","b"]}`)
+	if isErr {
+		t.Fatalf("update_project: %s", text)
+	}
+	var got struct {
+		Project struct {
+			Name       string   `json:"name"`
+			Purpose    string   `json:"purpose"`
+			Outcome    string   `json:"outcome"`
+			Color      string   `json:"color"`
+			Tags       []string `json:"tags"`
+			NextAction string   `json:"nextAction"`
+		} `json:"project"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Project.Name != "Loom v2" || got.Project.Purpose != "weave" ||
+		got.Project.Outcome != "woven" || got.Project.Color != "violet" || len(got.Project.Tags) != 2 {
+		t.Errorf("updated project = %+v", got.Project)
+	}
+	// Designations the call did not touch survive.
+	if got.Project.NextAction != "na" {
+		t.Errorf("nextAction should be preserved, got %q", got.Project.NextAction)
+	}
+}
+
+// ─── WRITE tools: dismiss and delete ──────────────────────────────────────
+
+func TestDismissInboxItem(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	id := f.seedInbox(t, "never mind")
+
+	text, isErr := f.callTool(t, f.rw, "dismiss_inbox_item",
+		`{"space_id":"sandbox","inbox_id":"`+id+`"}`)
+	if isErr {
+		t.Fatalf("dismiss: %s", text)
+	}
+	var got struct {
+		InboxItem struct {
+			Status string `json:"status"`
+		} `json:"inboxItem"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.InboxItem.Status != "dismissed" {
+		t.Errorf("status = %q, want dismissed", got.InboxItem.Status)
+	}
+
+	// Dismissing twice explains itself rather than reporting a generic error.
+	text, isErr = f.callTool(t, f.rw, "dismiss_inbox_item", `{"space_id":"sandbox","inbox_id":"`+id+`"}`)
+	if !isErr {
+		t.Fatal("dismissing an already-dismissed item should be isError")
+	}
+	if !strings.Contains(text, "already dismissed") {
+		t.Errorf("message should name the current status, got %q", text)
+	}
+
+	if text, isErr := f.callTool(t, f.rw, "dismiss_inbox_item", `{"space_id":"sandbox","inbox_id":"ghost"}`); !isErr || !strings.Contains(text, "not found") {
+		t.Errorf("unknown inbox item: isErr=%v text=%s", isErr, text)
+	}
+}
+
+func TestDeleteItem(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.spaces.CreateTask(ctx, "sandbox", store.TaskItem{ID: "t-1", Title: "t", Status: "open", CreatedAt: "2026-07-26"}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	if _, err := f.spaces.CreateNote(ctx, "sandbox", store.NoteItem{ID: "n-1", Title: "n", Body: "b", CreatedAt: "2026-07-26"}); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+	if _, err := f.spaces.CreateReminder(ctx, "sandbox", store.Reminder{ID: "r-1", Text: "r", RemindAt: "2026-07-30T09:00:00"}); err != nil {
+		t.Fatalf("seed reminder: %v", err)
+	}
+	if _, err := f.spaces.CreateActivity(ctx, "sandbox", store.ActivityEntry{
+		ID: "a-1", ProjectID: "loom", Date: "2026-07-26", Type: "work", Title: "a",
+		Source: "manual", Tags: []string{}, Links: []store.ActivityLink{},
+	}); err != nil {
+		t.Fatalf("seed activity: %v", err)
+	}
+	inboxID := f.seedInbox(t, "junk")
+
+	tests := []struct {
+		kind   string
+		id     string
+		exists func() error
+	}{
+		{"task", "t-1", func() error { _, err := f.spaces.GetTask(ctx, "sandbox", "t-1"); return err }},
+		{"note", "n-1", func() error { _, err := f.spaces.GetNote(ctx, "sandbox", "n-1"); return err }},
+		{"reminder", "r-1", func() error { _, err := f.spaces.GetReminder(ctx, "sandbox", "r-1"); return err }},
+		{"activity", "a-1", func() error { _, err := f.spaces.GetActivity(ctx, "sandbox", "a-1"); return err }},
+		{"inbox_item", inboxID, func() error { _, err := f.spaces.GetInboxItem(ctx, "sandbox", inboxID); return err }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.kind, func(t *testing.T) {
+			if err := tc.exists(); err != nil {
+				t.Fatalf("precondition: %s should exist first: %v", tc.kind, err)
+			}
+			text, isErr := f.callTool(t, f.rw, "delete_item",
+				`{"space_id":"sandbox","kind":"`+tc.kind+`","item_id":"`+tc.id+`"}`)
+			if isErr {
+				t.Fatalf("delete %s: %s", tc.kind, text)
+			}
+			if err := tc.exists(); !errors.Is(err, store.ErrNotFound) {
+				t.Errorf("%s should be gone, got err=%v", tc.kind, err)
+			}
+			// Deleting it again reports not-found rather than succeeding.
+			if _, isErr := f.callTool(t, f.rw, "delete_item",
+				`{"space_id":"sandbox","kind":"`+tc.kind+`","item_id":"`+tc.id+`"}`); !isErr {
+				t.Errorf("second delete of %s should be isError", tc.kind)
+			}
+		})
+	}
+}
+
+func TestDeleteItemRefusesProject(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	text, isErr := f.callTool(t, f.rw, "delete_item", `{"space_id":"sandbox","kind":"project","item_id":"loom"}`)
+	if !isErr {
+		t.Fatal("deleting a project should be isError")
+	}
+	if !strings.Contains(text, "cascades") || !strings.Contains(text, "web app") {
+		t.Errorf("refusal should explain why and where to go instead, got %q", text)
+	}
+	// And the project is untouched.
+	if _, err := f.spaces.GetProject(context.Background(), "sandbox", "loom"); err != nil {
+		t.Errorf("project should survive a refused delete: %v", err)
+	}
+}
+
+// ─── Scope and ownership across the new surface ───────────────────────────
+
+// The new write tools must be gated exactly like the original ones: absent
+// for read-only tokens, and refused for spaces the caller does not own.
+func TestNewWriteToolsGated(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	newWrites := []struct {
+		name string
+		args string
+	}{
+		{"create_project", `{"space_id":"private","name":"x"}`},
+		{"update_task", `{"space_id":"private","task_id":"t-1","title":"x"}`},
+		{"update_note", `{"space_id":"private","note_id":"n-1","body":"x"}`},
+		{"update_activity", `{"space_id":"private","activity_id":"a-1","title":"x"}`},
+		{"update_reminder", `{"space_id":"private","reminder_id":"r-1","text":"x"}`},
+		{"dismiss_inbox_item", `{"space_id":"private","inbox_id":"i-1"}`},
+		{"delete_item", `{"space_id":"private","kind":"task","item_id":"t-1"}`},
+	}
+
+	listed := listToolNames(t, f.ro)
+	for _, tc := range newWrites {
+		t.Run(tc.name, func(t *testing.T) {
+			// Not offered to a read-only token.
+			for _, n := range listed {
+				if n == tc.name {
+					t.Errorf("%s should not be listed for read_only", tc.name)
+				}
+			}
+			// Foreign space is indistinguishable from a missing one.
+			text, isErr := f.callTool(t, f.rw, tc.name, tc.args)
+			if !isErr || !strings.Contains(text, "space not found") {
+				t.Errorf("foreign space: isErr=%v text=%s", isErr, text)
+			}
+		})
 	}
 }
