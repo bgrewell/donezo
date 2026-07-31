@@ -207,3 +207,58 @@ func TestLLMRewriteRateLimited(t *testing.T) {
 		t.Errorf("model called %d times, want 2 — the limiter should gate before the call", fake.calls)
 	}
 }
+
+// Text past the prompt's limit is refused rather than quietly cut. Every
+// caller replaces the user's own words with the reply, so sending a prefix
+// would let the rewrite destroy the tail it was meant to tidy.
+func TestLLMRewriteRefusesOverlongText(t *testing.T) {
+	t.Parallel()
+	fake := &fakeLLM{reply: "ok"}
+	h := newTestServer(t, WithLLM(fake)).Handler()
+
+	body, err := json.Marshal(llmRewriteRequest{
+		PromptID: "polish-capture",
+		Text:     strings.Repeat("a", llm.MaxInputRunes+1),
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	rec := doJSON(t, h, http.MethodPost, "/api/llm/rewrite", string(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "too long") {
+		t.Errorf("body = %s, want it to say the text is too long", rec.Body)
+	}
+	if fake.calls != 0 {
+		t.Errorf("model called %d times; overlong text should be refused before the call", fake.calls)
+	}
+
+	// Exactly at the limit still goes through.
+	body, err = json.Marshal(llmRewriteRequest{
+		PromptID: "polish-capture",
+		Text:     strings.Repeat("a", llm.MaxInputRunes),
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if rec := doJSON(t, h, http.MethodPost, "/api/llm/rewrite", string(body)); rec.Code != http.StatusOK {
+		t.Errorf("text at the limit = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+}
+
+// A reply the model cut off at its output ceiling is a partial rewrite.
+// Handing it back would let the caller overwrite the capture with half of
+// it, so it is reported as a failure and nothing is changed.
+func TestLLMRewriteTruncatedReply(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t, WithLLM(&fakeLLM{err: llm.ErrReplyTruncated})).Handler()
+	rec := doJSON(t, h, http.MethodPost, "/api/llm/rewrite",
+		`{"promptId":"polish-capture","text":"x"}`)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (body %s)", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "cut off") {
+		t.Errorf("body = %s, want it to say the reply was cut off", rec.Body)
+	}
+}

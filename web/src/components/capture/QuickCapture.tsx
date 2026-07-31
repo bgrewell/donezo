@@ -113,6 +113,14 @@ export function QuickCapture() {
   // simply not used — it is a flourish, never a step.
   const llm = useLLMStatus();
   const [polishing, setPolishing] = React.useState(false);
+  // The live capture text, readable from an async callback without closing
+  // over a stale copy.
+  const textRef = React.useRef(text);
+  textRef.current = text;
+  // Bumped on every open. A reply that arrives after the dialog was closed
+  // and reopened belongs to a capture that is over, and must not land in
+  // the new one.
+  const captureGeneration = React.useRef(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const closeTimer = React.useRef<number | null>(null);
@@ -159,6 +167,7 @@ export function QuickCapture() {
   // focus lands.
   React.useEffect(() => {
     if (!open) return;
+    captureGeneration.current += 1;
     resetMeta();
     // An opener may preset context ("+ New project" → kind project; "Log
     // progress" inside a project → kind activity + that project). A preset
@@ -276,16 +285,29 @@ export function QuickCapture() {
   // when the capture is worth a second of care.
   const polish = () => {
     if (!raw || polishing) return;
+    const sent = raw;
+    const generation = captureGeneration.current;
     setPolishing(true);
     setCaptureNote(null);
-    rewriteWithLLM("polish-capture", raw)
+    rewriteWithLLM("polish-capture", sent)
       .then((cleaned) => {
-        const next = cleaned.trim();
-        if (next && next !== raw) setText(next);
+        // A different capture is on screen now — this reply is stale.
+        if (generation !== captureGeneration.current) return;
         setPolishing(false);
+        const next = cleaned.trim();
+        if (!next) return;
+        // The draft moved on while the model was working: typed into, or
+        // saved and cleared. Overwriting it now would throw away words the
+        // person wrote after asking for this.
+        if (textRef.current.trim() !== sent) {
+          setCaptureNote("polish discarded — the text changed while it ran");
+          return;
+        }
+        if (next !== sent) setText(next);
         inputRef.current?.focus();
       })
       .catch((err: unknown) => {
+        if (generation !== captureGeneration.current) return;
         const message = err instanceof Error ? err.message : String(err);
         if (err instanceof ApiError && err.status === 401) session.sessionExpired();
         // The typed text is untouched, so this is a dead end, not a loss.

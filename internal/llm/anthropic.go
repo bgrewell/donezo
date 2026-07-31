@@ -72,6 +72,12 @@ func (c *anthropicClient) Complete(ctx context.Context, system, user string) (st
 	if resp.StopReason == anthropic.StopReasonRefusal {
 		return "", errors.New("llm: the model declined this request")
 	}
+	// Hitting the output ceiling means the reply is cut off mid-text. For a
+	// rewrite that is worse than a failure: the caller replaces the user's
+	// words with a partial version and nothing says it is incomplete.
+	if resp.StopReason == anthropic.StopReasonMaxTokens {
+		return "", ErrReplyTruncated
+	}
 	var out strings.Builder
 	for _, block := range resp.Content {
 		if text, ok := block.AsAny().(anthropic.TextBlock); ok {

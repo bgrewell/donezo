@@ -25,7 +25,7 @@ donezo frontend itself).
 | `GET /api/tokens`                                  | Any user: own tokens with `tokenPrefix`, `scope`, `createdAt`, `lastUsedAt`, `revokedAt`; never the token or its hash |
 | `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
 | `GET /api/llm`                                     | Any user: `{enabled, provider?, model?, prompts[]}` — whether this instance has a model configured. Prompts are listed either way |
-| `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `503` when no model is configured, `502` when it cannot be reached, `504` on timeout, `429` past 20 calls / 5 min per user |
+| `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `400` if the text exceeds 4000 characters (refused, never truncated), `503` when no model is configured, `502` when it cannot be reached or the reply was cut off, `504` on timeout, `429` past 20 calls / 5 min per user |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -145,7 +145,9 @@ DONEZOD_LLM_MODEL=llama3 \
 
 A misconfiguration is refused at startup rather than on every request — naming a provider without what it needs, or naming a model with no provider at all, fails fast with a message saying which variable is missing.
 
-**Limits.** One round trip is bounded at 30s (under donezod's 60s write timeout, so a slow model fails rather than appearing to hang), input is truncated at 4000 characters, and each user may make 20 model calls per 5 minutes. The throttle is applied before the model is called, so a client stuck in a loop costs nothing upstream.
+**Limits.** One round trip is bounded at 30s (under donezod's 60s write timeout, so a slow model fails rather than appearing to hang), and each user may make 20 model calls per 5 minutes. The throttle is applied before the model is called, so a client stuck in a loop costs nothing upstream.
+
+Text longer than 4000 characters is **refused with a 400, never truncated**, and a reply the model cut off at its own output ceiling is reported as a failure rather than returned. Both follow from the same rule: the caller replaces the user's own words with the reply, so a partial result would destroy the rest of what it was asked to tidy.
 
 ## MCP (`/mcp`)
 

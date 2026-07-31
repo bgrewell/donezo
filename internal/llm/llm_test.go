@@ -114,20 +114,23 @@ func TestPromptByID(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
+func TestCheckInput(t *testing.T) {
 	t.Parallel()
-	if got := Truncate("short"); got != "short" {
-		t.Errorf("short input changed: %q", got)
+	if err := CheckInput("short"); err != nil {
+		t.Errorf("short input rejected: %v", err)
 	}
-	// Multi-byte runes must not be split: cutting mid-rune would send
-	// invalid UTF-8 upstream.
-	long := strings.Repeat("é", maxInputRunes+50)
-	got := Truncate(long)
-	if len([]rune(got)) != maxInputRunes {
-		t.Errorf("truncated to %d runes, want %d", len([]rune(got)), maxInputRunes)
+	// Exactly at the limit is accepted; one past it is not.
+	if err := CheckInput(strings.Repeat("a", MaxInputRunes)); err != nil {
+		t.Errorf("input at the limit rejected: %v", err)
 	}
-	if !strings.HasPrefix(long, got) {
-		t.Error("truncation should be a prefix of the input")
+	if err := CheckInput(strings.Repeat("a", MaxInputRunes+1)); !errors.Is(err, ErrInputTooLong) {
+		t.Errorf("err = %v, want ErrInputTooLong", err)
+	}
+	// The limit counts runes, not bytes: a multi-byte character must not
+	// count several times over, or non-Latin text would be rejected at a
+	// fraction of the stated length.
+	if err := CheckInput(strings.Repeat("é", MaxInputRunes)); err != nil {
+		t.Errorf("multi-byte input at the rune limit rejected: %v", err)
 	}
 }
 

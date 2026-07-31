@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -93,6 +94,11 @@ func (s *Server) handleLLMRewrite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
+	if err := llm.CheckInput(text); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf(
+			"text is too long to rewrite (limit %d characters)", llm.MaxInputRunes))
+		return
+	}
 
 	client := s.llmClient()
 	if _, disabled := client.(llm.Disabled); disabled {
@@ -111,12 +117,16 @@ func (s *Server) handleLLMRewrite(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), llm.DefaultTimeout)
 	defer cancel()
 
-	reply, err := client.Complete(ctx, prompt.System, llm.Truncate(text))
+	reply, err := client.Complete(ctx, prompt.System, text)
 	switch {
 	case errors.Is(err, llm.ErrNotConfigured):
 		writeError(w, http.StatusServiceUnavailable, "no language model is configured")
 	case errors.Is(err, context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, "the model took too long to respond")
+	case errors.Is(err, llm.ErrReplyTruncated):
+		// Returning the partial reply would let the caller overwrite the
+		// user's text with half of it.
+		writeError(w, http.StatusBadGateway, "the model's reply was cut off; nothing was changed")
 	case err != nil:
 		// The upstream message can carry endpoint details; log it and give
 		// the caller something calm and actionable instead.

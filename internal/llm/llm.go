@@ -21,6 +21,18 @@ import (
 // it is the normal state for an instance that has not opted in.
 var ErrNotConfigured = errors.New("llm: no model configured")
 
+// ErrReplyTruncated is returned when the model stopped at its output
+// ceiling. The reply is a partial rewrite, and every caller here replaces
+// the user's own text with what comes back — handing over half of it
+// silently would destroy the rest, so this is an error rather than a
+// best-effort result.
+var ErrReplyTruncated = errors.New("llm: the model's reply was cut off")
+
+// ErrInputTooLong is returned when the text exceeds what the prompts were
+// written for. Truncating instead would silently discard the tail of
+// something the caller is about to overwrite with the reply.
+var ErrInputTooLong = errors.New("llm: the text is too long")
+
 // DefaultTimeout bounds one round trip to the model.
 //
 // It must stay comfortably under donezod's 60s write timeout: a request
@@ -160,12 +172,19 @@ func New(cfg Config) (Client, error) {
 	}
 }
 
-// Truncate bounds user text to what the prompts were written for, cutting
-// on a rune boundary so a multi-byte character is never split.
-func Truncate(s string) string {
-	r := []rune(s)
-	if len(r) <= maxInputRunes {
-		return s
+// MaxInputRunes is the longest text these prompts accept.
+const MaxInputRunes = maxInputRunes
+
+// CheckInput reports whether text is within what the prompts were written
+// for, returning ErrInputTooLong if not.
+//
+// This deliberately refuses rather than truncating. Every caller replaces
+// the user's text with the reply, so quietly sending a prefix would mean
+// the tail is destroyed by the very operation that was supposed to tidy
+// it — with nothing in the response to say so.
+func CheckInput(text string) error {
+	if len([]rune(text)) > maxInputRunes {
+		return ErrInputTooLong
 	}
-	return string(r[:maxInputRunes])
+	return nil
 }
