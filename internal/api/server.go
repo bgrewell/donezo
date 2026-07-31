@@ -33,6 +33,7 @@ type Server struct {
 	limiter    *auth.RateLimiter
 	mcpLimiter *auth.RateLimiter
 	llm        llm.Client
+	prompts    *llm.PromptSet
 	llmLimiter *auth.RateLimiter
 	clock      func() time.Time
 	trustProxy bool
@@ -78,6 +79,13 @@ func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
 // deployment, not a degraded one.
 func WithLLM(c llm.Client) ServerOption {
 	return func(s *Server) { s.llm = c }
+}
+
+// WithPrompts installs the prompt set the model endpoints serve, which is
+// how operator overrides read off disk reach the handlers. Without it the
+// server uses the prompts donezo ships.
+func WithPrompts(p *llm.PromptSet) ServerOption {
+	return func(s *Server) { s.prompts = p }
 }
 
 // WithLLMRateLimiter replaces the default per-user model-call limiter
@@ -166,6 +174,9 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 	}
 	if s.llm == nil {
 		s.llm = llm.Disabled{}
+	}
+	if s.prompts == nil {
+		s.prompts = llm.BuiltInPromptSet()
 	}
 	if s.version == "" {
 		s.version = "dev"

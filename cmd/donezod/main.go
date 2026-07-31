@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -189,6 +191,21 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 			llmClient.Provider(), llmClient.Model())
 	}
 	opts = append(opts, api.WithLLM(llmClient))
+
+	// Prompt wording is taste-dependent, so it is tunable without a rebuild:
+	// the data directory gets a .default.txt reference for each prompt and
+	// reads back "<id>.txt" as an override. A directory that cannot be read
+	// is not fatal — the built-in prompts still work.
+	promptDir := filepath.Join(cfg.DataDir, llm.PromptDirName)
+	prompts, err := llm.LoadPrompts(promptDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "donezod: prompt overrides: %v\n", err)
+	}
+	if ids := prompts.Overridden(); len(ids) > 0 {
+		fmt.Fprintf(os.Stderr, "donezod: prompt overrides in effect from %s: %s\n",
+			promptDir, strings.Join(ids, ", "))
+	}
+	opts = append(opts, api.WithPrompts(prompts))
 
 	if webui.Available() {
 		fmt.Fprintln(os.Stderr, "donezod: serving embedded web UI")

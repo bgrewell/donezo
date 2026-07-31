@@ -59,8 +59,9 @@ func (s *Server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	prompts := make([]llmPromptView, 0, len(llm.BuiltInPrompts))
-	for _, p := range llm.BuiltInPrompts {
+	available := s.promptSet().All()
+	prompts := make([]llmPromptView, 0, len(available))
+	for _, p := range available {
 		prompts = append(prompts, llmPromptView{ID: p.ID, Description: p.Description})
 	}
 	client := s.llmClient()
@@ -84,7 +85,7 @@ func (s *Server) handleLLMRewrite(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &req) {
 		return
 	}
-	prompt, found := llm.PromptByID(req.PromptID)
+	prompt, found := s.promptSet().ByID(req.PromptID)
 	if !found {
 		writeError(w, http.StatusBadRequest, "unknown promptId")
 		return
@@ -144,4 +145,13 @@ func (s *Server) llmClient() llm.Client {
 		return llm.Disabled{}
 	}
 	return s.llm
+}
+
+// promptSet returns the prompts this instance serves, defaulting to the
+// built-ins for the same reason llmClient defaults to disabled.
+func (s *Server) promptSet() *llm.PromptSet {
+	if s.prompts == nil {
+		return llm.BuiltInPromptSet()
+	}
+	return s.prompts
 }
