@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { fetchUserSettings, saveUserSettings } from "@/api/client";
+import { fetchUserSettings, saveUserSettings, type UserSettings } from "@/api/client";
 import {
   FONT_SETS,
   FONT_SIZES,
@@ -21,9 +21,11 @@ import { useTheme } from "@/state/ThemeProvider";
 // It must be mounted inside the authenticated tree; an anonymous caller has
 // no settings to read and every request would 401.
 
-/** Serializes the appearance triple for cheap comparison. */
-function key(theme: string, font: string, fontSize: string): string {
-  return `${theme}|${font}|${fontSize}`;
+/** The three appearance preferences, as stored. */
+interface Appearance {
+  theme: string;
+  font: string;
+  fontSize: string;
 }
 
 /** Narrows a stored string to a known id, ignoring values this build does
@@ -45,9 +47,16 @@ function known<T extends string>(
 export function useAppearanceSync(): void {
   const { theme, setTheme, font, setFont, fontSize, setFontSize } = useTheme();
 
+  // The live values, readable from an effect that must not re-run when they
+  // change. Without this the hydrate effect would close over its mount-time
+  // values and seed a baseline that is already out of date if the user
+  // changed something while the first read was in flight.
+  const latest = React.useRef<Appearance>({ theme, font, fontSize });
+  latest.current = { theme, font, fontSize };
+
   // What the server is believed to hold. Null until the first read settles,
   // which is what keeps the hydrating write from echoing straight back.
-  const remote = React.useRef<string | null>(null);
+  const remote = React.useRef<Appearance | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -62,33 +71,42 @@ export function useAppearanceSync(): void {
         if (storedFontSize) setFontSize(storedFontSize as FontSizeId);
         // Record what the server now agrees with, so the state updates above
         // are not mistaken for a local edit and pushed straight back.
-        remote.current = key(
-          storedTheme ?? theme,
-          storedFont ?? font,
-          storedFontSize ?? fontSize
-        );
+        const now = latest.current;
+        remote.current = {
+          theme: storedTheme ?? now.theme,
+          font: storedFont ?? now.font,
+          fontSize: storedFontSize ?? now.fontSize,
+        };
       })
       .catch(() => {
         if (cancelled) return;
         // Could not read (offline, or the session lapsed). Treat the current
         // local state as the baseline so a later deliberate change still
         // gets a chance to save.
-        remote.current = key(theme, font, fontSize);
+        remote.current = { ...latest.current };
       });
     return () => {
       cancelled = true;
     };
-    // Runs once per mount: the setters are stable and the values are read
-    // only to seed the baseline.
+    // Runs once per mount; live values are read through the ref above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
-    const current = key(theme, font, fontSize);
-    // Not hydrated yet, or nothing actually changed.
-    if (remote.current === null || remote.current === current) return;
-    remote.current = current;
-    void saveUserSettings({ theme, font, fontSize }).catch(() => {
+    const prev = remote.current;
+    if (prev === null) return; // not hydrated yet
+    // Send only what actually changed. Writing all three would let a tab
+    // that has been open a while overwrite a preference changed on another
+    // device with its own stale copy, turning an unrelated edit into a
+    // silent revert.
+    const patch: UserSettings = {};
+    if (theme !== prev.theme) patch.theme = theme;
+    if (font !== prev.font) patch.font = font;
+    if (fontSize !== prev.fontSize) patch.fontSize = fontSize;
+    if (Object.keys(patch).length === 0) return;
+
+    remote.current = { theme, font, fontSize };
+    void saveUserSettings(patch).catch(() => {
       // Best-effort: the change is already applied and in localStorage.
     });
   }, [theme, font, fontSize]);

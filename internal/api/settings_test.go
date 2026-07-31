@@ -168,3 +168,21 @@ func TestSettingsRequireAuth(t *testing.T) {
 		}
 	}
 }
+
+// A wrong method on a known path must name the right one. Falling through
+// to the catch-all 404 reads as "this server has no settings endpoint",
+// which sends a client hunting for a version mismatch.
+func TestSettingsWrongMethod(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+	for _, method := range []string{http.MethodPost, http.MethodDelete, http.MethodPut} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, "/api/settings", nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/settings = %d, want 405 (body %s)", method, rec.Code, rec.Body)
+		}
+		if allow := rec.Header().Get("Allow"); allow != "GET, PATCH" {
+			t.Errorf("%s Allow = %q, want %q", method, allow, "GET, PATCH")
+		}
+	}
+}

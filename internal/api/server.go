@@ -191,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/auth/me":                         http.MethodGet,
 		"/api/invites":                         "GET, POST",
 		"/api/invites/{id}":                    http.MethodDelete,
+		"/api/settings":                        "GET, PATCH",
 		"/api/tokens":                          "GET, POST",
 		"/api/tokens/{id}":                     http.MethodDelete,
 		"/api/spaces":                          "GET, POST",
