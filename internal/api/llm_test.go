@@ -262,3 +262,76 @@ func TestLLMRewriteTruncatedReply(t *testing.T) {
 		t.Errorf("body = %s, want it to say the reply was cut off", rec.Body)
 	}
 }
+
+// An operator's on-disk override is only worth anything if it is what
+// actually reaches the model, so assert against the system text the client
+// was handed rather than the handler's response.
+func TestLLMRewriteUsesOverriddenPrompt(t *testing.T) {
+	t.Parallel()
+	const override = "Custom wording from disk."
+	set := llm.NewPromptSet([]llm.Prompt{{
+		ID:          llm.PromptPolishCapture.ID,
+		Description: llm.PromptPolishCapture.Description,
+		System:      override,
+	}})
+	fake := &fakeLLM{reply: "tidied"}
+	h := newTestServer(t, WithLLM(fake), WithPrompts(set)).Handler()
+
+	rec := doJSON(t, h, http.MethodPost, "/api/llm/rewrite",
+		`{"promptId":"polish-capture","text":"rotate teh pats"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rewrite = %d (body %s)", rec.Code, rec.Body)
+	}
+	if fake.system != override {
+		t.Errorf("system = %q, want the override %q", fake.system, override)
+	}
+	if fake.system == llm.PromptPolishCapture.System {
+		t.Error("handler used the built-in prompt despite an injected override")
+	}
+}
+
+func TestLLMStatusListsInjectedPrompts(t *testing.T) {
+	t.Parallel()
+	set := llm.NewPromptSet([]llm.Prompt{
+		{ID: "only-this", Description: "the injected one", System: "sys"},
+	})
+	h := newTestServer(t, WithPrompts(set)).Handler()
+	rec := doJSON(t, h, http.MethodGet, "/api/llm", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d (body %s)", rec.Code, rec.Body)
+	}
+	var got struct {
+		Prompts []struct {
+			ID          string `json:"id"`
+			Description string `json:"description"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(got.Prompts) != 1 || got.Prompts[0].ID != "only-this" {
+		t.Fatalf("prompts = %+v, want only the injected one", got.Prompts)
+	}
+	if got.Prompts[0].Description != "the injected one" {
+		t.Errorf("description = %q, want the injected one", got.Prompts[0].Description)
+	}
+}
+
+// The injected set is the whole world: a built-in id that is not in it must
+// not resolve, or an override that renames a prompt would silently fall back.
+func TestLLMRewriteRejectsIDOutsideInjectedSet(t *testing.T) {
+	t.Parallel()
+	set := llm.NewPromptSet([]llm.Prompt{
+		{ID: "only-this", Description: "the injected one", System: "sys"},
+	})
+	fake := &fakeLLM{reply: "tidied"}
+	h := newTestServer(t, WithLLM(fake), WithPrompts(set)).Handler()
+	rec := doJSON(t, h, http.MethodPost, "/api/llm/rewrite",
+		`{"promptId":"polish-capture","text":"x"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
+	}
+	if fake.calls != 0 {
+		t.Errorf("model called %d times for an unknown prompt id", fake.calls)
+	}
+}

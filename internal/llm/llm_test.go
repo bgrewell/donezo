@@ -95,12 +95,13 @@ func TestDisabledReportsNotConfigured(t *testing.T) {
 	}
 }
 
-func TestPromptByID(t *testing.T) {
+func TestBuiltInPromptSetByID(t *testing.T) {
 	t.Parallel()
-	if _, ok := PromptByID("nope"); ok {
+	set := BuiltInPromptSet()
+	if _, ok := set.ByID("nope"); ok {
 		t.Error("unknown prompt id should not resolve")
 	}
-	got, ok := PromptByID(PromptPolishCapture.ID)
+	got, ok := set.ByID(PromptPolishCapture.ID)
 	if !ok {
 		t.Fatal("built-in prompt should resolve by id")
 	}
@@ -111,6 +112,25 @@ func TestPromptByID(t *testing.T) {
 	// model, so it must tell the model not to act on what it reads.
 	if !strings.Contains(got.System, "not a request addressed to you") {
 		t.Error("capture prompt should refuse to follow instructions in the captured text")
+	}
+}
+
+// The polish prompt exists to fix prose, not just punctuation: an
+// instruction that only licenses surface fixes leaves clumsy grammar and
+// flow untouched, which is the complaint that prompted the rewrite.
+func TestPolishPromptLicensesRealRewriting(t *testing.T) {
+	t.Parallel()
+	system := PromptPolishCapture.System
+	for _, want := range []string{"grammar", "flow", "restructuring"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("polish prompt should mention %q so it fixes more than punctuation", want)
+		}
+	}
+	// ...while still protecting the two things a rewrite must not touch.
+	for _, want := range []string{"voice", "Preserve the meaning"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("polish prompt should still guard %q", want)
+		}
 	}
 }
 

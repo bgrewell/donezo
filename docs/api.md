@@ -153,6 +153,29 @@ A misconfiguration is refused at startup rather than on every request — naming
 
 Text longer than 4000 characters is **refused with a 400, never truncated**, and a reply the model cut off at its own output ceiling is reported as a failure rather than returned. Both follow from the same rule: the caller replaces the user's own words with the reply, so a partial result would destroy the rest of what it was asked to tidy.
 
+### Tuning the prompts
+
+How much a prompt should change someone's words is a matter of taste, and taste is not worth a rebuild. The prompts live on disk, under `prompts/` inside the data directory (`/var/lib/donezo/prompts` by default):
+
+| File | Role |
+| ---- | ---- |
+| `<id>.default.txt` | The wording donezo ships. **Rewritten on every start** and never read back, so it stays visible next to your override and keeps up with upgrades — edits here are lost |
+| `<id>.txt` | Optional. Your replacement for that prompt's instruction. Absent by default |
+
+Create `<id>.txt` (copy the `.default.txt` next to it and edit) and restart donezod; the log names any prompt it is running from disk:
+
+```
+donezod: prompt overrides in effect from /var/lib/donezo/prompts: polish-capture
+```
+
+A file holding only whitespace is treated as absent rather than sent as an empty instruction, one over 64 KiB is refused, and a file named for a prompt that does not exist is ignored. None of these stop the server: a prompt directory that cannot be read is logged and the built-in wording is used, because an unwritable disk is not a reason to stop serving.
+
+The prompt ids are the ones `GET /api/llm` lists. Today that is one:
+
+| Id | What it does |
+| -- | ------------ |
+| `polish-capture` | Fixes spelling, grammar, word order and flow in a hastily typed capture. It is meant to rewrite clumsy sentences, not just move commas — while holding the meaning, the concrete details, and the writer's voice fixed. If a rewrite ever reads like someone else wrote it, that is the thing to tune |
+
 ## MCP (`/mcp`)
 
 donezo exposes a [Model Context Protocol](https://modelcontextprotocol.io)
