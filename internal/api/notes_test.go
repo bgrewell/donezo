@@ -91,11 +91,36 @@ func TestPatchNote(t *testing.T) {
 		t.Errorf("stored projectId = %q, want nil", *stored.ProjectID)
 	}
 
+	// The body is patchable, and the change is really stored. Asserting
+	// only on an *untouched* body (as the title case above does) would pass
+	// whether or not the body branch does anything at all.
+	rec = doJSON(t, h, http.MethodPatch, "/api/spaces/sandbox/notes/note-1",
+		`{"body":"Rewritten body"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch body = %d (body %s)", rec.Code, rec.Body)
+	}
+	var edited store.NoteItem
+	if err := json.Unmarshal(rec.Body.Bytes(), &edited); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if edited.Body != "Rewritten body" {
+		t.Errorf("returned body = %q, want the new text", edited.Body)
+	}
+	if stored := fetchNote(t, h, "note-1"); stored.Body != "Rewritten body" {
+		t.Errorf("stored body = %q, want the new text", stored.Body)
+	}
+	if edited.Title != "Revised" {
+		t.Errorf("patching the body disturbed the title: %q", edited.Title)
+	}
+
 	// An emptied body is still a valid note — the create route does not
 	// require a body either, and the patch route must not be stricter.
 	rec = doJSON(t, h, http.MethodPatch, "/api/spaces/sandbox/notes/note-1", `{"body":""}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("empty body = %d (body %s), want 200", rec.Code, rec.Body)
+	}
+	if stored := fetchNote(t, h, "note-1"); stored.Body != "" {
+		t.Errorf("stored body = %q, want it emptied", stored.Body)
 	}
 }
 
