@@ -18,6 +18,7 @@ import { ActivityTypeIcon } from "@/components/common/activityTypes";
 import { ActivityLogStrip, NextActionFlow } from "@/components/common/NextActionFlow";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
 import { MiniPulse } from "./MiniPulse";
+import { NoteRow } from "./NoteRow";
 
 const COLOR_RAMP: ProjectColor[] = ["blue", "green", "tan", "violet", "rose", "orange", "steel"];
 
@@ -45,11 +46,6 @@ const PULSE_WINDOWS: { id: PulseWindow; label: string; days?: number }[] = [
 function firstSentence(text: string): string {
   const m = text.match(/^[\s\S]*?[.!?](?=\s|$)/);
   return (m ? m[0] : text).trim();
-}
-
-/** Body preview for note rows. */
-function excerpt(text: string, max = 100): string {
-  return text.length <= max ? text : `${text.slice(0, max).trimEnd()}…`;
 }
 
 /** Quiet borderless mono text button (cancel-grade actions). */
@@ -829,12 +825,7 @@ export function ProjectDetail({ project }: { project: Project }) {
             {notes.length > 0 && (
               <div className="divide-y divide-gtc-line">
                 {notes.map((n) => (
-                  <div key={n.id} className="py-2">
-                    <div className="font-sans text-[0.85rem] font-medium text-gtc-text">
-                      {n.title}
-                    </div>
-                    <p className="font-sans text-[0.8rem] text-gtc-muted">{excerpt(n.body)}</p>
-                  </div>
+                  <NoteRow key={n.id} note={n} />
                 ))}
               </div>
             )}

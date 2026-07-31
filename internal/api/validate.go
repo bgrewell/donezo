@@ -483,6 +483,56 @@ func (p *taskPatch) apply(cur *store.TaskItem) error {
 	return nil
 }
 
+// notePatch is the PATCH notes/{nid} body.
+//
+// body is patchable but, like the create path, is not required to be
+// non-empty: a note whose body has been emptied is still a note, and
+// refusing that here would make the web UI stricter than the create route
+// it mirrors.
+type notePatch struct {
+	Title     *string         `json:"title"`
+	Body      *string         `json:"body"`
+	ProjectID json.RawMessage `json:"projectId"`
+	CreatedAt *string         `json:"createdAt"`
+
+	projectID *string // decoded by validate
+}
+
+// validate checks every present field and decodes the clearable one.
+func (p *notePatch) validate() error {
+	if p.Title != nil {
+		if err := required("title", *p.Title); err != nil {
+			return err
+		}
+	}
+	if p.CreatedAt != nil {
+		if err := isoDate("createdAt", *p.CreatedAt); err != nil {
+			return err
+		}
+	}
+	return firstError(
+		decodeNullable("projectId", "string", p.ProjectID, &p.projectID),
+		optionalNonEmpty("projectId", p.projectID),
+	)
+}
+
+// apply copies the present fields onto the stored note.
+func (p *notePatch) apply(cur *store.NoteItem) error {
+	if p.Title != nil {
+		cur.Title = *p.Title
+	}
+	if p.Body != nil {
+		cur.Body = *p.Body
+	}
+	if p.ProjectID != nil {
+		cur.ProjectID = p.projectID
+	}
+	if p.CreatedAt != nil {
+		cur.CreatedAt = *p.CreatedAt
+	}
+	return nil
+}
+
 // reminderPatch is the PATCH reminders/{rid} body.
 type reminderPatch struct {
 	Text      *string         `json:"text"`

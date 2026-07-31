@@ -38,6 +38,8 @@ donezo frontend itself).
 | `POST /api/spaces/{id}/tasks`                      | Create a task → `201`                                                  |
 | `PATCH /api/spaces/{id}/tasks/{tid}`               | Partial update                                                         |
 | `POST /api/spaces/{id}/notes`                      | Create a note → `201`                                                  |
+| `PATCH /api/spaces/{id}/notes/{nid}`               | Partial update: `{title?, body?, projectId?, createdAt?}` → `200`. `projectId: null` detaches the note; an emptied `body` is allowed, matching the create route |
+| `DELETE /api/spaces/{id}/notes/{nid}`              | Delete a note → `204`. A note owns nothing, so this is a plain delete rather than a cascade |
 | `POST /api/spaces/{id}/reminders`                  | Create a reminder → `201`                                              |
 | `PATCH /api/spaces/{id}/reminders/{rid}`           | Partial update                                                         |
 | `POST /api/spaces/{id}/inbox`                      | Capture a raw item → `201` (works against any owned space — the cross-space capture path) |
