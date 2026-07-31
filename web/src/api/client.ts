@@ -275,3 +275,69 @@ export async function setSpaceArchived(spaceId: string, archived: boolean): Prom
     await api.post<{ space: Space }>(`/api/spaces/${encodeURIComponent(spaceId)}/${verb}`)
   ).space;
 }
+
+// ─── Language model (optional) ────────────────────────────────────────────
+
+/** What this instance can do with a language model. */
+export interface LLMStatus {
+  /** Whether a model is configured at all. */
+  enabled: boolean;
+  provider?: string;
+  model?: string;
+  /** Built-in prompts, listed whether or not a model is configured. */
+  prompts: { id: string; description: string }[];
+}
+
+/** Read the instance's model configuration. */
+export function fetchLLMStatus(): Promise<LLMStatus> {
+  return api.get<LLMStatus>("/api/llm");
+}
+
+/** How long the browser waits on a model before giving up. Kept under the
+ *  server's own 30s bound so the client sees the server's answer rather
+ *  than racing it — this is a backstop for a connection that stalls
+ *  without the server ever replying. */
+const LLM_CLIENT_TIMEOUT_MS = 45_000;
+
+/** Run a built-in prompt over some text and return the model's version.
+ *
+ *  Unlike the rest of the client this call is explicitly abortable: a model
+ *  round trip is the one request that can legitimately take many seconds,
+ *  and the shared request() wrapper has no timeout of its own, so without
+ *  this a stalled connection would leave the UI waiting forever. */
+export async function rewriteWithLLM(promptId: string, text: string): Promise<string> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), LLM_CLIENT_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/llm/rewrite", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ promptId, text }),
+      signal: controller.signal,
+    });
+    const raw = await res.text();
+    let data: unknown = null;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      const message =
+        data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : `request failed (${res.status})`;
+      throw new ApiError(res.status, message);
+    }
+    return String((data as { text?: unknown })?.text ?? "");
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "the model took too long to respond");
+    }
+    throw new ApiError(0, "can't reach the server");
+  } finally {
+    window.clearTimeout(timer);
+  }
+}

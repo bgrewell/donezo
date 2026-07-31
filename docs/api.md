@@ -24,6 +24,8 @@ donezo frontend itself).
 | `POST /api/tokens`                                 | Any user: `{name, scope}` (`read_only`/`read_write`) → `201 {id, token, tokenPrefix, scope, name, createdAt}` — the MCP bearer token, plaintext **only here** |
 | `GET /api/tokens`                                  | Any user: own tokens with `tokenPrefix`, `scope`, `createdAt`, `lastUsedAt`, `revokedAt`; never the token or its hash |
 | `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
+| `GET /api/llm`                                     | Any user: `{enabled, provider?, model?, prompts[]}` — whether this instance has a model configured. Prompts are listed either way |
+| `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `503` when no model is configured, `502` when it cannot be reached, `504` on timeout, `429` past 20 calls / 5 min per user |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -116,6 +118,34 @@ shared login/setup rate-limit budget.
   without `--seed`). It exists solely for frontend dev/tests and is
   refused unless the data dir is under `/tmp` or
   `DONEZOD_I_KNOW_WHAT_IM_DOING=1` is set. Never expose such an instance.
+
+## Language model (optional)
+
+donezo can be pointed at a language model to power small conveniences — today, tidying up a quick capture. **It is entirely optional**: with nothing configured the endpoints report themselves unavailable, the web UI omits the affordance, and everything else behaves identically. Model features are a flourish, never a step in a flow.
+
+Configuration is **instance-wide** and read from the environment at startup — every user of one donezo shares one model. Per-user models are deliberately out of scope for now: that would mean storing a recoverable API key per user, and donezo has no encrypted-secret storage (every other secret it holds is one-way hashed). Keeping the key in the environment means it needs none.
+
+| Variable | Required | Meaning |
+| -------- | -------- | ------- |
+| `DONEZOD_LLM_PROVIDER` | to enable anything | `anthropic` or `openai-compatible`. Unset leaves model features off |
+| `DONEZOD_LLM_BASE_URL` | for `openai-compatible` | The endpoint, e.g. `http://localhost:11434/v1`. Optional for `anthropic` (points at a gateway instead of the default API) |
+| `DONEZOD_LLM_MODEL` | for `openai-compatible` | Model name. Defaults to `claude-opus-5` for `anthropic` |
+| `DONEZOD_LLM_API_KEY` | for `anthropic` | **Environment only — there is no flag.** A key passed as an argument is visible in the host's process list to every user |
+
+`--llm-provider`, `--llm-base-url`, and `--llm-model` exist as flags too; the API key does not, by design.
+
+**Providers.** `anthropic` calls the Claude API through the official Go SDK. `openai-compatible` speaks `POST /v1/chat/completions`, which is what local runtimes serve — Ollama, LM Studio, llama.cpp's server, vLLM — as well as most hosted gateways. That is the one to use to keep everything on your own machine:
+
+```sh
+DONEZOD_LLM_PROVIDER=openai-compatible \
+DONEZOD_LLM_BASE_URL=http://localhost:11434/v1 \
+DONEZOD_LLM_MODEL=llama3 \
+  donezod
+```
+
+A misconfiguration is refused at startup rather than on every request — naming a provider without what it needs, or naming a model with no provider at all, fails fast with a message saying which variable is missing.
+
+**Limits.** One round trip is bounded at 30s (under donezod's 60s write timeout, so a slow model fails rather than appearing to hang), input is truncated at 4000 characters, and each user may make 20 model calls per 5 minutes. The throttle is applied before the model is called, so a client stuck in a loop costs nothing upstream.
 
 ## MCP (`/mcp`)
 

@@ -58,6 +58,49 @@ func TestConfigValidate(t *testing.T) {
 		{name: "port boundary high", cfg: Config{Port: 65535, DataDir: "/tmp/x"}},
 		{name: "missing data dir", cfg: Config{Port: 8787}, wantErr: true},
 		{name: "trust proxy is always fine", cfg: Config{Port: 8787, DataDir: "/var/lib/donezo", TrustProxy: true}},
+
+		// The optional model connection. No provider is a fully supported
+		// configuration; a provider that cannot possibly work is refused at
+		// startup rather than on every request.
+		{name: "no llm configured", cfg: Config{Port: 8787, DataDir: "/tmp/x"}},
+		{
+			name: "anthropic with a key",
+			cfg:  Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "anthropic", LLMAPIKey: "sk-test"},
+		},
+		{
+			name:    "anthropic without a key",
+			cfg:     Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "anthropic"},
+			wantErr: true,
+		},
+		{
+			name: "openai-compatible with an endpoint and model",
+			cfg: Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "openai-compatible",
+				LLMBaseURL: "http://localhost:11434/v1", LLMModel: "llama3"},
+		},
+		{
+			name: "openai-compatible without an endpoint",
+			cfg: Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "openai-compatible",
+				LLMModel: "llama3"},
+			wantErr: true,
+		},
+		{
+			name: "openai-compatible without a model",
+			cfg: Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "openai-compatible",
+				LLMBaseURL: "http://localhost:11434/v1"},
+			wantErr: true,
+		},
+		{
+			name:    "unknown provider",
+			cfg:     Config{Port: 8787, DataDir: "/tmp/x", LLMProvider: "hal9000"},
+			wantErr: true,
+		},
+		{
+			// Naming a model with no provider is a typo worth catching:
+			// silently ignoring it leaves the operator believing it is on.
+			name:    "llm settings without a provider",
+			cfg:     Config{Port: 8787, DataDir: "/tmp/x", LLMModel: "llama3"},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)

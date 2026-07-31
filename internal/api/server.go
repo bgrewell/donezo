@@ -12,8 +12,16 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/auth"
+	"github.com/bgrewell/donezo/internal/llm"
 	"github.com/bgrewell/donezo/internal/mcp"
 	"github.com/bgrewell/donezo/internal/store"
+)
+
+// Model-call limits: generous for a person polishing captures, low enough
+// that a client stuck in a loop stops before it costs anything real.
+const (
+	defaultLLMLimit  = 20
+	defaultLLMWindow = 5 * time.Minute
 )
 
 // Server wires the stores to the HTTP surface.
@@ -24,6 +32,8 @@ type Server struct {
 	passwords  auth.PasswordHasher
 	limiter    *auth.RateLimiter
 	mcpLimiter *auth.RateLimiter
+	llm        llm.Client
+	llmLimiter *auth.RateLimiter
 	clock      func() time.Time
 	trustProxy bool
 	logger     *log.Logger
@@ -60,6 +70,21 @@ func WithRateLimiter(l *auth.RateLimiter) ServerOption {
 // pruned, same as WithRateLimiter.
 func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
 	return func(s *Server) { s.mcpLimiter = l }
+}
+
+// WithLLM installs the optional language-model client. Without it, model
+// features report themselves as unavailable and every model endpoint
+// answers 503 — a donezo with no model configured is a fully supported
+// deployment, not a degraded one.
+func WithLLM(c llm.Client) ServerOption {
+	return func(s *Server) { s.llm = c }
+}
+
+// WithLLMRateLimiter replaces the default per-user model-call limiter
+// (20 calls per 5 minutes). Model calls cost money and seconds upstream,
+// so they are capped separately from the rest of the API.
+func WithLLMRateLimiter(l *auth.RateLimiter) ServerOption {
+	return func(s *Server) { s.llmLimiter = l }
 }
 
 // WithTrustProxy declares that a reverse proxy donezod trusts sits
@@ -132,6 +157,16 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 	if s.limiter == nil {
 		s.limiter = auth.NewRateLimiter(auth.WithLimiterClock(s.clock))
 	}
+	if s.llmLimiter == nil {
+		s.llmLimiter = auth.NewRateLimiter(
+			auth.WithLimit(defaultLLMLimit),
+			auth.WithWindow(defaultLLMWindow),
+			auth.WithLimiterClock(s.clock),
+		)
+	}
+	if s.llm == nil {
+		s.llm = llm.Disabled{}
+	}
 	if s.version == "" {
 		s.version = "dev"
 	}
@@ -152,6 +187,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/invites", s.handleListInvites)
 	mux.HandleFunc("POST /api/invites", s.handleCreateInvite)
 	mux.HandleFunc("DELETE /api/invites/{id}", s.handleRevokeInvite)
+	mux.HandleFunc("GET /api/llm", s.handleLLMStatus)
+	mux.HandleFunc("POST /api/llm/rewrite", s.handleLLMRewrite)
 	mux.HandleFunc("GET /api/tokens", s.handleListTokens)
 	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/tokens/{id}", s.handleDeleteToken)
@@ -189,6 +226,8 @@ func (s *Server) Handler() http.Handler {
 		"/api/auth/me":                         http.MethodGet,
 		"/api/invites":                         "GET, POST",
 		"/api/invites/{id}":                    http.MethodDelete,
+		"/api/llm":                             http.MethodGet,
+		"/api/llm/rewrite":                     http.MethodPost,
 		"/api/tokens":                          "GET, POST",
 		"/api/tokens/{id}":                     http.MethodDelete,
 		"/api/spaces":                          "GET, POST",

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/bgrewell/donezo/internal/llm"
 )
 
 // DefaultPort is the default HTTP listen port.
@@ -26,6 +28,16 @@ const (
 	EnvTrustProxy = "DONEZOD_TRUST_PROXY"
 	// EnvDevAutoLogin overrides --dev-auto-login.
 	EnvDevAutoLogin = "DONEZOD_DEV_AUTO_LOGIN"
+	// EnvLLMProvider overrides --llm-provider.
+	EnvLLMProvider = "DONEZOD_LLM_PROVIDER"
+	// EnvLLMBaseURL overrides --llm-base-url.
+	EnvLLMBaseURL = "DONEZOD_LLM_BASE_URL"
+	// EnvLLMModel overrides --llm-model.
+	EnvLLMModel = "DONEZOD_LLM_MODEL"
+	// EnvLLMAPIKey supplies the model API key. It is environment-only and
+	// has no flag: a key passed as an argument is visible in the process
+	// list to every user on the host.
+	EnvLLMAPIKey = "DONEZOD_LLM_API_KEY"
 )
 
 // EnvDevAutoLoginConsent must be set to exactly "1" for --dev-auto-login
@@ -53,6 +65,20 @@ type Config struct {
 	// and tests; Validate refuses it unless DataDir is under /tmp or
 	// EnvDevAutoLoginConsent is set to "1".
 	DevAutoLogin bool
+	// LLMProvider selects the optional language-model provider
+	// ("anthropic" or "openai-compatible"). Empty leaves model features
+	// switched off, which is the default and a fully supported state.
+	LLMProvider string
+	// LLMBaseURL is the model endpoint. Required for openai-compatible —
+	// that is how a local runtime is reached; optional for anthropic,
+	// where it points at a gateway instead of the default API.
+	LLMBaseURL string
+	// LLMModel names the model to call.
+	LLMModel string
+	// LLMAPIKey authenticates upstream. Supplied only through the
+	// environment (see EnvLLMAPIKey) and never persisted: donezo has no
+	// storage for a recoverable secret, and this way it needs none.
+	LLMAPIKey string
 }
 
 // DefaultDataDir returns the XDG data directory for donezo:
@@ -79,10 +105,47 @@ func (c Config) Validate() error {
 	if c.DataDir == "" {
 		return errors.New("config: data dir is required")
 	}
+	if err := c.validateLLM(); err != nil {
+		return err
+	}
 	if c.DevAutoLogin && !underTmp(c.DataDir) && os.Getenv(EnvDevAutoLoginConsent) != "1" {
 		return fmt.Errorf(
 			"config: --dev-auto-login disables authentication and is refused for data dir %s; use a --data-dir under /tmp, or set %s=1 if you really mean it",
 			c.DataDir, EnvDevAutoLoginConsent)
+	}
+	return nil
+}
+
+// validateLLM checks the optional model configuration. No provider is a
+// valid, fully supported configuration; a provider that cannot possibly
+// work is refused at startup rather than on every request.
+func (c Config) validateLLM() error {
+	if c.LLMProvider == "" {
+		// Nothing configured. Naming a model or endpoint without a
+		// provider is a typo worth catching — silently ignoring it would
+		// leave the operator believing the feature is on.
+		if c.LLMBaseURL != "" || c.LLMModel != "" || c.LLMAPIKey != "" {
+			return fmt.Errorf("config: %s is required when any other %s* value is set",
+				EnvLLMProvider, "DONEZOD_LLM_")
+		}
+		return nil
+	}
+	switch c.LLMProvider {
+	case llm.ProviderAnthropic:
+		if c.LLMAPIKey == "" {
+			return fmt.Errorf("config: the %s provider needs %s", llm.ProviderAnthropic, EnvLLMAPIKey)
+		}
+	case llm.ProviderOpenAICompatible:
+		if c.LLMBaseURL == "" {
+			return fmt.Errorf("config: the %s provider needs %s (for example http://localhost:11434/v1)",
+				llm.ProviderOpenAICompatible, EnvLLMBaseURL)
+		}
+		if c.LLMModel == "" {
+			return fmt.Errorf("config: the %s provider needs %s", llm.ProviderOpenAICompatible, EnvLLMModel)
+		}
+	default:
+		return fmt.Errorf("config: unknown LLM provider %q (want one of %s)",
+			c.LLMProvider, strings.Join(llm.Providers, ", "))
 	}
 	return nil
 }

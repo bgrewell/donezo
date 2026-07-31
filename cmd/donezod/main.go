@@ -23,6 +23,7 @@ import (
 	"github.com/bgrewell/donezo/internal/api"
 	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/config"
+	"github.com/bgrewell/donezo/internal/llm"
 	"github.com/bgrewell/donezo/internal/seed"
 	"github.com/bgrewell/donezo/internal/store"
 	"github.com/bgrewell/donezo/internal/webui"
@@ -53,6 +54,9 @@ func main() {
 	root.Flags.String("data-dir", "d", "Data directory for core.db and space databases", defaultDataDir).Env = config.EnvDataDir
 	root.Flags.String("seed", "s", "Seed JSON file to import before serving (skipped if already seeded)", "").Env = config.EnvSeed
 	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
+	root.Flags.String("llm-provider", "", "Optional language-model provider: anthropic or openai-compatible (empty leaves model features off)", "").Env = config.EnvLLMProvider
+	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
+	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
 	root.Flags.Bool("dev-auto-login", "", "DANGEROUS: disable authentication and act as the seeded dev user (frontend dev only; requires a /tmp data dir or "+config.EnvDevAutoLoginConsent+"=1)", false).Env = config.EnvDevAutoLogin
 
 	app := stencil.NewApp(
@@ -77,6 +81,12 @@ func run(ctx *stencil.Context) error {
 		SeedPath:     ctx.Flags.String("seed"),
 		TrustProxy:   ctx.Flags.Bool("trust-proxy"),
 		DevAutoLogin: ctx.Flags.Bool("dev-auto-login"),
+		LLMProvider:  ctx.Flags.String("llm-provider"),
+		LLMBaseURL:   ctx.Flags.String("llm-base-url"),
+		LLMModel:     ctx.Flags.String("llm-model"),
+		// Environment-only: a key passed as a flag would show up in the
+		// process list for every user on the host.
+		LLMAPIKey: os.Getenv(config.EnvLLMAPIKey),
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -161,6 +171,25 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithTrustProxy(cfg.TrustProxy),
 		api.WithServerVersion(appVersion),
 	}
+	// The model connection is optional: an unconfigured donezo serves the
+	// same app with the model-backed affordances simply absent.
+	llmClient, err := llm.New(llm.Config{
+		Provider: cfg.LLMProvider,
+		BaseURL:  cfg.LLMBaseURL,
+		Model:    cfg.LLMModel,
+		APIKey:   cfg.LLMAPIKey,
+	})
+	if err != nil {
+		return err
+	}
+	if _, off := llmClient.(llm.Disabled); off {
+		fmt.Fprintln(os.Stderr, "donezod: no language model configured (model features off)")
+	} else {
+		fmt.Fprintf(os.Stderr, "donezod: language model: %s / %s\n",
+			llmClient.Provider(), llmClient.Model())
+	}
+	opts = append(opts, api.WithLLM(llmClient))
+
 	if webui.Available() {
 		fmt.Fprintln(os.Stderr, "donezod: serving embedded web UI")
 		opts = append(opts, api.WithWebUI(webui.FS()))

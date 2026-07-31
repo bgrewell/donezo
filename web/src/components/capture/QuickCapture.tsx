@@ -2,7 +2,8 @@ import * as React from "react";
 import { Button, Dialog, Input, cn } from "@grewelltech/console";
 
 import type { ActivityType, ItemKind, ProjectColor } from "@/domain/types";
-import { ApiError, api } from "@/api/client";
+import { ApiError, api, rewriteWithLLM } from "@/api/client";
+import { useLLMStatus } from "@/state/useLLMStatus";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
 import { useSession } from "@/components/auth/session";
@@ -107,6 +108,11 @@ export function QuickCapture() {
   // Transient "captured to <space> inbox" confirmation for cross-space saves.
   const [captureNote, setCaptureNote] = React.useState<string | null>(null);
   const [capturePending, setCapturePending] = React.useState(false);
+  // Optional model-backed tidy-up of the typed text. Capture works
+  // exactly as before when no model is configured, or when this is
+  // simply not used — it is a flourish, never a step.
+  const llm = useLLMStatus();
+  const [polishing, setPolishing] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const closeTimer = React.useRef<number | null>(null);
@@ -143,6 +149,7 @@ export function QuickCapture() {
     setProjectPurpose("");
     setCaptureNote(null);
     setCapturePending(false);
+    setPolishing(false);
   };
 
   // Each open is a fresh capture: re-derive the kind defaults (a tab left
@@ -262,6 +269,29 @@ export function QuickCapture() {
   const reset = () => {
     setText("");
     resetMeta();
+  };
+
+  // Replaces the typed text with the model's tidied version. Deliberately
+  // manual: the fast path stays untouched, and this is here for the moments
+  // when the capture is worth a second of care.
+  const polish = () => {
+    if (!raw || polishing) return;
+    setPolishing(true);
+    setCaptureNote(null);
+    rewriteWithLLM("polish-capture", raw)
+      .then((cleaned) => {
+        const next = cleaned.trim();
+        if (next && next !== raw) setText(next);
+        setPolishing(false);
+        inputRef.current?.focus();
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof ApiError && err.status === 401) session.sessionExpired();
+        // The typed text is untouched, so this is a dead end, not a loss.
+        setCaptureNote(`couldn't polish — ${message}`);
+        setPolishing(false);
+      });
   };
 
   const saveToInbox = () => {
@@ -474,6 +504,20 @@ export function QuickCapture() {
             <span className="whitespace-nowrap">ESC close</span>
           </span>
           <div className="flex-1 sm:hidden" />
+          {llm.enabled && (
+            <Button
+              size="sm"
+              variant="ghost"
+              noGlyph
+              loading={polishing}
+              disabled={!raw || capturePending}
+              onClick={polish}
+              className="whitespace-nowrap"
+              title="Tidy up spelling and punctuation without changing what this says"
+            >
+              Polish
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
