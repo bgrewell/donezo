@@ -19,6 +19,7 @@ const CLEARABLE = {
   project: new Set(["waitingOn"]),
   activity: new Set(["effortHours", "nextAction", "planned"]),
   task: new Set(["projectId", "due", "waitingOn"]),
+  note: new Set(["projectId"]),
   reminder: new Set(["projectId", "done"]),
   inbox: new Set(["suggestedProjectId"]),
 } as const;
@@ -82,6 +83,10 @@ export function syncAction(spaceId: string, action: AppAction): Promise<unknown>
       return api.patch(`${base}/tasks/${action.id}`, patchBody(action.patch, CLEARABLE.task));
     case "ADD_NOTE":
       return api.post(`${base}/notes`, action.note);
+    case "UPDATE_NOTE":
+      return api.patch(`${base}/notes/${action.id}`, patchBody(action.patch, CLEARABLE.note));
+    case "DELETE_NOTE":
+      return api.del(`${base}/notes/${action.id}`);
     case "ADD_REMINDER":
       return api.post(`${base}/reminders`, action.reminder);
     case "UPDATE_REMINDER":

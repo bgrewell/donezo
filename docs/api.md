@@ -26,6 +26,8 @@ donezo frontend itself).
 | `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
 | `GET /api/llm`                                     | Any user: `{enabled, provider?, model?, prompts[]}` — whether this instance has a model configured. Prompts are listed either way |
 | `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `400` if the text exceeds 4000 characters (refused, never truncated), `503` when no model is configured, `502` when it cannot be reached or the reply was cut off, `504` on timeout, `429` past 20 calls / 5 min per user |
+| `GET /api/settings`                                | Any user: own preferences → `200 {settings}`. Never having saved one returns `{}`, not `404` |
+| `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears one so it follows the default again. Acts on the authenticated user only — there is no user id in the path |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -40,6 +42,8 @@ donezo frontend itself).
 | `POST /api/spaces/{id}/tasks`                      | Create a task → `201`                                                  |
 | `PATCH /api/spaces/{id}/tasks/{tid}`               | Partial update                                                         |
 | `POST /api/spaces/{id}/notes`                      | Create a note → `201`                                                  |
+| `PATCH /api/spaces/{id}/notes/{nid}`               | Partial update: `{title?, body?, projectId?, createdAt?}` → `200`. `projectId: null` detaches the note; an emptied `body` is allowed, matching the create route |
+| `DELETE /api/spaces/{id}/notes/{nid}`              | Delete a note → `204`. A note owns nothing, so this is a plain delete rather than a cascade |
 | `POST /api/spaces/{id}/reminders`                  | Create a reminder → `201`                                              |
 | `PATCH /api/spaces/{id}/reminders/{rid}`           | Partial update                                                         |
 | `POST /api/spaces/{id}/inbox`                      | Capture a raw item → `201` (works against any owned space — the cross-space capture path) |

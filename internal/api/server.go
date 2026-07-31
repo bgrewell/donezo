@@ -189,6 +189,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/invites/{id}", s.handleRevokeInvite)
 	mux.HandleFunc("GET /api/llm", s.handleLLMStatus)
 	mux.HandleFunc("POST /api/llm/rewrite", s.handleLLMRewrite)
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
 	mux.HandleFunc("GET /api/tokens", s.handleListTokens)
 	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/tokens/{id}", s.handleDeleteToken)
@@ -207,6 +209,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/spaces/{id}/tasks", s.handleCreateTask)
 	mux.HandleFunc("PATCH /api/spaces/{id}/tasks/{tid}", s.handlePatchTask)
 	mux.HandleFunc("POST /api/spaces/{id}/notes", s.handleCreateNote)
+	mux.HandleFunc("PATCH /api/spaces/{id}/notes/{nid}", s.handlePatchNote)
+	mux.HandleFunc("DELETE /api/spaces/{id}/notes/{nid}", s.handleDeleteNote)
 	mux.HandleFunc("POST /api/spaces/{id}/reminders", s.handleCreateReminder)
 	mux.HandleFunc("PATCH /api/spaces/{id}/reminders/{rid}", s.handlePatchReminder)
 	mux.HandleFunc("POST /api/spaces/{id}/inbox", s.handleCreateInboxItem)
@@ -228,6 +232,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/invites/{id}":                    http.MethodDelete,
 		"/api/llm":                             http.MethodGet,
 		"/api/llm/rewrite":                     http.MethodPost,
+		"/api/settings":                        "GET, PATCH",
 		"/api/tokens":                          "GET, POST",
 		"/api/tokens/{id}":                     http.MethodDelete,
 		"/api/spaces":                          "GET, POST",
@@ -242,6 +247,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/tasks":               http.MethodPost,
 		"/api/spaces/{id}/tasks/{tid}":         http.MethodPatch,
 		"/api/spaces/{id}/notes":               http.MethodPost,
+		"/api/spaces/{id}/notes/{nid}":         "PATCH, DELETE",
 		"/api/spaces/{id}/reminders":           http.MethodPost,
 		"/api/spaces/{id}/reminders/{rid}":     http.MethodPatch,
 		"/api/spaces/{id}/inbox":               http.MethodPost,
