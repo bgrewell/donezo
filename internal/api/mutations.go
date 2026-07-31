@@ -230,6 +230,42 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// handlePatchNote applies a partial update to a note.
+func (s *Server) handlePatchNote(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	var p notePatch
+	if !s.decodeBody(w, r, &p) {
+		return
+	}
+	if err := p.validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.spaces.PatchNote(r.Context(), sp.ID, r.PathValue("nid"), p.apply)
+	if err != nil {
+		s.writeStoreError(w, "note", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleDeleteNote removes a note. A note owns nothing, so this is a plain
+// delete rather than the typed-name cascade confirmation a project needs.
+func (s *Server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	if err := s.spaces.DeleteNote(r.Context(), sp.ID, r.PathValue("nid")); err != nil {
+		s.writeStoreError(w, "note", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ─── Reminders ──────────────────────────────────────────────────────────
 
 // handleCreateReminder creates a reminder.

@@ -172,6 +172,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/spaces/{id}/tasks", s.handleCreateTask)
 	mux.HandleFunc("PATCH /api/spaces/{id}/tasks/{tid}", s.handlePatchTask)
 	mux.HandleFunc("POST /api/spaces/{id}/notes", s.handleCreateNote)
+	mux.HandleFunc("PATCH /api/spaces/{id}/notes/{nid}", s.handlePatchNote)
+	mux.HandleFunc("DELETE /api/spaces/{id}/notes/{nid}", s.handleDeleteNote)
 	mux.HandleFunc("POST /api/spaces/{id}/reminders", s.handleCreateReminder)
 	mux.HandleFunc("PATCH /api/spaces/{id}/reminders/{rid}", s.handlePatchReminder)
 	mux.HandleFunc("POST /api/spaces/{id}/inbox", s.handleCreateInboxItem)
@@ -206,6 +208,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/tasks":               http.MethodPost,
 		"/api/spaces/{id}/tasks/{tid}":         http.MethodPatch,
 		"/api/spaces/{id}/notes":               http.MethodPost,
+		"/api/spaces/{id}/notes/{nid}":         "PATCH, DELETE",
 		"/api/spaces/{id}/reminders":           http.MethodPost,
 		"/api/spaces/{id}/reminders/{rid}":     http.MethodPatch,
 		"/api/spaces/{id}/inbox":               http.MethodPost,

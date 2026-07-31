@@ -98,6 +98,8 @@ export type AppAction =
   | { type: "ADD_TASK"; task: TaskItem }
   | { type: "UPDATE_TASK"; id: string; patch: Partial<TaskItem> }
   | { type: "ADD_NOTE"; note: NoteItem }
+  | { type: "UPDATE_NOTE"; id: string; patch: Partial<NoteItem> }
+  | { type: "DELETE_NOTE"; id: string }
   | { type: "ADD_REMINDER"; reminder: Reminder }
   | { type: "UPDATE_REMINDER"; id: string; patch: Partial<Reminder> }
   | { type: "ADD_INBOX"; item: InboxItem }
@@ -235,6 +237,10 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, tasks: patchById(state.tasks, action.id, action.patch) };
     case "ADD_NOTE":
       return { ...state, notes: [...state.notes, action.note] };
+    case "UPDATE_NOTE":
+      return { ...state, notes: patchById(state.notes, action.id, action.patch) };
+    case "DELETE_NOTE":
+      return { ...state, notes: state.notes.filter((n) => n.id !== action.id) };
     case "ADD_REMINDER":
       return { ...state, reminders: [...state.reminders, action.reminder] };
     case "UPDATE_REMINDER":
