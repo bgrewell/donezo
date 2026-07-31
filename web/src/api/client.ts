@@ -275,3 +275,23 @@ export async function setSpaceArchived(spaceId: string, archived: boolean): Prom
     await api.post<{ space: Space }>(`/api/spaces/${encodeURIComponent(spaceId)}/${verb}`)
   ).space;
 }
+
+/** A user's stored preferences. Every field is optional: an unset preference
+ *  follows the current default rather than being pinned to it. */
+export interface UserSettings {
+  theme?: string;
+  font?: string;
+  fontSize?: string;
+}
+
+/** Read the current user's stored preferences. A user who has never saved
+ *  one gets an empty object, not an error. */
+export async function fetchUserSettings(): Promise<UserSettings> {
+  return (await api.get<{ settings: UserSettings }>("/api/settings")).settings;
+}
+
+/** Update some of the current user's preferences and return the full stored
+ *  set. Omitted fields are left alone; an empty string clears one. */
+export async function saveUserSettings(patch: UserSettings): Promise<UserSettings> {
+  return (await api.patch<{ settings: UserSettings }>("/api/settings", patch)).settings;
+}

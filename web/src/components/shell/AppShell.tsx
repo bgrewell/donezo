@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { useAppearanceSync } from "@/state/useAppearanceSync";
 import { parseHash } from "@/lib/route";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { NavRail } from "./NavRail";
@@ -18,6 +19,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const { view, selectedProjectId, selectedActivityId, quickCaptureOpen } = state;
+  // Appearance preferences follow the user between machines. Mounted here
+  // rather than in ThemeProvider because the provider sits above the auth
+  // gate, and an anonymous request has no settings to read.
+  useAppearanceSync();
 
   // Hash → state for manual URL edits after load. (The initial hash seeds
   // AppStore.initialState directly — syncing it here raced under StrictMode.)

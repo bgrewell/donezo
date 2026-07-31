@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"io/fs"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,23 +18,24 @@ const fixedNow = "2026-07-26T12:00:00Z"
 
 func TestMigrate(t *testing.T) {
 	t.Parallel()
+	// wantApplied is derived from the embedded files rather than hard-coded:
+	// migrations are picked up by a //go:embed glob, so a literal count goes
+	// stale the moment one is added and fails a change that is actually fine.
+	// The table assertions below are what pin the schema's real shape.
 	tests := []struct {
-		name        string
-		fsysDir     string
-		wantApplied int
-		wantTables  []string
+		name       string
+		fsysDir    string
+		wantTables []string
 	}{
 		{
-			name:        "core set",
-			fsysDir:     "migrations/core",
-			wantApplied: 3,
-			wantTables:  []string{"users", "sessions", "spaces", "invites", "api_tokens"},
+			name:       "core set",
+			fsysDir:    "migrations/core",
+			wantTables: []string{"users", "sessions", "spaces", "invites", "api_tokens", "user_settings"},
 		},
 		{
-			name:        "space set",
-			fsysDir:     "migrations/space",
-			wantApplied: 1,
-			wantTables:  []string{"projects", "activities", "tasks", "notes", "reminders", "inbox", "meta"},
+			name:       "space set",
+			fsysDir:    "migrations/space",
+			wantTables: []string{"projects", "activities", "tasks", "notes", "reminders", "inbox", "meta"},
 		},
 	}
 	for _, tt := range tests {
@@ -52,13 +54,22 @@ func TestMigrate(t *testing.T) {
 			}
 			now := func() string { return fixedNow }
 
+			entries, err := fs.ReadDir(fsys, tt.fsysDir)
+			if err != nil {
+				t.Fatalf("read migration dir: %v", err)
+			}
+			wantApplied := len(entries)
+			if wantApplied == 0 {
+				t.Fatalf("no migrations found in %s", tt.fsysDir)
+			}
+
 			// Fresh apply.
 			applied, err := migrate(ctx, db, fsys, tt.fsysDir, now)
 			if err != nil {
 				t.Fatalf("fresh migrate: %v", err)
 			}
-			if applied != tt.wantApplied {
-				t.Errorf("fresh migrate applied = %d, want %d", applied, tt.wantApplied)
+			if applied != wantApplied {
+				t.Errorf("fresh migrate applied = %d, want %d", applied, wantApplied)
 			}
 			for _, table := range tt.wantTables {
 				var n int
@@ -89,8 +100,8 @@ func TestMigrate(t *testing.T) {
 				Scan(&version, &name, &appliedAt); err != nil {
 				t.Fatalf("read schema_migrations: %v", err)
 			}
-			if version != tt.wantApplied {
-				t.Errorf("schema version = %d, want %d", version, tt.wantApplied)
+			if version != wantApplied {
+				t.Errorf("schema version = %d, want %d", version, wantApplied)
 			}
 			if name == "" {
 				t.Error("schema_migrations.name is empty")
@@ -102,8 +113,8 @@ func TestMigrate(t *testing.T) {
 			if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&rows); err != nil {
 				t.Fatalf("count schema_migrations: %v", err)
 			}
-			if rows != tt.wantApplied {
-				t.Errorf("schema_migrations rows = %d, want %d", rows, tt.wantApplied)
+			if rows != wantApplied {
+				t.Errorf("schema_migrations rows = %d, want %d", rows, wantApplied)
 			}
 		})
 	}
