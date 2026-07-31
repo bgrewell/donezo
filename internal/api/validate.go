@@ -39,6 +39,12 @@ var (
 	itemKinds = []string{"task", "note", "reminder", "activity", "project"}
 	// inboxStatuses mirrors InboxItem["status"].
 	inboxStatuses = []string{"pending", "converted", "dismissed"}
+	// themeIDs mirrors THEMES in web/src/lib/themes.ts.
+	themeIDs = []string{"console", "slate", "paper", "blossom"}
+	// fontIDs mirrors FONT_SETS in web/src/lib/themes.ts.
+	fontIDs = []string{"plex", "inter", "system"}
+	// fontSizeIDs mirrors FONT_SIZES in web/src/lib/themes.ts.
+	fontSizeIDs = []string{"small", "medium", "large"}
 )
 
 // decodeBody parses one strict JSON value from the request into dst:
@@ -115,6 +121,17 @@ func oneOf(field, v string, allowed []string) error {
 		}
 	}
 	return fmt.Errorf("%s must be one of %s", field, strings.Join(allowed, ", "))
+}
+
+// optionalOneOf validates an omittable union field. A nil pointer means the
+// field was not sent and is left alone; an empty string clears the stored
+// preference so it follows the current default again; anything else must be
+// a member of the union.
+func optionalOneOf(field string, v *string, allowed []string) error {
+	if v == nil || *v == "" {
+		return nil
+	}
+	return oneOf(field, *v, allowed)
 }
 
 // isoDate validates a yyyy-MM-dd date.
