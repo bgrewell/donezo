@@ -22,7 +22,7 @@ touching a given space's content at all.
 
 ## What the MCP server exposes
 
-The server presents 14 tools built around how donezo is used day to day —
+The server presents 24 tools built around how donezo is used day to day —
 oriented on donezo's own model of work: an **activity** is a past fact (it
 lands on the timeline), a **task** is a future possibility with a lifecycle,
 and the **inbox** exists so capturing something never requires deciding what
@@ -38,18 +38,33 @@ is a summary, not the source of truth:
 | `search`              | read  | Full-text search across a space's projects, activities, tasks, notes, reminders, and inbox.     |
 | `get_timeline`        | read  | Activities in a date range, chronological — for reflection: what actually happened.             |
 | `list_inbox`          | read  | A space's pending raw captures — things captured but not yet classified.                        |
+| `list_tasks`          | read  | Tasks in a space, optionally narrowed to one project or status. Defaults to open.               |
+| `list_notes`          | read  | Notes in a space, optionally narrowed to one project.                                           |
+| `list_reminders`      | read  | Reminders in a space, soonest first. Pending only unless you ask for done ones too.             |
 | `capture_to_inbox`    | write | Zero-decision capture — the default verb when something should be remembered but you're not sure yet what it is. Works into **any** space you own, not just the active one. |
 | `log_activity`        | write | Record a **past** fact on a project — appears on the timeline. Never for future work.            |
 | `create_task`         | write | Create a task — a **future** possibility with a lifecycle (open → done).                        |
 | `complete_task`       | write | Mark a task done. By default also logs today's activity from the task title, mirroring the app's check-off flow. |
 | `create_note`         | write | Create a durable reference note.                                                                |
 | `create_reminder`     | write | Create a reminder that resurfaces at a specific time.                                           |
+| `create_project`      | write | Create a project — a stream of work with a purpose and an outcome.                              |
 | `classify_inbox_item` | write | Atomically convert a pending inbox capture into a task, note, reminder, activity, or project.    |
-| `update_project`      | write | Manage a project's designations — next action, alternates, current focus, resume context, status. Status is always a deliberate choice; the model never flips it automatically. |
+| `dismiss_inbox_item`  | write | Close out a reviewed capture that needs no follow-up. The other half of triage.                 |
+| `update_project`      | write | Update a project — its designations (next action, alternates, current focus, resume context, status) and descriptive fields (name, purpose, outcome, color, tags). Status is always a deliberate choice; the model never flips it automatically. |
+| `update_task`         | write | Change a task's title, status, due date, project, or what it's waiting on.                      |
+| `update_note`         | write | Change a note's title, body, or project.                                                        |
+| `update_activity`     | write | Correct a past fact already on the timeline — title, details, type, date, effort, project.       |
+| `update_reminder`     | write | Reschedule a reminder, change its text or project, or mark it handled.                          |
+| `delete_item`         | write | Permanently delete a task, note, reminder, activity, or inbox item. **Not** projects — see below. |
 
-The 6 `read` tools work with either scope; the 8 `write` tools require a
+The 9 `read` tools work with either scope; the 15 `write` tools require a
 `read_write` token. Which of these a token may call is governed by its
 **scope** (below).
+
+The write surface is deliberately close to parity with what you can do in
+the app: a connected model that creates something can also correct it
+afterwards, so a misclassification or a typo doesn't become permanent just
+because it arrived over MCP.
 
 ### What this doesn't do
 
@@ -60,6 +75,14 @@ tokens, invites, or other users. If you ask a connected model for one of
 these, a well-behaved model will say so plainly and point you at the app
 rather than improvise a workaround — that instruction is built into what
 the server tells the model at connection time.
+
+Project deletion is held back specifically because it cascades to every
+activity, task, note, and reminder the project owns — an irreversible
+action that shouldn't be one tool call away. `delete_item` covers the
+individual entities, and is likewise permanent: the server instructs
+connected models to confirm with you before calling it, and to prefer
+`complete_task` for finished work or `dismiss_inbox_item` for a reviewed
+capture.
 
 ## Token scopes
 

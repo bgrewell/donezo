@@ -59,7 +59,7 @@ const maxMCPBodyBytes = 1 << 20
 
 // Handler serves the MCP endpoint over the donezo stores. Construct it with
 // NewHandler and mount its ServeHTTP at /mcp. It wraps a single SDK
-// *mcp.Server (all 14 tools registered) with donezo's bearer-auth HTTP
+// *mcp.Server (the whole tool surface registered) with donezo's bearer-auth HTTP
 // middleware and a scope/rate-limit receiving middleware.
 type Handler struct {
 	core       *store.CoreStore
@@ -377,7 +377,9 @@ func instructions(scope string) string {
 		"thought belongs to, even if you are mid-conversation about a different one. This " +
 		"surface does not create, rename, archive, or delete spaces, delete projects, or manage " +
 		"tokens/invites/other users — those stay in the web app; say so plainly rather than " +
-		"improvising a workaround if asked. tools/call is rate-limited per token; a limited " +
+		"improvising a workaround if asked. delete_item permanently removes an item and cannot " +
+		"be undone: confirm with the user before calling it, and prefer complete_task for " +
+		"finished work or dismiss_inbox_item for a reviewed capture. tools/call is rate-limited per token; a limited " +
 		"call returns an isError result naming how long to wait — relay that to the user rather " +
 		"than silently retrying in a loop."
 	switch scope {

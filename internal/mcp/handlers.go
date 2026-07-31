@@ -436,6 +436,118 @@ func toolListInbox(ctx context.Context, h *Handler, c caller, args json.RawMessa
 	return jsonText(out), false
 }
 
+// matchesProject reports whether an entity's optional project pointer
+// matches the requested filter. An empty filter matches everything.
+func matchesProject(projectID *string, want string) bool {
+	if want == "" {
+		return true
+	}
+	return projectID != nil && *projectID == want
+}
+
+func toolListTasks(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID   string `json:"space_id"`
+		ProjectID string `json:"project_id"`
+		Status    string `json:"status"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	status := a.Status
+	if status == "" {
+		status = "open"
+	}
+	if !oneOf(status, taskStatuses) {
+		return "status must be one of " + strings.Join(taskStatuses, ", "), true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	all, err := h.spaces.ListTasks(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp list tasks: %v", err)
+		return "internal error", true
+	}
+	matched := []store.TaskItem{}
+	for _, t := range all {
+		if t.Status == status && matchesProject(t.ProjectID, a.ProjectID) {
+			matched = append(matched, t)
+		}
+	}
+	matched, truncated := capItems(matched)
+	out := map[string]any{"tasks": matched, "count": len(matched), "status": status}
+	if truncated {
+		out["note"] = fmt.Sprintf("showing the first %d tasks", maxItems)
+	}
+	return jsonText(out), false
+}
+
+func toolListNotes(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID   string `json:"space_id"`
+		ProjectID string `json:"project_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	all, err := h.spaces.ListNotes(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp list notes: %v", err)
+		return "internal error", true
+	}
+	matched := []store.NoteItem{}
+	for _, n := range all {
+		if matchesProject(n.ProjectID, a.ProjectID) {
+			matched = append(matched, n)
+		}
+	}
+	matched, truncated := capItems(matched)
+	out := map[string]any{"notes": matched, "count": len(matched)}
+	if truncated {
+		out["note"] = fmt.Sprintf("showing the first %d notes", maxItems)
+	}
+	return jsonText(out), false
+}
+
+func toolListReminders(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID     string `json:"space_id"`
+		IncludeDone bool   `json:"include_done"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	all, err := h.spaces.ListReminders(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp list reminders: %v", err)
+		return "internal error", true
+	}
+	matched := []store.Reminder{}
+	for _, r := range all {
+		if !a.IncludeDone && r.Done != nil && *r.Done {
+			continue
+		}
+		matched = append(matched, r)
+	}
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].RemindAt < matched[j].RemindAt })
+	matched, truncated := capItems(matched)
+	out := map[string]any{"reminders": matched, "count": len(matched)}
+	if truncated {
+		out["note"] = fmt.Sprintf("showing the first %d reminders", maxItems)
+	}
+	return jsonText(out), false
+}
+
 // ─── WRITE handlers ───────────────────────────────────────────────────────
 
 // optString returns a pointer to v when non-empty, else nil, for optional
@@ -913,6 +1025,11 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 		ResumeContext  *string   `json:"resume_context"`
 		Status         *string   `json:"status"`
 		WaitingOn      *string   `json:"waiting_on"`
+		Name           *string   `json:"name"`
+		Purpose        *string   `json:"purpose"`
+		Outcome        *string   `json:"outcome"`
+		Color          *string   `json:"color"`
+		Tags           *[]string `json:"tags"`
 	}
 	if !decodeArgs(args, &a) {
 		return "invalid arguments", true
@@ -922,6 +1039,12 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 	}
 	if a.Status != nil && !oneOf(*a.Status, projectStatuses) {
 		return "status must be one of " + strings.Join(projectStatuses, ", "), true
+	}
+	if a.Color != nil && !oneOf(*a.Color, projectColors) {
+		return "color must be one of " + strings.Join(projectColors, ", "), true
+	}
+	if a.Name != nil && strings.TrimSpace(*a.Name) == "" {
+		return "name cannot be empty", true
 	}
 	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
 	if !ok {
@@ -946,10 +1069,379 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 		if a.WaitingOn != nil {
 			p.WaitingOn = optString(*a.WaitingOn)
 		}
+		if a.Name != nil {
+			p.Name = *a.Name
+		}
+		if a.Purpose != nil {
+			p.Purpose = *a.Purpose
+		}
+		if a.Outcome != nil {
+			p.Outcome = *a.Outcome
+		}
+		if a.Color != nil {
+			p.Color = *a.Color
+		}
+		if a.Tags != nil {
+			p.Tags = *a.Tags
+		}
 		return nil
 	})
 	if err != nil {
 		return h.storeErrText("project", err), true
 	}
 	return jsonText(map[string]any{"project": updated}), false
+}
+
+func toolCreateProject(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID      string   `json:"space_id"`
+		Name         string   `json:"name"`
+		Purpose      string   `json:"purpose"`
+		Outcome      string   `json:"outcome"`
+		Color        string   `json:"color"`
+		CurrentFocus string   `json:"current_focus"`
+		NextAction   string   `json:"next_action"`
+		Tags         []string `json:"tags"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.Name) == "" {
+		return "name is required", true
+	}
+	color := a.Color
+	if color == "" {
+		color = "blue"
+	}
+	if !oneOf(color, projectColors) {
+		return "color must be one of " + strings.Join(projectColors, ", "), true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	id, err := newID("proj")
+	if err != nil {
+		h.logger.Printf("mcp create project: %v", err)
+		return "internal error", true
+	}
+	tags := a.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	created, err := h.spaces.CreateProject(ctx, sp.ID, store.Project{
+		ID:             id,
+		Name:           a.Name,
+		Color:          color,
+		Purpose:        a.Purpose,
+		Outcome:        a.Outcome,
+		CurrentFocus:   a.CurrentFocus,
+		NextAction:     a.NextAction,
+		AltNextActions: []string{},
+		Status:         "active",
+		Tags:           tags,
+	})
+	if err != nil {
+		return h.storeErrText("project", err), true
+	}
+	return jsonText(map[string]any{"project": created}), false
+}
+
+func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID   string  `json:"space_id"`
+		TaskID    string  `json:"task_id"`
+		Title     *string `json:"title"`
+		Status    *string `json:"status"`
+		Due       *string `json:"due"`
+		ProjectID *string `json:"project_id"`
+		WaitingOn *string `json:"waiting_on"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.TaskID) == "" {
+		return "task_id is required", true
+	}
+	if a.Title != nil && strings.TrimSpace(*a.Title) == "" {
+		return "title cannot be empty", true
+	}
+	if a.Status != nil && !oneOf(*a.Status, taskStatuses) {
+		return "status must be one of " + strings.Join(taskStatuses, ", "), true
+	}
+	// An empty due clears the date; anything else must be a real date.
+	if a.Due != nil && *a.Due != "" && !validDate(*a.Due) {
+		return "due must be a yyyy-MM-dd date", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	updated, err := h.spaces.PatchTask(ctx, sp.ID, a.TaskID, func(t *store.TaskItem) error {
+		if a.Title != nil {
+			t.Title = *a.Title
+		}
+		if a.Status != nil {
+			t.Status = *a.Status
+		}
+		if a.Due != nil {
+			t.Due = optString(*a.Due)
+		}
+		if a.ProjectID != nil {
+			t.ProjectID = optString(*a.ProjectID)
+		}
+		if a.WaitingOn != nil {
+			t.WaitingOn = optString(*a.WaitingOn)
+		}
+		return nil
+	})
+	if err != nil {
+		return h.storeErrText("task", err), true
+	}
+	return jsonText(map[string]any{"task": updated}), false
+}
+
+func toolUpdateNote(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID   string  `json:"space_id"`
+		NoteID    string  `json:"note_id"`
+		Title     *string `json:"title"`
+		Body      *string `json:"body"`
+		ProjectID *string `json:"project_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.NoteID) == "" {
+		return "note_id is required", true
+	}
+	if a.Title != nil && strings.TrimSpace(*a.Title) == "" {
+		return "title cannot be empty", true
+	}
+	if a.Body != nil && strings.TrimSpace(*a.Body) == "" {
+		return "body cannot be empty", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	// PatchNote (not Get + Update) so the read and the write share one
+	// transaction: a concurrent update_note on the same id would otherwise
+	// be rewritten from this handler's stale snapshot, silently reverting
+	// whichever field the other call changed.
+	updated, err := h.spaces.PatchNote(ctx, sp.ID, a.NoteID, func(n *store.NoteItem) error {
+		if a.Title != nil {
+			n.Title = *a.Title
+		}
+		if a.Body != nil {
+			n.Body = *a.Body
+		}
+		if a.ProjectID != nil {
+			n.ProjectID = optString(*a.ProjectID)
+		}
+		return nil
+	})
+	if err != nil {
+		return h.storeErrText("note", err), true
+	}
+	return jsonText(map[string]any{"note": updated}), false
+}
+
+func toolUpdateActivity(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID     string   `json:"space_id"`
+		ActivityID  string   `json:"activity_id"`
+		Title       *string  `json:"title"`
+		Details     *string  `json:"details"`
+		Type        *string  `json:"type"`
+		Date        *string  `json:"date"`
+		EffortHours *float64 `json:"effort_hours"`
+		ProjectID   *string  `json:"project_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.ActivityID) == "" {
+		return "activity_id is required", true
+	}
+	if a.Title != nil && strings.TrimSpace(*a.Title) == "" {
+		return "title cannot be empty", true
+	}
+	if a.Type != nil && !oneOf(*a.Type, activityTypes) {
+		return "type must be one of " + strings.Join(activityTypes, ", "), true
+	}
+	if a.Date != nil && !validDate(*a.Date) {
+		return "date must be a yyyy-MM-dd date", true
+	}
+	if a.EffortHours != nil && *a.EffortHours < 0 {
+		return "effort_hours cannot be negative", true
+	}
+	if a.ProjectID != nil && strings.TrimSpace(*a.ProjectID) == "" {
+		return "project_id cannot be empty (an activity always belongs to a project)", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	updated, err := h.spaces.PatchActivity(ctx, sp.ID, a.ActivityID, func(e *store.ActivityEntry) error {
+		if a.Title != nil {
+			e.Title = *a.Title
+		}
+		if a.Details != nil {
+			e.Details = *a.Details
+		}
+		if a.Type != nil {
+			e.Type = *a.Type
+		}
+		if a.Date != nil {
+			e.Date = *a.Date
+		}
+		if a.EffortHours != nil {
+			// 0 clears the optional column rather than storing a zero effort.
+			if *a.EffortHours == 0 {
+				e.EffortHours = nil
+			} else {
+				v := *a.EffortHours
+				e.EffortHours = &v
+			}
+		}
+		if a.ProjectID != nil {
+			e.ProjectID = *a.ProjectID
+		}
+		return nil
+	})
+	if err != nil {
+		return h.storeErrText("activity", err), true
+	}
+	return jsonText(map[string]any{"activity": updated}), false
+}
+
+func toolUpdateReminder(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID    string  `json:"space_id"`
+		ReminderID string  `json:"reminder_id"`
+		Text       *string `json:"text"`
+		RemindAt   *string `json:"remind_at"`
+		Done       *bool   `json:"done"`
+		ProjectID  *string `json:"project_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.ReminderID) == "" {
+		return "reminder_id is required", true
+	}
+	if a.Text != nil && strings.TrimSpace(*a.Text) == "" {
+		return "text cannot be empty", true
+	}
+	if a.RemindAt != nil && !validDateTime(*a.RemindAt) {
+		return "remind_at must be an ISO datetime like 2026-07-28T09:00:00", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	updated, err := h.spaces.PatchReminder(ctx, sp.ID, a.ReminderID, func(r *store.Reminder) error {
+		if a.Text != nil {
+			r.Text = *a.Text
+		}
+		if a.RemindAt != nil {
+			r.RemindAt = *a.RemindAt
+		}
+		if a.Done != nil {
+			v := *a.Done
+			r.Done = &v
+		}
+		if a.ProjectID != nil {
+			r.ProjectID = optString(*a.ProjectID)
+		}
+		return nil
+	})
+	if err != nil {
+		return h.storeErrText("reminder", err), true
+	}
+	return jsonText(map[string]any{"reminder": updated}), false
+}
+
+// errNotPending marks a dismiss attempt on an already-triaged capture. It
+// travels back out of PatchInboxItem's apply func (which returns apply
+// errors verbatim), so it is matched before storeErrText — otherwise the
+// reason would be flattened into a generic "internal error".
+var errNotPending = errors.New("inbox item is not pending")
+
+func toolDismissInboxItem(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID string `json:"space_id"`
+		InboxID string `json:"inbox_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.InboxID) == "" {
+		return "inbox_id is required", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	priorStatus := ""
+	updated, err := h.spaces.PatchInboxItem(ctx, sp.ID, a.InboxID, func(it *store.InboxItem) error {
+		if it.Status != "pending" {
+			priorStatus = it.Status
+			return errNotPending
+		}
+		it.Status = "dismissed"
+		return nil
+	})
+	if errors.Is(err, errNotPending) {
+		return "inbox item is already " + priorStatus + " — only pending captures can be dismissed", true
+	}
+	if err != nil {
+		return h.storeErrText("inbox item", err), true
+	}
+	return jsonText(map[string]any{"inboxItem": updated}), false
+}
+
+func toolDeleteItem(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID string `json:"space_id"`
+		Kind    string `json:"kind"`
+		ItemID  string `json:"item_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.ItemID) == "" {
+		return "item_id is required", true
+	}
+	// Projects are excluded from the schema enum, but answer the attempt
+	// with the reason rather than a bare validation failure.
+	if a.Kind == "project" {
+		return "deleting a project is not available here: it cascades to every activity, task, " +
+			"note and reminder the project owns. Delete it from the donezo web app instead.", true
+	}
+	if !oneOf(a.Kind, deletableKinds) {
+		return "kind must be one of " + strings.Join(deletableKinds, ", "), true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	var err error
+	switch a.Kind {
+	case "task":
+		err = h.spaces.DeleteTask(ctx, sp.ID, a.ItemID)
+	case "note":
+		err = h.spaces.DeleteNote(ctx, sp.ID, a.ItemID)
+	case "reminder":
+		err = h.spaces.DeleteReminder(ctx, sp.ID, a.ItemID)
+	case "activity":
+		err = h.spaces.DeleteActivity(ctx, sp.ID, a.ItemID)
+	case "inbox_item":
+		err = h.spaces.DeleteInboxItem(ctx, sp.ID, a.ItemID)
+	}
+	if err != nil {
+		return h.storeErrText(strings.ReplaceAll(a.Kind, "_", " "), err), true
+	}
+	return jsonText(map[string]any{"deleted": true, "kind": a.Kind, "id": a.ItemID}), false
 }

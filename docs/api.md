@@ -165,7 +165,7 @@ that means in practice.
 
 **Scopes.** A token is `read_only` or `read_write`, fixed at creation.
 `tools/list` returns **only the tools the scope permits** — a `read_only`
-token sees the six read tools; a `read_write` token sees all fourteen. A
+token sees the nine read tools; a `read_write` token sees all twenty-four. A
 write call made with a `read_only` token is refused with a clear `isError`
 tool result (never a silent no-op).
 
@@ -183,14 +183,24 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `search` | read | Case-insensitive substring across projects/activities/tasks/notes/reminders/inbox (same matching as the web UI). |
 | `get_timeline` | read | Activities in a date range, chronological — for reflection. |
 | `list_inbox` | read | Pending raw captures. |
+| `list_tasks` | read | Tasks, optionally filtered by `project_id` and `status` (defaults to `open`). |
+| `list_notes` | read | Notes, optionally filtered by `project_id`. |
+| `list_reminders` | read | Reminders sorted by `remindAt`; pending unless `include_done`. |
 | `capture_to_inbox` | write | Zero-decision capture into any owned space — the default when classification is uncertain. |
 | `log_activity` | write | Record a PAST fact on a project (timeline); never for future work. |
 | `create_task` | write | A FUTURE possibility with a lifecycle. |
 | `complete_task` | write | Mark done; with `log_activity` (default true) also logs today's activity from the task title. |
 | `create_note` | write | Durable reference text. |
 | `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). |
+| `create_project` | write | A stream of work; only `name` required, `color` defaults to blue and `status` to active. |
 | `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. |
-| `update_project` | write | Manage designations: `nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`. |
+| `dismiss_inbox_item` | write | Mark a pending capture `dismissed` (kept, not deleted); errors if it is already triaged. |
+| `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`). |
+| `update_task` | write | `title`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |
+| `update_note` | write | `title`, `body`, `project_id`; empty `project_id` detaches. |
+| `update_activity` | write | `title`, `details`, `type`, `date`, `effort_hours` (0 clears), `project_id`. |
+| `update_reminder` | write | `text`, `remind_at`, `done`, `project_id`. |
+| `delete_item` | write | Permanent delete by `kind` (`task`/`note`/`reminder`/`activity`/`inbox_item`) + `item_id`. Projects are refused with an explanation — their delete cascades and stays a web-app action. |
 
 The exact names, arguments, and JSON Schemas are published by the server
 itself over `tools/list` — every MCP client reads them on connect — so
