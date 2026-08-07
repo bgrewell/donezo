@@ -111,12 +111,18 @@ One command registers donezo as an HTTP MCP server with your token on the
 `Authorization` header:
 
 ```sh
-claude mcp add --transport http donezo <your-donezo-url>/mcp \
+claude mcp add -s user --transport http donezo <your-donezo-url>/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
 After that, `claude mcp list` shows `donezo`, and the donezo tools are
 available in your Claude Code sessions.
+
+`-s user` registers it for your whole user account rather than one project
+directory (`--scope` defaults to `local`, which is per-project). That matches
+what a donezo token actually is: it belongs to you and reaches every space you
+own, not to whichever repository you happened to run the command in. Drop the
+flag if you deliberately want donezo available in one project only.
 
 ### Claude Desktop
 
