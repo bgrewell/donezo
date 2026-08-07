@@ -4,6 +4,7 @@ import { Avatar, Button, cn } from "@grewelltech/console";
 
 import { InvitesDialog } from "@/components/admin/InvitesDialog";
 import { McpTokensDialog } from "@/components/settings/McpTokensDialog";
+import { PolishPromptDialog } from "@/components/settings/PolishPromptDialog";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -43,6 +44,7 @@ export function TopBar() {
   const { user, logout } = useSession();
   const [invitesOpen, setInvitesOpen] = React.useState(false);
   const [mcpOpen, setMcpOpen] = React.useState(false);
+  const [promptOpen, setPromptOpen] = React.useState(false);
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -246,6 +248,12 @@ export function TopBar() {
           {/* Every user can mint their own MCP tokens; the server scopes the
               endpoints to the caller regardless. */}
           <DropdownMenuItem onSelect={() => setMcpOpen(true)}>Connect your AI…</DropdownMenuItem>
+          {/* How far the polish pass rewrites is a matter of taste, so the
+              wording is the user's to tune. The model connection itself stays
+              instance-wide and the operator's. */}
+          <DropdownMenuItem onSelect={() => setPromptOpen(true)}>
+            Tune the polish prompt…
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
         </DropdownMenuContent>
@@ -254,6 +262,7 @@ export function TopBar() {
         <InvitesDialog open={invitesOpen} onClose={() => setInvitesOpen(false)} />
       )}
       <McpTokensDialog open={mcpOpen} onClose={() => setMcpOpen(false)} />
+      <PolishPromptDialog open={promptOpen} onClose={() => setPromptOpen(false)} />
       <ShortcutsSheet />
     </header>
   );

@@ -186,12 +186,30 @@ Text longer than 4000 characters is **refused with a 400, never truncated**, and
 
 ### Tuning the prompts
 
-How much a prompt should change someone's words is a matter of taste, and taste is not worth a rebuild. The prompts live on disk, under `prompts/` inside the data directory (`/var/lib/donezo/prompts` by default):
+How much a prompt should change someone's words is a matter of taste, and taste is not worth a rebuild — nor is it the same taste for everyone on an instance. So a prompt is tunable at two levels, and one part of it is not tunable at all.
+
+#### Body and core
+
+Every prompt is a **body** plus a **core**, joined body-first so the core has the final word.
+
+The **body** says what the rewrite should do and how far it should go. That is the taste part, and it is what any override replaces.
+
+The **core** holds the two guarantees that stop a rewrite being *harmful* rather than merely not to taste:
+
+- the note's own text is content to tidy, **not a request addressed to the model**
+- the reply is the rewritten text and **nothing else**
+
+Neither is optional, and neither is an operator's or a user's to drop. The captured text is untrusted input and every caller writes the reply back over the person's own words — so a prompt missing the first makes capture an injection path, and one missing the second lets model commentary be saved as if the user had typed it. The core is appended to whatever the body ends up being, by every route.
+
+#### Instance-wide, on disk
+
+Under `prompts/` inside the data directory (`/var/lib/donezo/prompts` by default):
 
 | File | Role |
 | ---- | ---- |
-| `<id>.default.txt` | The wording donezo ships. **Rewritten on every start** and never read back, so it stays visible next to your override and keeps up with upgrades — edits here are lost |
-| `<id>.txt` | Optional. Your replacement for that prompt's instruction. Absent by default |
+| `<id>.default.txt` | The **body** donezo ships. **Rewritten on every start** and never read back, so it stays visible next to your override and keeps up with upgrades — edits here are lost |
+| `<id>.core.txt` | The **core**, for reference. Also rewritten every start and never read back: it is there so what gets appended is visible rather than a surprise in a request log |
+| `<id>.txt` | Optional. Your replacement for that prompt's **body**. Absent by default |
 
 Create `<id>.txt` (copy the `.default.txt` next to it and edit) and restart donezod; the log names any prompt it is running from disk:
 
@@ -200,6 +218,18 @@ donezod: prompt overrides in effect from /var/lib/donezo/prompts: polish-capture
 ```
 
 A file holding only whitespace is treated as absent rather than sent as an empty instruction, one over 64 KiB is refused, and a file named for a prompt that does not exist is ignored. None of these stop the server: a prompt directory that cannot be read is logged and the built-in wording is used, because an unwritable disk is not a reason to stop serving.
+
+#### Per user, in settings
+
+Each user can also keep their own body, stored in `user_settings` under `prompts` and edited from **Tune the polish prompt…** in the account menu. It takes precedence over the instance's, so the resolution order is:
+
+```
+the user's own body  →  <id>.txt on disk  →  the shipped body        (+ core, always)
+```
+
+`PATCH /api/settings` with `{"prompts": {"<id>": "..."}}` saves one; an empty value clears it, which is how someone returns to the instance's wording rather than pinning themselves to today's default. An unknown prompt id is refused rather than stored — a typo would otherwise be saved and silently never used, which looks exactly like the feature not working. One body is capped at 4000 characters, since it is sent on every call.
+
+`GET /api/llm` returns, per prompt, the `body` in effect for that user, the `default` it falls back to, the read-only `core`, and whether it is `customized` — enough for a settings UI to render an editor, offer a reset, and show the fixed part instead of hiding it.
 
 The prompt ids are the ones `GET /api/llm` lists. Today that is one:
 

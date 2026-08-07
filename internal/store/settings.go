@@ -40,6 +40,12 @@ type UserSettings struct {
 	TourDone bool `json:"tourDone,omitempty"`
 	// DismissedHints holds the ids of hint chips the user has dismissed.
 	DismissedHints []string `json:"dismissedHints,omitempty"`
+
+	// Prompts holds this user's own wording for language-model prompts,
+	// keyed by prompt id. Each value replaces that prompt's tunable body
+	// only; the fixed core is appended regardless (see internal/llm).
+	// An absent key means "use the operator's or the built-in wording".
+	Prompts map[string]string `json:"prompts,omitempty"`
 }
 
 // GetUserSettings returns a user's stored preferences. A user with no stored
