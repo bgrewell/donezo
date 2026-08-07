@@ -27,7 +27,7 @@ donezo frontend itself).
 | `GET /api/llm`                                     | Any user: `{enabled, provider?, model?, prompts[]}` — whether this instance has a model configured. Prompts are listed either way |
 | `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `400` if the text exceeds 4000 characters (refused, never truncated), `503` when no model is configured, `502` when it cannot be reached or the reply was cut off, `504` on timeout, `429` past 20 calls / 5 min per user |
 | `GET /api/settings`                                | Any user: own preferences → `200 {settings}`. Never having saved one returns `{}`, not `404` |
-| `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears one so it follows the default again. Acts on the authenticated user only — there is no user id in the path |
+| `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?, welcomed?, tourDone?, dismissedHints?, resetOnboarding?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears an appearance one so it follows the default again. Onboarding fields merge one way — see below. Acts on the authenticated user only — there is no user id in the path |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -99,6 +99,37 @@ deliberate, bounded disclosure: it is visible only to someone the admin
 already handed a valid code (anonymous login keeps its uniform `401`),
 and every registration attempt — including the `409` — spends the
 shared login/setup rate-limit budget.
+
+### Settings and onboarding progress
+
+`user_settings` holds one JSON document per user, so adding a preference needs
+no migration. Two kinds of field live there and they behave differently on
+`PATCH`:
+
+- **Appearance** (`theme`, `font`, `fontSize`) is last-write-wins. It is a
+  preference, and the most recent deliberate choice should stand.
+- **Onboarding progress** (`welcomed`, `tourDone`, `dismissedHints`) merges
+  **one way**: flags only move `false → true`, and dismissed hints accumulate.
+  Sending `welcomed: false` is not an error and does not clear it.
+
+The asymmetry is the point. Progress is not a preference but a record that
+something already happened, and it is written by every browser the user opens.
+A browser with empty local state — a new machine, a private window — would
+otherwise push that emptiness over a server that knows better and resurrect the
+welcome dialog everywhere. The web client also declines to write before it has
+read, but the rule belongs on the server too: settings are reachable by
+anything holding a session, and a monotonic field should not be walkable
+backwards by a caller that simply does not know any better.
+
+`resetOnboarding: true` is the one way progress moves back, clearing all three.
+It is a separate explicit intent rather than "set the flags to false" precisely
+so that a reset can never be something a stale client does by accident. It is
+applied last, so a patch that combines it with progress flags still ends up
+reset rather than depending on field order. It does not touch appearance.
+
+`dismissedHints` is bounded — at most 128 stored ids of 64 characters each —
+since the ids come from the client and an unbounded list is a way to inflate
+one user's document.
 
 ### Security posture
 

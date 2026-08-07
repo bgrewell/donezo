@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { fetchUserSettings, saveUserSettings, type UserSettings } from "@/api/client";
+
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { TOUR_STEPS } from "./steps";
 
@@ -17,6 +19,11 @@ export interface OnboardingPersisted {
 }
 
 export interface OnboardingContextValue extends OnboardingPersisted {
+  /** False until the server's copy of this state has been read (or the read
+   *  has failed). First-run UI must wait for it: localStorage is per-browser,
+   *  so on a new browser the local answer is "never seen it" and showing the
+   *  welcome on that basis flashes it up before the server corrects it. */
+  hydrated: boolean;
   /** Active tour step index, or null when no tour is running. */
   tourStep: number | null;
   /** Whether the keyboard-shortcuts sheet is open. */
@@ -63,6 +70,24 @@ function loadPersisted(): OnboardingPersisted {
   }
 }
 
+/** Union of local onboarding state and whatever the server holds.
+ *
+ *  Progress only ever accumulates: a flag set on either side stays set, and
+ *  dismissed hints combine. Neither side is authoritative — the server may
+ *  know about another browser, and this browser may have just recorded
+ *  something not yet written — so the merge has no loser. */
+function mergeOnboarding(
+  local: OnboardingPersisted,
+  remote: Pick<UserSettings, "welcomed" | "tourDone" | "dismissedHints">
+): OnboardingPersisted {
+  const remoteHints = Array.isArray(remote.dismissedHints) ? remote.dismissedHints : [];
+  return {
+    welcomed: local.welcomed || remote.welcomed === true,
+    tourDone: local.tourDone || remote.tourDone === true,
+    dismissedHints: Array.from(new Set([...local.dismissedHints, ...remoteHints])),
+  };
+}
+
 /** True when the keypress originated in a text-entry control. */
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -80,6 +105,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const dispatch = useAppDispatch();
 
   const [persisted, setPersisted] = React.useState<OnboardingPersisted>(loadPersisted);
+  const [hydrated, setHydrated] = React.useState(false);
   const [tourStep, setTourStep] = React.useState<number | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
 
@@ -90,6 +116,65 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       // persistence is best-effort
     }
   }, [persisted]);
+
+  // Onboarding progress is account state, not browser state: having seen the
+  // welcome once should mean it never returns, on any machine. localStorage
+  // above stays as a cache so an offline or failed load still behaves, but
+  // the server is what makes the answer follow the person.
+  //
+  // Reads merge rather than overwrite, for the same reason the server merges
+  // one way: local state may legitimately be ahead of the server (dismissed
+  // something a moment ago, write still in flight), and the server may be
+  // ahead of local (a different browser). Taking the union of both loses
+  // neither.
+  const remote = React.useRef<OnboardingPersisted | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchUserSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setPersisted((local) => {
+          const merged = mergeOnboarding(local, settings);
+          remote.current = merged;
+          return merged;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Could not read — offline, or the session lapsed. Treat local as the
+        // baseline so a later deliberate change still gets a chance to save,
+        // and let the first-run UI proceed rather than hang on a dialog that
+        // never appears.
+        remote.current = null;
+      })
+      .finally(() => {
+        if (!cancelled) setHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Write through once hydrated. Sending before the first read would push this
+  // browser's empty state at a server that may know better; the server refuses
+  // to regress the flags anyway, but not sending is the cheaper guarantee.
+  React.useEffect(() => {
+    const prev = remote.current;
+    if (!hydrated || prev === null) return;
+    const patch: UserSettings = {};
+    if (persisted.welcomed && !prev.welcomed) patch.welcomed = true;
+    if (persisted.tourDone && !prev.tourDone) patch.tourDone = true;
+    const newHints = persisted.dismissedHints.filter((h) => !prev.dismissedHints.includes(h));
+    if (newHints.length > 0) patch.dismissedHints = newHints;
+    if (Object.keys(patch).length === 0) return;
+
+    remote.current = mergeOnboarding(prev, patch);
+    void saveUserSettings(patch).catch(() => {
+      // Best-effort: the change is applied locally and cached in
+      // localStorage, so the only cost is that it does not follow the user
+      // to another machine until something writes successfully.
+    });
+  }, [persisted, hydrated]);
 
   // Quick capture (Ctrl/⌘+K) opens over any screen, so the welcome and the
   // shortcuts sheet yield to it instead of stacking — two GTC Dialogs paint
@@ -168,6 +253,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setPersisted(DEFAULTS);
     setTourStep(null);
     setShortcutsOpen(false);
+    // Clearing locally is not enough now that the server holds this too — it
+    // would be merged straight back on the next read. This is the one action
+    // that legitimately moves progress backwards, so it goes over the wire as
+    // an explicit intent rather than as flags set to false, which the server
+    // ignores by design.
+    remote.current = DEFAULTS;
+    void saveUserSettings({ resetOnboarding: true }).catch(() => {
+      // Best-effort, but a failure here means the reset is local-only and the
+      // next successful read will restore the old state. Nothing is lost, and
+      // the action can simply be repeated.
+    });
   }, []);
 
   const openShortcuts = React.useCallback(() => setShortcutsOpen(true), []);
@@ -176,6 +272,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const value = React.useMemo<OnboardingContextValue>(
     () => ({
       ...persisted,
+      hydrated,
       tourStep,
       shortcutsOpen,
       markWelcomed,
@@ -190,6 +287,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }),
     [
       persisted,
+      hydrated,
       tourStep,
       shortcutsOpen,
       markWelcomed,

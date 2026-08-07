@@ -282,6 +282,19 @@ export interface UserSettings {
   theme?: string;
   font?: string;
   fontSize?: string;
+  /** First-run welcome has been acknowledged. Only ever moves to true — the
+   *  server refuses to unset it, so a browser that has not read the server
+   *  yet cannot clear what another one recorded. */
+  welcomed?: boolean;
+  /** The tour was completed or skipped at least once. Same one-way rule. */
+  tourDone?: boolean;
+  /** Ids of dismissed hint chips. Patching adds to the stored set rather
+   *  than replacing it. */
+  dismissedHints?: string[];
+  /** Write-only intent: clears all three onboarding fields. The deliberate
+   *  "show me the first run again" action, kept distinct so that resetting
+   *  is never something a stale client does by accident. */
+  resetOnboarding?: boolean;
 }
 
 /** Read the current user's stored preferences. A user who has never saved

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestGetUserSettingsDefaultsWhenUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUserSettings: %v", err)
 	}
-	if got != (UserSettings{}) {
+	if !reflect.DeepEqual(got, UserSettings{}) {
 		t.Errorf("unset settings = %+v, want zero value", got)
 	}
 
@@ -30,7 +31,7 @@ func TestGetUserSettingsDefaultsWhenUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUserSettings for unknown user: %v", err)
 	}
-	if got != (UserSettings{}) {
+	if !reflect.DeepEqual(got, UserSettings{}) {
 		t.Errorf("unknown-user settings = %+v, want zero value", got)
 	}
 }
@@ -99,7 +100,7 @@ func TestPatchUserSettings(t *testing.T) {
 				if err != nil {
 					t.Fatalf("PatchUserSettings: %v", err)
 				}
-				if got != tt.want {
+				if !reflect.DeepEqual(got, tt.want) {
 					t.Errorf("returned settings = %+v, want %+v", got, tt.want)
 				}
 			}
@@ -111,7 +112,7 @@ func TestPatchUserSettings(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetUserSettings: %v", err)
 			}
-			if stored != tt.want {
+			if !reflect.DeepEqual(stored, tt.want) {
 				t.Errorf("stored settings = %+v, want %+v", stored, tt.want)
 			}
 		})

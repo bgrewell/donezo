@@ -15,8 +15,13 @@ const LOOP: { keyword: string; line: string }[] = [
 /** First-run welcome: what donezo is, the loop, and the one habit.
  *  Escape and backdrop click behave like "Just start". */
 export function WelcomeDialog() {
-  const { welcomed, tourStep, markWelcomed, startTour } = useOnboarding();
-  const open = !welcomed && tourStep === null;
+  const { welcomed, hydrated, tourStep, markWelcomed, startTour } = useOnboarding();
+  // Wait for the server's answer before deciding this is a first run. Local
+  // state alone says "never welcomed" on every new browser, so opening on it
+  // would flash the dialog up and snatch it away the moment the real answer
+  // arrives. `hydrated` is set even when the read fails, so an offline load
+  // still reaches the welcome rather than hanging on it.
+  const open = hydrated && !welcomed && tourStep === null;
   // Holds focus when reopened via Help > Reset first-run (Radix menus
   // refocus their trigger after closing, stealing it from the dialog).
   const focusRef = useDialogFocusReassert(open);
