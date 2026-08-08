@@ -425,3 +425,70 @@ func convertResponse(it store.InboxItem, c store.Conversion) map[string]any {
 	}
 	return resp
 }
+
+// noteTargetKinds are the kinds a note may become.
+//
+// Narrower than itemKinds on purpose. Note-to-note is an edit dressed up as a
+// conversion, and note-to-project is not a sensible target — a note is a piece
+// of content, not a stream of work, and someone wanting a project almost
+// certainly wants a project with this note attached to it.
+var noteTargetKinds = []string{"task", "reminder", "activity"}
+
+// handleConvertNote turns a note into a task, reminder, or activity.
+//
+// Unlike the inbox route the source does not survive: an inbox capture is a
+// log of what was captured and stays behind re-statused, whereas leaving the
+// note would mean the same content exists twice. The store does both halves in
+// one transaction, so a failure here leaves the note exactly where it was.
+func (s *Server) handleConvertNote(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Kind     string               `json:"kind"`
+		Task     *store.TaskItem      `json:"task"`
+		Reminder *store.Reminder      `json:"reminder"`
+		Activity *store.ActivityEntry `json:"activity"`
+	}
+	if !s.decodeBody(w, r, &req) {
+		return
+	}
+	// Check the kind against the narrower set before the shared validator,
+	// so "note" and "project" get a message naming what a note can become
+	// rather than the generic unknown-kind one.
+	if err := oneOf("kind", req.Kind, noteTargetKinds); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	conv := store.Conversion{
+		Kind:     req.Kind,
+		Task:     req.Task,
+		Reminder: req.Reminder,
+		Activity: req.Activity,
+	}
+	if err := validateConversion(conv); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	note, err := s.spaces.ConvertNote(r.Context(), sp.ID, r.PathValue("nid"), conv)
+	if err != nil {
+		// A duplicate here is the created entity's id, not the note's.
+		if errors.Is(err, store.ErrDuplicateID) {
+			writeError(w, http.StatusConflict, conv.Kind+" id already exists")
+			return
+		}
+		s.writeStoreError(w, "note", err)
+		return
+	}
+	resp := map[string]any{"note": note}
+	switch conv.Kind {
+	case "task":
+		resp["task"] = *conv.Task
+	case "reminder":
+		resp["reminder"] = *conv.Reminder
+	case "activity":
+		resp["activity"] = *conv.Activity
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
