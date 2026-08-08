@@ -36,6 +36,12 @@ export function nowLocalISO(): string {
   return format(new Date(), "yyyy-MM-dd'T'HH:mm:ss");
 }
 
+/** Normalize a datetime-local input value to the seconds-bearing local ISO
+ *  the API expects (2026-07-26T09:00 → 2026-07-26T09:00:00). */
+export function withSeconds(dt: string): string {
+  return dt.length === 16 ? `${dt}:00` : dt;
+}
+
 export function addDaysISO(iso: string, n: number): string {
   return toISODate(addDays(parseDate(iso), n));
 }

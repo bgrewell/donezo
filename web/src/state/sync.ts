@@ -107,6 +107,13 @@ export function syncAction(spaceId: string, action: AppAction): Promise<unknown>
       if (action.project) body.project = action.project;
       return api.post(`${base}/inbox/${action.id}/convert`, body);
     }
+    case "CONVERT_NOTE": {
+      const body: Record<string, unknown> = { kind: action.kind };
+      if (action.task) body.task = action.task;
+      if (action.reminder) body.reminder = action.reminder;
+      if (action.activity) body.activity = action.activity;
+      return api.post(`${base}/notes/${action.id}/convert`, body);
+    }
     default:
       return null;
   }

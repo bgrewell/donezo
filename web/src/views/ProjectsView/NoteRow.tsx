@@ -5,20 +5,23 @@ import type { NoteItem } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
 import { ProjectSelect } from "@/components/capture/ProjectSelect";
+import { ConvertNotePanel } from "./ConvertNotePanel";
 
 /** Body preview for a collapsed note row. */
 function excerpt(text: string, max = 100): string {
   return text.length <= max ? text : `${text.slice(0, max).trimEnd()}…`;
 }
 
-type Mode = "view" | "edit" | "confirm-delete";
+type Mode = "view" | "edit" | "convert" | "confirm-delete";
 
-/** One note, with in-place edit and a two-click delete.
+/** One note, with in-place edit, conversion, and a two-click delete.
  *
  *  Delete is a plain confirm rather than the typed-name confirmation a
  *  project needs: a note owns nothing, so removing one cannot cascade.
  *  Editing follows the Inspector's shape — a draft seeded from the note,
- *  discarded on cancel — so the two editable surfaces behave the same way. */
+ *  discarded on cancel — so the two editable surfaces behave the same way.
+ *  Convert also removes the note, but it is not a second delete confirm: the
+ *  panel is the deliberate step and says what will happen before it does. */
 export function NoteRow({ note }: { note: NoteItem }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
@@ -108,12 +111,16 @@ export function NoteRow({ note }: { note: NoteItem }) {
             <Button size="sm" variant="ghost" noGlyph onClick={startEdit}>
               Edit
             </Button>
+            <Button size="sm" variant="ghost" noGlyph onClick={() => setMode("convert")}>
+              Convert
+            </Button>
             <Button size="sm" variant="ghost" noGlyph onClick={() => setMode("confirm-delete")}>
               Delete
             </Button>
           </div>
         )}
       </div>
+      {mode === "convert" && <ConvertNotePanel note={note} onDone={() => setMode("view")} />}
       {mode === "confirm-delete" && (
         <div className="mt-2 flex items-center gap-2">
           <span className="font-mono text-[0.66rem] lowercase tracking-label text-gtc-muted">

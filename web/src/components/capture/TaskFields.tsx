@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Input } from "@grewelltech/console";
 
 import type { Project } from "@/domain/types";
@@ -19,15 +20,19 @@ export function TaskFields({
   due: string;
   onDue: (due: string) => void;
 }) {
+  // Generated, not fixed: quick capture is no longer the only mount — a note
+  // being converted renders these too, and two of them on one page would
+  // point every label at the first input.
+  const dueId = React.useId();
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <div className="min-w-[11rem] flex-1">
         <ProjectSelect projects={projects} value={projectId} onChange={onProjectId} />
       </div>
       <span className="flex shrink-0 items-center gap-2">
-        <QuietLabel htmlFor="qc-task-due">Due</QuietLabel>
+        <QuietLabel htmlFor={dueId}>Due</QuietLabel>
         <Input
-          id="qc-task-due"
+          id={dueId}
           type="date"
           value={due}
           onChange={(e) => onDue(e.target.value)}

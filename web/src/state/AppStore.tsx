@@ -6,6 +6,7 @@ import type {
   InboxItem,
   ItemKind,
   NoteItem,
+  NoteTargetKind,
   Project,
   Reminder,
   TaskItem,
@@ -119,6 +120,19 @@ export type AppAction =
       reminder?: Reminder;
       activity?: ActivityEntry;
       project?: Project;
+    }
+  | {
+      /** Atomically turn an existing note into a task, reminder, or activity.
+       *  Not a variant of CONVERT_INBOX: an inbox capture survives its
+       *  conversion (it is a log of what was captured, re-statused in place),
+       *  whereas the note is removed — leaving it would mean the same content
+       *  exists twice. */
+      type: "CONVERT_NOTE";
+      id: string;
+      kind: NoteTargetKind;
+      task?: TaskItem;
+      reminder?: Reminder;
+      activity?: ActivityEntry;
     };
 
 function patchById<T extends { id: string }>(list: T[], id: string, patch: Partial<T>): T[] {
@@ -274,6 +288,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       if (action.reminder) next.reminders = [...next.reminders, action.reminder];
       if (action.activity) next.activities = [...next.activities, action.activity];
       if (action.project) next.projects = [...next.projects, action.project];
+      return next;
+    }
+    case "CONVERT_NOTE": {
+      // Remove-then-append, where CONVERT_INBOX patches-then-appends: the
+      // server deletes the note in the same transaction that creates the
+      // target, so leaving it on screen would show something that no longer
+      // exists until the next refresh.
+      const next: AppState = {
+        ...state,
+        notes: state.notes.filter((n) => n.id !== action.id),
+      };
+      if (action.task) next.tasks = [...next.tasks, action.task];
+      if (action.reminder) next.reminders = [...next.reminders, action.reminder];
+      if (action.activity) next.activities = [...next.activities, action.activity];
       return next;
     }
   }

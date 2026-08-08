@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Input, Select } from "@grewelltech/console";
 
 import type { ActivityType, Project } from "@/domain/types";
@@ -30,6 +31,9 @@ export function ActivityFields({
   effort: string;
   onEffort: (effort: string) => void;
 }) {
+  // Generated, not fixed: see TaskFields — these mount outside quick capture
+  // now, and a duplicate id would misdirect the label.
+  const hoursId = React.useId();
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <div className="min-w-[8.5rem] flex-1">
@@ -59,9 +63,9 @@ export function ActivityFields({
       {/* Label + input wrap together — a lone hours box on the next row
           reads as detached. */}
       <span className="flex shrink-0 items-center gap-2">
-        <QuietLabel htmlFor="qc-activity-hours">Hours</QuietLabel>
+        <QuietLabel htmlFor={hoursId}>Hours</QuietLabel>
         <Input
-          id="qc-activity-hours"
+          id={hoursId}
           type="number"
           step={0.5}
           min={0}
