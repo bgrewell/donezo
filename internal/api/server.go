@@ -26,21 +26,22 @@ const (
 
 // Server wires the stores to the HTTP surface.
 type Server struct {
-	core       *store.CoreStore
-	spaces     *store.SpaceStore
-	auth       Authenticator
-	passwords  auth.PasswordHasher
-	limiter    *auth.RateLimiter
-	mcpLimiter *auth.RateLimiter
-	llm        llm.Client
-	prompts    *llm.PromptSet
-	revisions  *revisions
-	llmLimiter *auth.RateLimiter
-	clock      func() time.Time
-	trustProxy bool
-	logger     *log.Logger
-	ui         fs.FS
-	version    string
+	core        *store.CoreStore
+	spaces      *store.SpaceStore
+	auth        Authenticator
+	passwords   auth.PasswordHasher
+	limiter     *auth.RateLimiter
+	mcpLimiter  *auth.RateLimiter
+	llm         llm.Client
+	prompts     *llm.PromptSet
+	revisions   *revisions
+	hideVersion bool
+	llmLimiter  *auth.RateLimiter
+	clock       func() time.Time
+	trustProxy  bool
+	logger      *log.Logger
+	ui          fs.FS
+	version     string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -80,6 +81,14 @@ func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
 // deployment, not a degraded one.
 func WithLLM(c llm.Client) ServerOption {
 	return func(s *Server) { s.llm = c }
+}
+
+// WithHideVersion suppresses the version in GET /api/instance, so the web UI
+// has nothing to show. The operator's call: a version in the corner of the
+// screen is useful while dogfooding and tells a stranger which build to look
+// up exploits for once the instance is public.
+func WithHideVersion(hide bool) ServerOption {
+	return func(s *Server) { s.hideVersion = hide }
 }
 
 // WithPrompts installs the prompt set the model endpoints serve, which is
@@ -204,6 +213,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/invites/{id}", s.handleRevokeInvite)
 	mux.HandleFunc("GET /api/llm", s.handleLLMStatus)
 	mux.HandleFunc("POST /api/llm/rewrite", s.handleLLMRewrite)
+	mux.HandleFunc("GET /api/instance", s.handleInstance)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
 	mux.HandleFunc("GET /api/tokens", s.handleListTokens)
@@ -248,6 +258,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/invites/{id}":                    http.MethodDelete,
 		"/api/llm":                             http.MethodGet,
 		"/api/llm/rewrite":                     http.MethodPost,
+		"/api/instance":                        http.MethodGet,
 		"/api/settings":                        "GET, PATCH",
 		"/api/tokens":                          "GET, POST",
 		"/api/tokens/{id}":                     http.MethodDelete,
@@ -353,6 +364,24 @@ func (s *Server) handleSpaceState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
+}
+
+// handleInstance describes the running instance to a signed-in client.
+//
+// Version only, for now. It is behind auth and omitted entirely when the
+// operator sets --hide-version: an exact build number is of more use to
+// somebody probing a public instance than to the people using it, so this is
+// theirs to switch off rather than something the UI decides.
+func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
+	if _, ok := userFrom(r.Context()); !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	out := map[string]string{}
+	if !s.hideVersion {
+		out["version"] = s.version
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleSpaceRevision reports a space's change counter.

@@ -26,6 +26,8 @@ const (
 	EnvSeed = "DONEZOD_SEED"
 	// EnvTrustProxy overrides --trust-proxy.
 	EnvTrustProxy = "DONEZOD_TRUST_PROXY"
+	// EnvHideVersion overrides --hide-version.
+	EnvHideVersion = "DONEZOD_HIDE_VERSION"
 	// EnvDevAutoLogin overrides --dev-auto-login.
 	EnvDevAutoLogin = "DONEZOD_DEV_AUTO_LOGIN"
 	// EnvLLMProvider overrides --llm-provider.
@@ -60,6 +62,12 @@ type Config struct {
 	// off when clients can reach donezod directly — both headers are
 	// then attacker-controlled and are ignored.
 	TrustProxy bool
+
+	// HideVersion stops the running version being reported to the web UI,
+	// which otherwise shows it in the nav rail. Useful once an instance is
+	// stable and public: knowing the exact build is of more use to somebody
+	// probing it than to the people using it.
+	HideVersion bool
 	// DevAutoLogin disables authentication and attributes every request
 	// to the seeded dev user. It exists purely for frontend development
 	// and tests; Validate refuses it unless DataDir is under /tmp or

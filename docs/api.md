@@ -26,6 +26,7 @@ donezo frontend itself).
 | `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
 | `GET /api/llm`                                     | Any user: `{enabled, provider?, model?, prompts[]}` — whether this instance has a model configured. Prompts are listed either way |
 | `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `400` if the text exceeds 4000 characters (refused, never truncated), `503` when no model is configured, `502` when it cannot be reached or the reply was cut off, `504` on timeout, `429` past 20 calls / 5 min per user |
+| `GET /api/instance`                                | Any user: `{version?}` — what this donezod is. `version` is **absent** when the operator runs `--hide-version`; the web UI shows it in the nav rail when present |
 | `GET /api/settings`                                | Any user: own preferences → `200 {settings}`. Never having saved one returns `{}`, not `404` |
 | `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?, welcomed?, tourDone?, dismissedHints?, resetOnboarding?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears an appearance one so it follows the default again. Onboarding fields merge one way — see below. Acts on the authenticated user only — there is no user id in the path |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
@@ -183,6 +184,8 @@ Configuration is **instance-wide** and read from the environment at startup — 
 | `DONEZOD_LLM_API_KEY` | for `anthropic` | **Environment only — there is no flag.** A key passed as an argument is visible in the host's process list to every user |
 
 `--llm-provider`, `--llm-base-url`, and `--llm-model` exist as flags too; the API key does not, by design.
+
+**Showing the running version.** The web UI puts the build in the nav rail, above the collapse control, so "is this the build I just deployed?" is answerable by looking rather than by checking the release page. `--hide-version` / `DONEZOD_HIDE_VERSION=1` switches it off by omitting the field from `GET /api/instance` entirely — a client then cannot tell a hidden version from a server too old to report one. It is worth switching off once an instance is public: an exact build number is of more use to somebody looking up which exploits apply than to the people using it.
 
 **Providers.** `anthropic` calls the Claude API through the official Go SDK. `openai-compatible` speaks `POST /v1/chat/completions`, which is what local runtimes serve — Ollama, LM Studio, llama.cpp's server, vLLM — as well as most hosted gateways. That is the one to use to keep everything on your own machine:
 
