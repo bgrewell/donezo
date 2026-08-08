@@ -69,6 +69,7 @@ type Handler struct {
 	logger     *log.Logger
 	version    string
 	trustProxy bool
+	onWrite    func(spaceID string)
 
 	server      *mcpsdk.Server
 	httpHandler http.Handler
@@ -121,6 +122,17 @@ func WithRateLimiter(l *auth.RateLimiter) Option {
 // independent layer under bearer-token auth against loopback rebinding.
 func WithTrustProxy(trust bool) Option {
 	return func(h *Handler) { h.trustProxy = trust }
+}
+
+// WithOnWrite installs a callback invoked with the space id after a write
+// tool succeeds. donezod uses it to bump that space's revision, so a browser
+// watching the space learns about changes an LLM made without it.
+//
+// It fires only for tools marked as writes, and only when the call did not
+// report an error: a refused or failed tool changed nothing, and treating it
+// as a change would make every connected client refetch identical state.
+func WithOnWrite(fn func(spaceID string)) Option {
+	return func(h *Handler) { h.onWrite = fn }
 }
 
 // NewHandler builds an MCP Handler over the given stores. By default

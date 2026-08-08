@@ -79,7 +79,7 @@ func registerTools(server *mcpsdk.Server, h *Handler) {
 			Title:       t.title,
 			Description: t.description,
 			InputSchema: t.inputSchema,
-		}, h.adaptTool(t.handler))
+		}, h.adaptTool(t))
 	}
 }
 
@@ -89,7 +89,7 @@ func registerTools(server *mcpsdk.Server, h *Handler) {
 // and packages the (text, isError) result as a single text content block.
 // Handler-level validation failures surface as isError results — never
 // protocol errors — so the LLM can read the reason and self-correct.
-func (h *Handler) adaptTool(fn toolHandler) mcpsdk.ToolHandler {
+func (h *Handler) adaptTool(t tool) mcpsdk.ToolHandler {
 	return func(ctx context.Context, req *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		c, ok := callerFrom(ctx)
 		if !ok {
@@ -101,9 +101,32 @@ func (h *Handler) adaptTool(fn toolHandler) mcpsdk.ToolHandler {
 		if len(args) == 0 {
 			args = json.RawMessage("{}")
 		}
-		text, isErr := fn(ctx, h, c, args)
+		text, isErr := t.handler(ctx, h, c, args)
+		// One choke point for "an LLM changed something": every tool is
+		// registered through here, so a new write tool is covered without
+		// anyone remembering to wire it up. Only successful writes count —
+		// a refused call changed nothing.
+		if t.write && !isErr && h.onWrite != nil {
+			if spaceID := spaceIDFromArgs(args); spaceID != "" {
+				h.onWrite(spaceID)
+			}
+		}
 		return toolTextResult(text, isErr), nil
 	}
+}
+
+// spaceIDFromArgs pulls the space id out of a tool's raw arguments. Every
+// tool in the surface takes one — there is no implicit "active space" over
+// MCP — so this needs no per-tool knowledge. An unparseable or absent id
+// reports "", and the caller simply does not record a change.
+func spaceIDFromArgs(args json.RawMessage) string {
+	var probe struct {
+		SpaceID string `json:"space_id"`
+	}
+	if err := json.Unmarshal(args, &probe); err != nil {
+		return ""
+	}
+	return probe.SpaceID
 }
 
 // toolTextResult builds a tools/call result: one text content block plus the

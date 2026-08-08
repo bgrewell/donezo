@@ -256,6 +256,22 @@ export function fetchSpaceState(spaceId: string): Promise<SpaceData> {
   return api.get<SpaceData>(`/api/spaces/${encodeURIComponent(spaceId)}/state`);
 }
 
+/** GET /api/spaces/{id}/revision — a counter that moves whenever anything in
+ *  the space changes, from any client or over MCP.
+ *
+ *  Polled every few seconds by every open tab, so it is deliberately the
+ *  cheapest call in the API: the server answers it from memory without
+ *  touching the space database. Compare it to the last value seen and refetch
+ *  state only when it moves. It is meaningful only within one donezod
+ *  process — a restart returns it to zero, which reads as a change and costs
+ *  one refetch. */
+export async function fetchSpaceRevision(spaceId: string): Promise<number> {
+  const res = await api.get<{ revision: number }>(
+    `/api/spaces/${encodeURIComponent(spaceId)}/revision`
+  );
+  return res.revision;
+}
+
 export async function createSpace(name: string, color: string): Promise<Space> {
   return (await api.post<{ space: Space }>("/api/spaces", { name, color })).space;
 }
