@@ -33,6 +33,13 @@ type UserSettings struct {
 	Font string `json:"font,omitempty"`
 	// FontSize is the selected text-size id.
 	FontSize string `json:"fontSize,omitempty"`
+
+	// Welcomed records that the first-run welcome has been acknowledged.
+	Welcomed bool `json:"welcomed,omitempty"`
+	// TourDone records that the tour was completed or skipped at least once.
+	TourDone bool `json:"tourDone,omitempty"`
+	// DismissedHints holds the ids of hint chips the user has dismissed.
+	DismissedHints []string `json:"dismissedHints,omitempty"`
 }
 
 // GetUserSettings returns a user's stored preferences. A user with no stored
