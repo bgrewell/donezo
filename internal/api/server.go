@@ -34,6 +34,7 @@ type Server struct {
 	mcpLimiter *auth.RateLimiter
 	llm        llm.Client
 	prompts    *llm.PromptSet
+	revisions  *revisions
 	llmLimiter *auth.RateLimiter
 	clock      func() time.Time
 	trustProxy bool
@@ -178,6 +179,9 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 	if s.prompts == nil {
 		s.prompts = llm.BuiltInPromptSet()
 	}
+	if s.revisions == nil {
+		s.revisions = newRevisions()
+	}
 	if s.version == "" {
 		s.version = "dev"
 	}
@@ -211,6 +215,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/spaces/{id}/archive", s.handleArchiveSpace)
 	mux.HandleFunc("POST /api/spaces/{id}/unarchive", s.handleUnarchiveSpace)
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
+	mux.HandleFunc("GET /api/spaces/{id}/revision", s.handleSpaceRevision)
 	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
 	mux.HandleFunc("PATCH /api/spaces/{id}/projects/{pid}", s.handlePatchProject)
 	mux.HandleFunc("DELETE /api/spaces/{id}/projects/{pid}", s.handleDeleteProject)
@@ -251,6 +256,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/archive":             http.MethodPost,
 		"/api/spaces/{id}/unarchive":           http.MethodPost,
 		"/api/spaces/{id}/state":               http.MethodGet,
+		"/api/spaces/{id}/revision":            http.MethodGet,
 		"/api/spaces/{id}/projects":            http.MethodPost,
 		"/api/spaces/{id}/projects/{pid}":      "PATCH, DELETE",
 		"/api/spaces/{id}/activities":          http.MethodPost,
@@ -282,6 +288,9 @@ func (s *Server) Handler() http.Handler {
 		mcp.WithLogger(s.logger),
 		mcp.WithVersion(s.version),
 		mcp.WithTrustProxy(s.trustProxy),
+		// Writes over MCP change the same spaces the REST surface does, and
+		// a browser watching one has no other way to learn about them.
+		mcp.WithOnWrite(s.revisions.Bump),
 	}
 	if s.mcpLimiter != nil {
 		mcpOpts = append(mcpOpts, mcp.WithRateLimiter(s.mcpLimiter))
@@ -299,7 +308,7 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusNotFound, "not found")
 		})
 	}
-	return s.withLogging(s.withAuth(mux))
+	return s.withLogging(s.withAuth(s.withRevisionTracking(mux)))
 }
 
 // handleHealthz reports liveness.
@@ -344,6 +353,25 @@ func (s *Server) handleSpaceState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
+}
+
+// handleSpaceRevision reports a space's change counter.
+//
+// This is the endpoint clients poll, so it stays deliberately tiny: no store
+// access at all, just an owned-space check and an integer. Anything heavier
+// would be paid every few seconds by every open tab.
+//
+// A client compares the number to the one it holds and refetches state only
+// when it moves. The counter is meaningful only within one donezod process —
+// a restart returns it to zero, which reads as "changed" and costs one
+// refetch. Erring towards a spurious refetch is deliberate: a missed one
+// leaves the screen quietly wrong, which is the failure this exists to remove.
+func (s *Server) handleSpaceRevision(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedSpace(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]uint64{"revision": s.revisions.Current(sp.ID)})
 }
 
 // ownedSpace resolves the {id} path segment to a space owned by the

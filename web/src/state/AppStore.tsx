@@ -64,6 +64,11 @@ export interface AppState {
 }
 
 export type AppAction =
+  /** Replace the server-owned half of the store with a fresh read, leaving
+   *  view, selection and dialog state alone. Local-only: syncAction maps it
+   *  to null, because it *is* the server's answer rather than a change to
+   *  send back. */
+  | { type: "REPLACE_STATE"; data: SpaceData }
   | { type: "SET_VIEW"; view: ViewId }
   | { type: "OPEN_PROJECT"; projectId: string }
   | { type: "CLOSE_PROJECT" }
@@ -122,6 +127,13 @@ function patchById<T extends { id: string }>(list: T[], id: string, patch: Parti
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
+    case "REPLACE_STATE":
+      // Spread the server's six collections over the current state so view,
+      // selection, filters and open dialogs survive a refresh. Replacing the
+      // whole object would snap the user back to the default view every time
+      // an agent wrote something, which is worse than the staleness this is
+      // meant to fix.
+      return { ...state, ...action.data };
     case "SET_VIEW":
       return {
         ...state,
@@ -356,6 +368,32 @@ interface SyncErrors {
 
 const SyncErrorsContext = React.createContext<SyncErrors | null>(null);
 
+/** How many mutations are in flight right now.
+ *
+ *  A ref rather than state on purpose: this changes on every request and
+ *  nothing should re-render because of it. Background refresh reads it to
+ *  decide whether a refetch is safe — a server read taken while a local write
+ *  is still in the air can predate that write and would roll the user's own
+ *  change back on screen until the next poll. */
+const SyncPendingContext = React.createContext<React.MutableRefObject<number> | null>(null);
+
+/** The space this store is bound to. */
+const SpaceIdContext = React.createContext<string | null>(null);
+
+/** The id of the space the surrounding store is bound to. */
+export function useSpaceId(): string {
+  const id = React.useContext(SpaceIdContext);
+  if (!id) throw new Error("useSpaceId must be used within AppProvider");
+  return id;
+}
+
+/** Ref holding the number of mutations currently in flight. */
+export function useSyncPending(): React.MutableRefObject<number> {
+  const ref = React.useContext(SyncPendingContext);
+  if (!ref) throw new Error("useSyncPending must be used within AppProvider");
+  return ref;
+}
+
 export function AppProvider({
   spaceId,
   initialData,
@@ -370,6 +408,7 @@ export function AppProvider({
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialData, initialState);
   const [failures, setFailures] = React.useState<SyncFailure[]>([]);
+  const pending = React.useRef(0);
 
   // Optional: present when the store is mounted under AuthGate. A 401
   // means the session died mid-use — retrying with the same dead cookie
@@ -384,7 +423,11 @@ export function AppProvider({
     (action: AppAction, failureId?: string) => {
       const request = syncAction(spaceId, action);
       if (!request) return;
+      pending.current++;
       request
+        .finally(() => {
+          pending.current = Math.max(0, pending.current - 1);
+        })
         .then(() => {
           if (failureId) {
             setFailures((prev) => prev.filter((f) => f.id !== failureId));
@@ -440,7 +483,11 @@ export function AppProvider({
   return (
     <StateContext.Provider value={state}>
       <DispatchContext.Provider value={appDispatch}>
-        <SyncErrorsContext.Provider value={syncErrors}>{children}</SyncErrorsContext.Provider>
+        <SyncErrorsContext.Provider value={syncErrors}>
+          <SyncPendingContext.Provider value={pending}>
+            <SpaceIdContext.Provider value={spaceId}>{children}</SpaceIdContext.Provider>
+          </SyncPendingContext.Provider>
+        </SyncErrorsContext.Provider>
       </DispatchContext.Provider>
     </StateContext.Provider>
   );

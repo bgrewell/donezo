@@ -130,3 +130,63 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 func defaultLogger() *log.Logger {
 	return log.New(os.Stderr, "donezod ", log.LstdFlags)
 }
+
+// spaceIDFromPath returns the space id in an "/api/spaces/{id}/..." path, or
+// "" for any other path.
+//
+// The revision middleware sits outside the mux, so r.PathValue is not
+// populated yet — the pattern has not been matched at that point. Parsing the
+// one path shape that matters is cheaper and clearer than routing twice.
+func spaceIDFromPath(path string) string {
+	const prefix = "/api/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		return rest[:i]
+	}
+	// "/api/spaces/{id}" itself — a space rename or archive, which changes
+	// the space rather than its contents. Still worth reporting.
+	return rest
+}
+
+// isMutatingMethod reports whether a method can change stored state.
+func isMutatingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// withRevisionTracking bumps a space's revision after a mutating request
+// against it succeeds, so pollers learn that something changed.
+//
+// It deliberately keys on the response status rather than the request: a
+// rejected write (validation, an archived space, a missing row) changes
+// nothing, and bumping for it would make every client refetch identical state.
+//
+// This covers the whole REST write surface in one place. Hanging the bump off
+// each of the store's ~30 mutating methods instead would work right up until
+// somebody adds the thirty-first and forgets. Writes arriving over MCP do not
+// pass through here at all — internal/mcp bumps the same counter from its own
+// single choke point.
+func (s *Server) withRevisionTracking(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		spaceID := ""
+		if isMutatingMethod(r.Method) {
+			spaceID = spaceIDFromPath(r.URL.Path)
+		}
+		if spaceID == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		if rec.status >= 200 && rec.status < 300 {
+			s.revisions.Bump(spaceID)
+		}
+	})
+}

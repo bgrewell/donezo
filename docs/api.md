@@ -33,6 +33,7 @@ donezo frontend itself).
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
 | `POST /api/spaces/{id}/archive` / `/unarchive`     | Stamp / clear `archivedAt` → `{space}`                                 |
 | `GET /api/spaces/{id}/state`                       | Full space content (projects, activities, tasks, notes, reminders, inbox) |
+| `GET /api/spaces/{id}/revision`                    | `{revision}` — a counter that moves whenever anything in the space changes. Answered from memory without touching the space database; this is the endpoint clients poll |
 | `POST /api/spaces/{id}/projects`                   | Create a project → `201`                                               |
 | `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`) |
 | `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional cascade → `200 {deleted}` with per-table counts: owned activities/tasks/notes are deleted; inbox suggestions and reminders survive with the project reference nulled |
@@ -99,6 +100,20 @@ deliberate, bounded disclosure: it is visible only to someone the admin
 already handed a valid code (anonymous login keeps its uniform `401`),
 and every registration attempt — including the `409` — spends the
 shared login/setup rate-limit budget.
+
+### Staying current
+
+The client only ever learned about changes it made itself, so a second tab, another machine, or an LLM writing over MCP were invisible until a manual reload. `GET /api/spaces/{id}/revision` fixes that: a counter per space, compared against the one the client holds, with a full `GET .../state` read only when it moves.
+
+**How the counter is maintained.** Two boundaries, both of which every write already passes through: HTTP middleware bumps it after a mutating request against `/api/spaces/{id}/...` returns 2xx, and `internal/mcp`'s tool adapter bumps it after a write tool succeeds. Hanging it off the store's ~30 mutating methods instead would work right up until somebody adds the thirty-first and forgets.
+
+It keys on the **response**, not the request: a rejected write changes nothing, and bumping for it would make every open tab refetch identical state.
+
+**Why not something derived from the database.** The space databases run with `SetMaxOpenConns(1)` — SQLite serializes writers and gains nothing from a bigger pool — so a connection dedicated to reading a change marker would hold the only connection and starve every write. On a single shared connection `PRAGMA data_version` never reflects that connection's own commits either. And only `projects` and `activities` carry `updated_at`, so there is no timestamp to take a maximum over.
+
+**It is in-memory and per-process.** A donezod restart returns every counter to zero, which reads as a change and costs each connected client one refetch. That is the harmless direction to fail in: a spurious refetch costs a request, a missed one leaves the screen quietly wrong.
+
+The web client polls every 4s while the tab is visible, stops entirely when it is hidden, and skips a refresh while its own writes are still in flight — a server read taken mid-write can predate it and would visibly roll the user's own change back. Nothing streams, so there is no long-lived connection to keep alive through a reverse proxy. Server-sent events would cut latency to well under a second and remain the obvious next step; this is the version that earns that complexity first.
 
 ### Settings and onboarding progress
 

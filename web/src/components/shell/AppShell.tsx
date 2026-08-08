@@ -1,7 +1,8 @@
 import * as React from "react";
 
-import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { useAppDispatch, useAppState, useSpaceId } from "@/state/AppStore";
 import { useAppearanceSync } from "@/state/useAppearanceSync";
+import { useSpaceFreshness } from "@/state/useSpaceFreshness";
 import { parseHash } from "@/lib/route";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { NavRail } from "./NavRail";
@@ -23,6 +24,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // rather than in ThemeProvider because the provider sits above the auth
   // gate, and an anonymous request has no settings to read.
   useAppearanceSync();
+  // Keep the store current as the server changes — another tab, another
+  // machine, or an agent writing over MCP. Mounted here for the same reason
+  // as appearance: it needs an authenticated session.
+  useSpaceFreshness(useSpaceId());
 
   // Hash → state for manual URL edits after load. (The initial hash seeds
   // AppStore.initialState directly — syncing it here raced under StrictMode.)
