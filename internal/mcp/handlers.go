@@ -902,6 +902,87 @@ func toolClassifyInboxItem(ctx context.Context, h *Handler, c caller, args json.
 	return jsonText(map[string]any{"kind": conv.Kind, "created": conversionPayload(conv), "inboxId": a.InboxID}), false
 }
 
+// convertNoteArgs is the convert_note argument set. Separate from
+// classifyArgs because the two conversions take different fields: a note
+// carries a body and a project of its own, and cannot become a note or a
+// project, so the name/color/body fields classify needs have no meaning here.
+type convertNoteArgs struct {
+	SpaceID   string `json:"space_id"`
+	NoteID    string `json:"note_id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Text      string `json:"text"`
+	RemindAt  string `json:"remind_at"`
+	ProjectID string `json:"project_id"`
+	Due       string `json:"due"`
+	Type      string `json:"type"`
+	Details   string `json:"details"`
+}
+
+func toolConvertNote(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a convertNoteArgs
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.NoteID) == "" {
+		return "note_id is required", true
+	}
+	// Checked against the narrower set, with a message naming what a note
+	// can actually become — "note" and "project" are the two an LLM is most
+	// likely to try, and the generic list would not explain the refusal.
+	if !oneOf(a.Kind, noteTargetKinds) {
+		return "kind must be one of " + strings.Join(noteTargetKinds, ", ") +
+			" — a note cannot become another note (use update_note) or a project", true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	// The note seeds every default, so an under-specified call carries the
+	// note's own content across instead of quietly destroying it.
+	note, err := h.spaces.GetNote(ctx, sp.ID, a.NoteID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return "note not found", true
+		}
+		h.logger.Printf("mcp convert note: get: %v", err)
+		return "internal error", true
+	}
+	projectID := a.ProjectID
+	if projectID == "" && note.ProjectID != nil {
+		projectID = *note.ProjectID
+	}
+	conv, vmsg, okc := h.buildConversion(classifyArgs{
+		Kind: a.Kind, Title: a.Title, Text: a.Text, RemindAt: a.RemindAt,
+		ProjectID: projectID, Due: a.Due, Type: a.Type,
+	}, note.Title)
+	if !okc {
+		return vmsg, true
+	}
+	if conv.Activity != nil {
+		// An activity is the one target with somewhere to keep the body.
+		// Source is manual, not capture: this came from a note somebody
+		// wrote and then reclassified, not from the capture buffer.
+		if a.Details != "" {
+			conv.Activity.Details = a.Details
+		} else {
+			conv.Activity.Details = note.Body
+		}
+		conv.Activity.Source = "manual"
+	}
+	if _, err := h.spaces.ConvertNote(ctx, sp.ID, a.NoteID, conv); err != nil {
+		return h.storeErrText("note", err), true
+	}
+	out := map[string]any{"kind": conv.Kind, "created": conversionPayload(conv), "noteId": a.NoteID, "noteRemoved": true}
+	if conv.Activity == nil && strings.TrimSpace(note.Body) != "" {
+		// The note is already gone by here, so this is a record of what was
+		// dropped rather than a warning that could still change the outcome.
+		out["droppedBody"] = note.Body
+		out["note"] = "the note's body was not carried over — a " + conv.Kind + " has nowhere to keep it"
+	}
+	return jsonText(out), false
+}
+
 // buildConversion assembles the store.Conversion for a classify call,
 // generating the target id and filling defaults from the raw capture.
 func (h *Handler) buildConversion(a classifyArgs, raw string) (store.Conversion, string, bool) {

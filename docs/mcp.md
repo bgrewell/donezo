@@ -49,6 +49,7 @@ is a summary, not the source of truth:
 | `create_reminder`     | write | Create a reminder that resurfaces at a specific time.                                           |
 | `create_project`      | write | Create a project — a stream of work with a purpose and an outcome.                              |
 | `classify_inbox_item` | write | Atomically convert a pending inbox capture into a task, note, reminder, activity, or project.    |
+| `convert_note`        | write | Turn an existing note into a task, reminder, or activity. The note is **removed** — unlike an inbox capture, which stays behind marked converted. |
 | `dismiss_inbox_item`  | write | Close out a reviewed capture that needs no follow-up. The other half of triage.                 |
 | `update_project`      | write | Update a project — its designations (next action, alternates, current focus, resume context, status) and descriptive fields (name, purpose, outcome, color, tags). Status is always a deliberate choice; the model never flips it automatically. |
 | `update_task`         | write | Change a task's title, status, due date, project, or what it's waiting on.                      |
@@ -57,7 +58,7 @@ is a summary, not the source of truth:
 | `update_reminder`     | write | Reschedule a reminder, change its text or project, or mark it handled.                          |
 | `delete_item`         | write | Permanently delete a task, note, reminder, activity, or inbox item. **Not** projects — see below. |
 
-The 9 `read` tools work with either scope; the 15 `write` tools require a
+The 9 `read` tools work with either scope; the 16 `write` tools require a
 `read_write` token. Which of these a token may call is governed by its
 **scope** (below).
 

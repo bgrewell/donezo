@@ -333,6 +333,7 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). |
 | `create_project` | write | A stream of work; only `name` required, `color` defaults to blue and `status` to active. |
 | `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. |
+| `convert_note` | write | Convert a note into a `task`/`reminder`/`activity`, deleting the note. Fields default from the note; its body reaches an activity's `details` and is otherwise lost. |
 | `dismiss_inbox_item` | write | Mark a pending capture `dismissed` (kept, not deleted); errors if it is already triaged. |
 | `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`). |
 | `update_task` | write | `title`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |
