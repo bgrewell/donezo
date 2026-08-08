@@ -56,6 +56,7 @@ func main() {
 	root.Flags.String("data-dir", "d", "Data directory for core.db and space databases", defaultDataDir).Env = config.EnvDataDir
 	root.Flags.String("seed", "s", "Seed JSON file to import before serving (skipped if already seeded)", "").Env = config.EnvSeed
 	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
+	root.Flags.Bool("hide-version", "", "Do not report the running version to the web UI (it is shown in the nav rail otherwise)", false).Env = config.EnvHideVersion
 	root.Flags.String("llm-provider", "", "Optional language-model provider: anthropic or openai-compatible (empty leaves model features off)", "").Env = config.EnvLLMProvider
 	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
 	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
@@ -82,6 +83,7 @@ func run(ctx *stencil.Context) error {
 		DataDir:      ctx.Flags.String("data-dir"),
 		SeedPath:     ctx.Flags.String("seed"),
 		TrustProxy:   ctx.Flags.Bool("trust-proxy"),
+		HideVersion:  ctx.Flags.Bool("hide-version"),
 		DevAutoLogin: ctx.Flags.Bool("dev-auto-login"),
 		LLMProvider:  ctx.Flags.String("llm-provider"),
 		LLMBaseURL:   ctx.Flags.String("llm-base-url"),
@@ -172,6 +174,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithMCPRateLimiter(mcpLimiter),
 		api.WithTrustProxy(cfg.TrustProxy),
 		api.WithServerVersion(appVersion),
+		api.WithHideVersion(cfg.HideVersion),
 	}
 	// The model connection is optional: an unconfigured donezo serves the
 	// same app with the model-backed affordances simply absent.

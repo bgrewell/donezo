@@ -1,3 +1,4 @@
+import * as React from "react";
 import {
   CalendarRange,
   FolderKanban,
@@ -12,6 +13,7 @@ import {
 import { cn } from "@grewelltech/console";
 
 import type { ViewId } from "@/domain/types";
+import { fetchInstance } from "@/api/client";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { Tip } from "@/components/ui/Tooltip";
 import { SpaceSwitcher } from "./SpaceSwitcher";
@@ -115,6 +117,8 @@ export function NavRail() {
         })}
       </nav>
 
+      <VersionLabel collapsed={navCollapsed} />
+
       <button
         type="button"
         onClick={() => dispatch({ type: "TOGGLE_NAV" })}
@@ -135,5 +139,58 @@ export function NavRail() {
         )}
       </button>
     </aside>
+  );
+}
+
+/** The running build, above the collapse control.
+ *
+ *  Worth the corner it occupies while donezo is being dogfooded: the question
+ *  it answers — "is what I am looking at the build I just deployed?" — came up
+ *  repeatedly, and reading it off the screen beats checking the release page.
+ *
+ *  Renders nothing when the server does not report a version, which is what
+ *  --hide-version does, and nothing while the first fetch is in flight so it
+ *  never flashes a placeholder. */
+function VersionLabel({ collapsed }: { collapsed: boolean }) {
+  const [version, setVersion] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchInstance()
+      .then((info) => {
+        if (!cancelled) setVersion(info.version ?? null);
+      })
+      .catch(() => {
+        // Best-effort chrome: a version nobody could fetch is not worth an
+        // error state, and everything else on this rail still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!version) return null;
+
+  // The bare number when collapsed — 52px of rail has no room for a "donezo"
+  // prefix — with the full string in the tooltip the rail already uses.
+  const short = version.replace(/^v/, "");
+  const label = (
+    <div
+      className={cn(
+        "flex h-6 shrink-0 select-none items-center border-t border-gtc-line",
+        "font-mono text-[0.6rem] uppercase tracking-chrome text-gtc-muted/70",
+        collapsed ? "justify-center" : "px-3.5"
+      )}
+    >
+      <span className="truncate">{collapsed ? short : `donezo ${version}`}</span>
+    </div>
+  );
+
+  return collapsed ? (
+    <Tip content={`donezo ${version}`} side="right">
+      {label}
+    </Tip>
+  ) : (
+    label
   );
 }

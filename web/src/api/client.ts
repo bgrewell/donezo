@@ -265,6 +265,18 @@ export function fetchSpaceState(spaceId: string): Promise<SpaceData> {
  *  state only when it moves. It is meaningful only within one donezod
  *  process — a restart returns it to zero, which reads as a change and costs
  *  one refetch. */
+/** GET /api/instance — what this donezod is.
+ *
+ *  `version` is absent when the operator runs with --hide-version, so callers
+ *  must treat "no version" as a normal answer rather than a failure. */
+export interface InstanceInfo {
+  version?: string;
+}
+
+export function fetchInstance(): Promise<InstanceInfo> {
+  return api.get<InstanceInfo>("/api/instance");
+}
+
 export async function fetchSpaceRevision(spaceId: string): Promise<number> {
   const res = await api.get<{ revision: number }>(
     `/api/spaces/${encodeURIComponent(spaceId)}/revision`
