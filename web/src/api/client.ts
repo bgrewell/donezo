@@ -295,6 +295,11 @@ export interface UserSettings {
    *  "show me the first run again" action, kept distinct so that resetting
    *  is never something a stale client does by accident. */
   resetOnboarding?: boolean;
+  /** This user's own wording for model prompts, keyed by prompt id. Each
+   *  value replaces that prompt's tunable body only — the fixed core is
+   *  appended regardless. An empty value clears the override, restoring the
+   *  instance's wording. Keys not mentioned are left alone. */
+  prompts?: Record<string, string>;
 }
 
 /** Read the current user's stored preferences. A user who has never saved
@@ -317,8 +322,25 @@ export interface LLMStatus {
   enabled: boolean;
   provider?: string;
   model?: string;
-  /** Built-in prompts, listed whether or not a model is configured. */
-  prompts: { id: string; description: string }[];
+  /** Prompts this instance serves, listed whether or not a model is
+   *  configured. */
+  prompts: LLMPrompt[];
+}
+
+/** One prompt, as the settings UI needs to render it. */
+export interface LLMPrompt {
+  id: string;
+  description: string;
+  /** The wording in effect for this user — their own if they have saved one,
+   *  otherwise the instance's. */
+  body: string;
+  /** What `body` falls back to when the user's own wording is cleared. */
+  default: string;
+  /** Appended to whatever `body` ends up being, and not editable. Shown so
+   *  the constraint is visible rather than a surprise. */
+  core: string;
+  /** Whether `body` came from this user's own settings. */
+  customized: boolean;
 }
 
 /** Read the instance's model configuration. */

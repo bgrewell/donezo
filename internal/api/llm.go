@@ -33,11 +33,23 @@ type llmStatus struct {
 	Prompts []llmPromptView `json:"prompts"`
 }
 
-// llmPromptView describes one prompt without exposing its instruction
-// text, which is donezo's to tune rather than a client's to depend on.
+// llmPromptView describes one prompt, including the instruction text, because
+// the settings UI has to render what the user is editing.
+//
+// Body is what this user would actually get today — their own wording if they
+// have saved one, otherwise the operator's or the built-in. Default is the
+// wording Body falls back to, so the UI can offer "reset to default" and show
+// whether anything is overridden. Core is shown read-only: it is appended to
+// whatever Body ends up being, and a constraint the user cannot see is worse
+// than one they can.
 type llmPromptView struct {
 	ID          string `json:"id"`
 	Description string `json:"description"`
+	Body        string `json:"body"`
+	Default     string `json:"default"`
+	Core        string `json:"core"`
+	// Customized reports whether Body came from this user's own settings.
+	Customized bool `json:"customized"`
 }
 
 // llmRewriteRequest is the POST /api/llm/rewrite body.
@@ -55,14 +67,33 @@ type llmRewriteResponse struct {
 
 // handleLLMStatus reports whether model features are available.
 func (s *Server) handleLLMStatus(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFrom(r.Context()); !ok {
+	user, ok := userFrom(r.Context())
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
+	}
+	// A failed settings read must not take the status endpoint down with it:
+	// the UI uses this to decide whether to offer model features at all, and
+	// "your own wording" is the least important thing on the response.
+	settings, err := s.core.GetUserSettings(r.Context(), user.ID)
+	if err != nil {
+		s.logger.Printf("llm status: get user settings: %v", err)
 	}
 	available := s.promptSet().All()
 	prompts := make([]llmPromptView, 0, len(available))
 	for _, p := range available {
-		prompts = append(prompts, llmPromptView{ID: p.ID, Description: p.Description})
+		view := llmPromptView{
+			ID:          p.ID,
+			Description: p.Description,
+			Body:        p.Body,
+			Default:     p.Body,
+			Core:        p.Core,
+		}
+		if own, ok := settings.Prompts[p.ID]; ok && strings.TrimSpace(own) != "" {
+			view.Body = own
+			view.Customized = true
+		}
+		prompts = append(prompts, view)
 	}
 	client := s.llmClient()
 	_, disabled := client.(llm.Disabled)
@@ -89,6 +120,18 @@ func (s *Server) handleLLMRewrite(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		writeError(w, http.StatusBadRequest, "unknown promptId")
 		return
+	}
+	// This user's own wording, if they have saved any, replaces the body.
+	// Only the body: Prompt.System appends the core regardless, so a tuned
+	// prompt can change how far a rewrite goes but not whether the note's own
+	// text is treated as content rather than as instructions.
+	//
+	// A failed read falls back to the shared wording rather than refusing the
+	// call — the rewrite still works, it is just not personalised.
+	if settings, err := s.core.GetUserSettings(r.Context(), user.ID); err != nil {
+		s.logger.Printf("llm rewrite: get user settings: %v", err)
+	} else if own, ok := settings.Prompts[prompt.ID]; ok && strings.TrimSpace(own) != "" {
+		prompt.Body = own
 	}
 	text := strings.TrimSpace(req.Text)
 	if text == "" {
@@ -118,7 +161,7 @@ func (s *Server) handleLLMRewrite(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), llm.DefaultTimeout)
 	defer cancel()
 
-	reply, err := client.Complete(ctx, prompt.System, text)
+	reply, err := client.Complete(ctx, prompt.System(), text)
 	switch {
 	case errors.Is(err, llm.ErrNotConfigured):
 		writeError(w, http.StatusServiceUnavailable, "no language model is configured")

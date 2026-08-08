@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 
+	"github.com/bgrewell/donezo/internal/llm"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -34,7 +36,17 @@ type settingsPatch struct {
 	// explicit intent rather than something a stale client can do by
 	// accident — see apply.
 	ResetOnboarding *bool `json:"resetOnboarding"`
+
+	// Prompts sets this user's own wording for language-model prompts, keyed
+	// by prompt id. An empty value clears that key, so the operator's or the
+	// built-in wording applies again. Keys not mentioned are left alone.
+	Prompts map[string]string `json:"prompts"`
 }
+
+// maxPromptBodyRunes bounds one user-supplied prompt body. The instruction is
+// sent on every polish call, so an unbounded one is a standing token cost as
+// well as an unbounded settings document.
+const maxPromptBodyRunes = 4000
 
 // maxDismissedHints bounds the stored hint list. Hint ids come from the
 // client, so without a ceiling a buggy or hostile caller could grow one
@@ -52,7 +64,24 @@ func (p settingsPatch) validate() error {
 		optionalOneOf("font", p.Font, fontIDs),
 		optionalOneOf("fontSize", p.FontSize, fontSizeIDs),
 		p.validateHints(),
+		p.validatePrompts(),
 	)
+}
+
+// validatePrompts checks that each key names a prompt this build serves and
+// that each body is within size. An unknown id is refused rather than stored:
+// a typo would otherwise be saved and silently never used, which looks exactly
+// like the setting not working.
+func (p settingsPatch) validatePrompts() error {
+	for id, body := range p.Prompts {
+		if _, known := llm.BuiltInPromptSet().ByID(id); !known {
+			return fmt.Errorf("unknown prompt id %q", id)
+		}
+		if utf8.RuneCountInString(body) > maxPromptBodyRunes {
+			return fmt.Errorf("prompt %q must be at most %d characters", id, maxPromptBodyRunes)
+		}
+	}
+	return nil
 }
 
 // validateHints bounds the hint ids a caller may add in one patch. The stored
@@ -114,6 +143,23 @@ func (p settingsPatch) apply(s *store.UserSettings) error {
 		s.Welcomed = false
 		s.TourDone = false
 		s.DismissedHints = nil
+	}
+	for id, body := range p.Prompts {
+		trimmed := strings.TrimSpace(body)
+		if trimmed == "" {
+			// Clearing is how a user goes back to the shipped wording, so an
+			// empty value deletes the key rather than storing a blank
+			// instruction that would be sent as the whole body.
+			delete(s.Prompts, id)
+			continue
+		}
+		if s.Prompts == nil {
+			s.Prompts = make(map[string]string, len(p.Prompts))
+		}
+		s.Prompts[id] = trimmed
+	}
+	if len(s.Prompts) == 0 {
+		s.Prompts = nil
 	}
 	return nil
 }

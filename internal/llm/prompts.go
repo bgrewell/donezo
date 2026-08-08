@@ -23,8 +23,13 @@ const maxPromptFileBytes = 64 << 10
 // wording stays visible next to an override and keeps up with upgrades.
 const defaultSuffix = ".default.txt"
 
-// overrideSuffix names the file an operator edits to replace a prompt.
+// overrideSuffix names the file an operator edits to replace a prompt body.
 const overrideSuffix = ".txt"
+
+// coreSuffix names the reference copy of the part that is always appended and
+// never replaceable. Written every start, like the default; reading it back
+// would defeat the point of it being fixed.
+const coreSuffix = ".core.txt"
 
 // PromptSet is the set of prompts one donezod serves.
 //
@@ -95,10 +100,12 @@ func (s *PromptSet) Overridden() []string {
 
 // LoadPrompts returns donezo's prompts with any on-disk overrides applied.
 //
-// For each built-in prompt it writes "<id>.default.txt" into dir, refreshed
-// on every start: the shipped wording is then visible next to the override
-// and keeps up with upgrades. If "<id>.txt" exists and holds more than
-// whitespace, its contents replace that prompt's instruction text.
+// For each built-in prompt it writes "<id>.default.txt" (the shipped body) and
+// "<id>.core.txt" (the fixed part appended to every prompt) into dir, both
+// refreshed on every start: the shipped wording stays visible next to an
+// override and keeps up with upgrades. If "<id>.txt" exists and holds more
+// than whitespace, its contents replace that prompt's BODY. The core is not
+// replaceable — see Prompt.Core for why.
 //
 // The returned set is always usable, including when err is non-nil — a data
 // directory that cannot be written is a reason to run on the built-in
@@ -120,16 +127,25 @@ func LoadPrompts(dir string) (*PromptSet, error) {
 
 	for _, p := range BuiltInPrompts {
 		refPath := filepath.Join(dir, p.ID+defaultSuffix)
-		if err := os.WriteFile(refPath, []byte(p.System+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(refPath, []byte(p.Body+"\n"), 0o600); err != nil {
 			problems = append(problems, fmt.Errorf("write %s: %w", refPath, err))
 		}
+		// The core is written too, read-only in practice, so what is always
+		// appended is visible rather than a surprise in the request log.
+		corePath := filepath.Join(dir, p.ID+coreSuffix)
+		if err := os.WriteFile(corePath, []byte(p.Core+"\n"), 0o600); err != nil {
+			problems = append(problems, fmt.Errorf("write %s: %w", corePath, err))
+		}
 
-		system, ok, err := readOverride(filepath.Join(dir, p.ID+overrideSuffix))
+		body, ok, err := readOverride(filepath.Join(dir, p.ID+overrideSuffix))
 		if err != nil {
 			problems = append(problems, err)
 		}
 		if ok {
-			p.System = system
+			// Replaces the body only. The core is not the operator's to drop
+			// any more than it is the user's — it is what keeps a rewrite from
+			// being harmful rather than merely not to taste.
+			p.Body = body
 			overridden = append(overridden, p.ID)
 		}
 		prompts = append(prompts, p)
