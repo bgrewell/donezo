@@ -4,7 +4,7 @@ import { Button, Field, Input, SectionLabel, Select, cn } from "@grewelltech/con
 
 import type { ActivityEntry, ActivityType } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
-import { projectById, selectedActivity } from "@/state/selectors";
+import { isClosedProject, projectById, selectedActivity } from "@/state/selectors";
 import { formatFull } from "@/lib/time";
 import { projectColorVar } from "@/lib/projectColors";
 import { ProjectMark } from "@/components/common/ProjectMark";
@@ -53,6 +53,10 @@ interface Draft {
   type: ActivityType;
   effort: string;
   nextAction: string;
+  /** Which project the activity belongs to. Editable so a fact logged
+   *  against the wrong project can be reattributed rather than deleted and
+   *  retyped, which would lose its date, effort and id. */
+  projectId: string;
 }
 
 function InspectorPanel({
@@ -73,6 +77,7 @@ function InspectorPanel({
     type: activity.type,
     effort: activity.effortHours != null ? String(activity.effortHours) : "",
     nextAction: activity.nextAction ?? "",
+    projectId: activity.projectId,
   }));
 
   const startEdit = () => {
@@ -82,6 +87,7 @@ function InspectorPanel({
       type: activity.type,
       effort: activity.effortHours != null ? String(activity.effortHours) : "",
       nextAction: activity.nextAction ?? "",
+      projectId: activity.projectId,
     });
     setMode("edit");
   };
@@ -94,6 +100,11 @@ function InspectorPanel({
       type: draft.type,
       effortHours: draft.effort.trim() === "" || Number.isNaN(effort) ? undefined : effort,
       nextAction: draft.nextAction.trim() || undefined,
+      // Reassigning does not touch the date: the fact happened when it
+      // happened, only its attribution was wrong. An activity always belongs
+      // to some project, so an empty choice keeps the current one rather than
+      // detaching it.
+      projectId: draft.projectId || activity.projectId,
     };
     dispatch({ type: "UPDATE_ACTIVITY", id: activity.id, patch });
     setMode("view");
@@ -155,6 +166,24 @@ function InspectorPanel({
                   "transition-shadow focus:border-gtc-accent focus:outline-none focus:shadow-gtc-focus"
                 )}
               />
+            </Field>
+            <Field label="Project" htmlFor="insp-project">
+              <Select
+                id="insp-project"
+                value={draft.projectId}
+                onChange={(e) => setDraft({ ...draft, projectId: e.target.value })}
+              >
+                {/* Every open project, plus this activity's own even when
+                    closed — otherwise editing anything else about an activity
+                    on a finished project would silently move it. */}
+                {state.projects
+                  .filter((p) => !isClosedProject(p) || p.id === activity.projectId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </Select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Type" htmlFor="insp-type">
