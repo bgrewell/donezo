@@ -54,10 +54,15 @@ function legacyCopy(text: string) {
 }
 
 /** The Claude Code one-liner that registers this instance as an MCP server,
- *  with the real token and this window's origin baked in. */
+ *  with the real token and this window's origin baked in.
+ *
+ *  `-s user` is deliberate. The flag defaults to `local`, which registers the
+ *  server for one project directory only — but a donezo token is per user and
+ *  reaches every space that user owns, so the natural match is the user scope:
+ *  paste it once and donezo is there in every project. */
 function claudeCodeSnippet(token: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  return `claude mcp add --transport http donezo ${origin}/mcp --header "Authorization: Bearer ${token}"`;
+  return `claude mcp add -s user --transport http donezo ${origin}/mcp --header "Authorization: Bearer ${token}"`;
 }
 
 /**
