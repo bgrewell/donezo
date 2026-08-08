@@ -2,7 +2,9 @@ import * as React from "react";
 import { Button, Input, cn } from "@grewelltech/console";
 
 import type { NoteItem } from "@/domain/types";
-import { useAppDispatch } from "@/state/AppStore";
+import { useAppDispatch, useAppState } from "@/state/AppStore";
+import { isClosedProject } from "@/state/selectors";
+import { ProjectSelect } from "@/components/capture/ProjectSelect";
 
 /** Body preview for a collapsed note row. */
 function excerpt(text: string, max = 100): string {
@@ -18,28 +20,36 @@ type Mode = "view" | "edit" | "confirm-delete";
  *  Editing follows the Inspector's shape — a draft seeded from the note,
  *  discarded on cancel — so the two editable surfaces behave the same way. */
 export function NoteRow({ note }: { note: NoteItem }) {
+  const state = useAppState();
   const dispatch = useAppDispatch();
   const [mode, setMode] = React.useState<Mode>("view");
   const [title, setTitle] = React.useState(note.title);
   const [body, setBody] = React.useState(note.body);
+  const [projectId, setProjectId] = React.useState(note.projectId ?? "");
 
   const startEdit = () => {
     // Re-seed from the note so a previous cancelled edit is not resurrected.
     setTitle(note.title);
     setBody(note.body);
+    setProjectId(note.projectId ?? "");
     setMode("edit");
   };
 
   const trimmedTitle = title.trim();
-  const dirty = trimmedTitle !== note.title || body !== note.body;
+  const currentProject = note.projectId ?? "";
+  const dirty = trimmedTitle !== note.title || body !== note.body || projectId !== currentProject;
 
+  // Unlike an activity, a note may legitimately have no project, so the
+  // empty choice detaches it rather than being refused. projectId is a
+  // clearable field server-side, so undefined here becomes an explicit null
+  // on the wire.
   const save = () => {
     if (!trimmedTitle) return;
     if (dirty) {
       dispatch({
         type: "UPDATE_NOTE",
         id: note.id,
-        patch: { title: trimmedTitle, body },
+        patch: { title: trimmedTitle, body, projectId: projectId || undefined },
       });
     }
     setMode("view");
@@ -65,7 +75,14 @@ export function NoteRow({ note }: { note: NoteItem }) {
             "focus:border-gtc-accent focus:outline-none"
           )}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ProjectSelect
+            projects={state.projects.filter(
+              (p) => !isClosedProject(p) || p.id === note.projectId
+            )}
+            value={projectId}
+            onChange={setProjectId}
+          />
           <Button size="sm" variant="primary" onClick={save} disabled={!trimmedTitle}>
             Save
           </Button>
