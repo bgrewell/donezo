@@ -15,6 +15,7 @@ import { isClosedProject, latestActivityDate, openTaskCount } from "@/state/sele
 import { relativeFromToday } from "@/lib/time";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { UnfiledNotes } from "./UnfiledNotes";
 
 /** Master list of all projects, closed ones (done/cancelled) dimmed at the bottom. */
 export function ProjectList() {
@@ -108,6 +109,10 @@ export function ProjectList() {
           })}
         </TableBody>
       </Table>
+
+      {/* Notes with no project have nowhere else in the app to render, so
+          they live alongside the project list rather than inside one. */}
+      <UnfiledNotes />
     </div>
   );
 }
