@@ -436,6 +436,9 @@ func (p *activityPatch) apply(cur *store.ActivityEntry) error {
 type taskPatch struct {
 	ProjectID json.RawMessage `json:"projectId"`
 	Title     *string         `json:"title"`
+	// Details needs no clearable treatment: it is a plain string whose empty
+	// value IS cleared, so "" says everything null would.
+	Details   *string         `json:"details"`
 	Status    *string         `json:"status"`
 	Due       json.RawMessage `json:"due"`
 	WaitingOn json.RawMessage `json:"waitingOn"`
@@ -484,6 +487,9 @@ func (p *taskPatch) apply(cur *store.TaskItem) error {
 	}
 	if p.Title != nil {
 		cur.Title = *p.Title
+	}
+	if p.Details != nil {
+		cur.Details = *p.Details
 	}
 	if p.Status != nil {
 		cur.Status = *p.Status
@@ -552,7 +558,10 @@ func (p *notePatch) apply(cur *store.NoteItem) error {
 
 // reminderPatch is the PATCH reminders/{rid} body.
 type reminderPatch struct {
-	Text      *string         `json:"text"`
+	Text *string `json:"text"`
+	// See taskPatch.Details: empty is cleared, so this is not clearable in the
+	// json.RawMessage sense.
+	Details   *string         `json:"details"`
 	RemindAt  *string         `json:"remindAt"`
 	ProjectID json.RawMessage `json:"projectId"`
 	Done      json.RawMessage `json:"done"`
@@ -584,6 +593,9 @@ func (p *reminderPatch) validate() error {
 func (p *reminderPatch) apply(cur *store.Reminder) error {
 	if p.Text != nil {
 		cur.Text = *p.Text
+	}
+	if p.Details != nil {
+		cur.Details = *p.Details
 	}
 	if p.RemindAt != nil {
 		cur.RemindAt = *p.RemindAt

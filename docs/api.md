@@ -65,6 +65,8 @@ writes into an archived space answer `409` (reads, rename, and
 archive/unarchive still work), so archiving is a real write barrier, not
 just something the UI hides.
 
+**Short form and long form.** Every content entity carries a short field that stands on its own and, where it makes sense, an optional long one: activities have `title`/`details`, notes `title`/`body`, and — since [#44](https://github.com/bgrewell/donezo/issues/44) — tasks and reminders have `details` beside `title`/`text`. `details` is a plain string that is always present on the wire and empty when unset, so a reader never has to tell an absent field from a blank one; `""` is how a `PATCH` clears it, and there is no `null` form. Inbox items keep a single `raw` field on purpose — capture is meant to cost zero decisions, and "is this the title or the detail?" is exactly the decision the inbox exists to defer.
+
 Everything else under `/api/` requires a session; only `/api/healthz` and
 `/api/auth/*` are public.
 
