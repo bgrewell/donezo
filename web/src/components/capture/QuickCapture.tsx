@@ -17,6 +17,7 @@ import { TaskFields } from "./TaskFields";
 import { NoteFields } from "./NoteFields";
 import { ReminderFields, defaultRemindAt, type WhenChipId } from "./ReminderFields";
 import { ActivityFields } from "./ActivityFields";
+import { DetailsField } from "./DetailsField";
 import { ProjectFields, firstUnusedColor } from "./ProjectFields";
 
 /** Heuristic kind suggestion for raw captured text. */
@@ -92,6 +93,11 @@ export function QuickCapture() {
   // Reminder
   const [whenChip, setWhenChip] = React.useState<WhenChipId | null>("tomorrow");
   const [remindAt, setRemindAt] = React.useState(defaultRemindAt);
+  // The optional long form, shared by every kind that has one. One piece of
+  // state rather than one per kind: switching kind mid-capture keeps what was
+  // typed, which is what someone means by changing their mind about what a
+  // thing is.
+  const [details, setDetails] = React.useState("");
   // Activity
   const [activityType, setActivityType] = React.useState<ActivityType>("work");
   const [activityDate, setActivityDate] = React.useState(todayISO);
@@ -142,6 +148,7 @@ export function QuickCapture() {
     setManualKind(null);
     setProjectId("");
     setTaskDue("");
+    setDetails("");
     setWhenChip("tomorrow");
     setRemindAt(defaultRemindAt());
     setActivityType("work");
@@ -310,6 +317,12 @@ export function QuickCapture() {
       });
   };
 
+  // The inbox is deliberately one field, so the long form is folded back into
+  // the raw text rather than dropped. splitCapture pulls the two apart again
+  // at classify time — in the app and over MCP — so nothing is lost and the
+  // capture still costs zero decisions.
+  const rawWithDetails = () => (details.trim() === "" ? raw : `${raw}\n\n${details}`);
+
   const saveToInbox = () => {
     if (!raw || capturePending || targetSpaceId === null) return;
     if (crossSpace) {
@@ -320,7 +333,7 @@ export function QuickCapture() {
       api
         .post(`/api/spaces/${encodeURIComponent(targetSpaceId)}/inbox`, {
           id: newId("inb"),
-          raw,
+          raw: rawWithDetails(),
           capturedAt: nowLocalISO(),
           suggestedKind: kind,
           status: "pending",
@@ -348,7 +361,7 @@ export function QuickCapture() {
       type: "ADD_INBOX",
       item: {
         id: newId("inb"),
-        raw,
+        raw: rawWithDetails(),
         capturedAt: nowLocalISO(),
         suggestedKind: kind,
         suggestedProjectId: projectId || undefined,
@@ -369,6 +382,7 @@ export function QuickCapture() {
             id: newId("tsk"),
             projectId: projectId || undefined,
             title: raw,
+            details,
             status: "open",
             due: taskDue || undefined,
             createdAt: todayISO(),
@@ -381,8 +395,10 @@ export function QuickCapture() {
           note: {
             id: newId("note"),
             projectId: projectId || undefined,
-            title: raw.slice(0, 60),
-            body: raw,
+            // With a body of its own, the typed line is a real title rather
+            // than the first 60 characters of the body cut mid-word.
+            title: details ? raw : raw.slice(0, 60),
+            body: details || raw,
             createdAt: todayISO(),
           },
         });
@@ -394,6 +410,7 @@ export function QuickCapture() {
           reminder: {
             id: newId("rem"),
             text: raw,
+            details,
             remindAt: withSeconds(remindAt),
             projectId: projectId || undefined,
           },
@@ -411,7 +428,7 @@ export function QuickCapture() {
             date: activityDate || todayISO(),
             type: activityType,
             title: raw,
-            details: "",
+            details,
             effortHours:
               activityEffort.trim() !== "" && Number.isFinite(hours) && hours > 0
                 ? hours
@@ -485,6 +502,13 @@ export function QuickCapture() {
       const target = e.target;
       if (!panel || !(target instanceof HTMLElement) || !panel.contains(target)) return;
       const mod = e.metaKey || e.ctrlKey;
+      // A plain Enter inside the multi-line details field is a newline, not a
+      // submit. This handler predates the field: when every input on the panel
+      // was single-line, capturing every Enter was right. Cmd/Ctrl+Enter still
+      // reaches the inbox from inside it, which is the one deliberate submit.
+      if (!mod && target.tagName === "TEXTAREA") {
+        return;
+      }
       if (
         !mod &&
         target.tagName === "BUTTON" &&
@@ -645,6 +669,26 @@ export function QuickCapture() {
             />
           </div>
         </div>
+
+        {/* The long form, for every kind that has one. A project's long form
+            is its purpose, which ProjectFields already offers. Kept outside
+            the grid above because it is the same control whichever kind is
+            selected — switching kind should not throw away what was typed. */}
+        {/* Shown for a cross-space capture too: that path is inbox-only, and
+            the inbox now carries the long form, so hiding a filled field
+            would look exactly like losing it. */}
+        {kind !== "project" && !noLiveTarget && (
+          <DetailsField
+            value={details}
+            onChange={setDetails}
+            label={kind === "note" ? "Body" : "Details"}
+            placeholder={
+              kind === "note"
+                ? "The note itself; the line above becomes its title."
+                : "Context, links, what done looks like — anything too long for one line."
+            }
+          />
+        )}
 
         {/* Space chips — a non-active space forces save-to-inbox (the
             capture belongs to that space, not this store). */}

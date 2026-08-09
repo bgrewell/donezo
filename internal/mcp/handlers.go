@@ -316,7 +316,11 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	sort.SliceStable(activities, func(i, j int) bool { return activities[i].Date > activities[j].Date })
 	tasks := []store.TaskItem{}
 	for _, t := range st.Tasks {
-		if containsFold(t.Title, q) || (t.WaitingOn != nil && containsFold(*t.WaitingOn, q)) {
+		// Details is searched for the same reason an activity's is: this is
+		// where long-form text now lives, and update_task actively tells
+		// callers to move it here.
+		if containsFold(t.Title, q) || containsFold(t.Details, q) ||
+			(t.WaitingOn != nil && containsFold(*t.WaitingOn, q)) {
 			tasks = append(tasks, t)
 		}
 	}
@@ -328,7 +332,7 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	}
 	reminders := []store.Reminder{}
 	for _, rem := range st.Reminders {
-		if containsFold(rem.Text, q) {
+		if containsFold(rem.Text, q) || containsFold(rem.Details, q) {
 			reminders = append(reminders, rem)
 		}
 	}
@@ -676,6 +680,7 @@ func toolCreateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 	var a struct {
 		SpaceID   string `json:"space_id"`
 		Title     string `json:"title"`
+		Details   string `json:"details"`
 		ProjectID string `json:"project_id"`
 		Due       string `json:"due"`
 	}
@@ -701,6 +706,7 @@ func toolCreateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 		ID:        id,
 		ProjectID: optString(a.ProjectID),
 		Title:     a.Title,
+		Details:   a.Details,
 		Status:    "open",
 		Due:       optString(a.Due),
 		CreatedAt: h.today(h.callerLocation(ctx, c)),
@@ -818,6 +824,7 @@ func toolCreateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 	var a struct {
 		SpaceID   string `json:"space_id"`
 		Text      string `json:"text"`
+		Details   string `json:"details"`
 		RemindAt  string `json:"remind_at"`
 		ProjectID string `json:"project_id"`
 	}
@@ -842,6 +849,7 @@ func toolCreateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 	created, err := h.spaces.CreateReminder(ctx, sp.ID, store.Reminder{
 		ID:        id,
 		Text:      a.Text,
+		Details:   a.Details,
 		RemindAt:  a.RemindAt,
 		ProjectID: optString(a.ProjectID),
 	})
@@ -858,6 +866,7 @@ type classifyArgs struct {
 	InboxID   string `json:"inbox_id"`
 	Kind      string `json:"kind"`
 	Title     string `json:"title"`
+	Details   string `json:"details"`
 	Body      string `json:"body"`
 	Text      string `json:"text"`
 	RemindAt  string `json:"remind_at"`
@@ -954,35 +963,49 @@ func toolConvertNote(ctx context.Context, h *Handler, c caller, args json.RawMes
 	if projectID == "" && note.ProjectID != nil {
 		projectID = *note.ProjectID
 	}
+	// The note's body becomes the target's details. Every target has somewhere
+	// to keep it now — before #44 a task or a reminder did not, and converting
+	// a note into one destroyed the body outright.
+	details := a.Details
+	if details == "" {
+		details = note.Body
+	}
 	conv, vmsg, okc := h.buildConversion(classifyArgs{
-		Kind: a.Kind, Title: a.Title, Text: a.Text, RemindAt: a.RemindAt,
-		ProjectID: projectID, Due: a.Due, Type: a.Type,
+		Kind: a.Kind, Title: a.Title, Details: details, Text: a.Text,
+		RemindAt: a.RemindAt, ProjectID: projectID, Due: a.Due, Type: a.Type,
 	}, note.Title, h.callerLocation(ctx, c))
 	if !okc {
 		return vmsg, true
 	}
 	if conv.Activity != nil {
-		// An activity is the one target with somewhere to keep the body.
-		// Source is manual, not capture: this came from a note somebody
-		// wrote and then reclassified, not from the capture buffer.
-		if a.Details != "" {
-			conv.Activity.Details = a.Details
-		} else {
-			conv.Activity.Details = note.Body
-		}
+		// Source is manual, not capture: this came from a note somebody wrote
+		// and then reclassified, not from the capture buffer.
 		conv.Activity.Source = "manual"
 	}
 	if _, err := h.spaces.ConvertNote(ctx, sp.ID, a.NoteID, conv); err != nil {
 		return h.storeErrText("note", err), true
 	}
-	out := map[string]any{"kind": conv.Kind, "created": conversionPayload(conv), "noteId": a.NoteID, "noteRemoved": true}
-	if conv.Activity == nil && strings.TrimSpace(note.Body) != "" {
-		// The note is already gone by here, so this is a record of what was
-		// dropped rather than a warning that could still change the outcome.
-		out["droppedBody"] = note.Body
-		out["note"] = "the note's body was not carried over — a " + conv.Kind + " has nowhere to keep it"
+	return jsonText(map[string]any{
+		"kind": conv.Kind, "created": conversionPayload(conv),
+		"noteId": a.NoteID, "noteRemoved": true,
+	}), false
+}
+
+// splitCapture divides a raw capture into a scannable short form and the rest.
+//
+// A capture is very often a first line followed by context, and before tasks
+// and reminders had anywhere to put context, all of it became the title —
+// which is how this repo's own backlog ended up with paragraph-length titles.
+// The break has to be an explicit newline the person actually typed: guessing
+// a sentence boundary inside one long line would be inventing structure the
+// author did not give.
+func splitCapture(raw string) (short, long string) {
+	trimmed := strings.TrimSpace(raw)
+	before, after, found := strings.Cut(trimmed, "\n")
+	if !found {
+		return trimmed, ""
 	}
-	return jsonText(out), false
+	return strings.TrimSpace(before), strings.TrimSpace(after)
 }
 
 // buildConversion assembles the store.Conversion for a classify call,
@@ -998,13 +1021,17 @@ func (h *Handler) buildConversion(a classifyArgs, raw string, loc *time.Location
 		if err != nil {
 			return store.Conversion{}, "internal error", false
 		}
-		title := a.Title
-		if title == "" {
-			title = raw
+		title, rest := splitCapture(raw)
+		details := a.Details
+		if details == "" {
+			details = rest
+		}
+		if a.Title != "" {
+			title = a.Title
 		}
 		return store.Conversion{Kind: "task", Task: &store.TaskItem{
-			ID: id, ProjectID: optString(a.ProjectID), Title: title, Status: "open",
-			Due: optString(a.Due), CreatedAt: h.today(loc),
+			ID: id, ProjectID: optString(a.ProjectID), Title: title, Details: details,
+			Status: "open", Due: optString(a.Due), CreatedAt: h.today(loc),
 		}}, "", true
 	case "note":
 		id, err := newID("note")
@@ -1030,12 +1057,17 @@ func (h *Handler) buildConversion(a classifyArgs, raw string, loc *time.Location
 		if err != nil {
 			return store.Conversion{}, "internal error", false
 		}
-		text := a.Text
-		if text == "" {
-			text = raw
+		text, rest := splitCapture(raw)
+		details := a.Details
+		if details == "" {
+			details = rest
+		}
+		if a.Text != "" {
+			text = a.Text
 		}
 		return store.Conversion{Kind: "reminder", Reminder: &store.Reminder{
-			ID: id, Text: text, RemindAt: a.RemindAt, ProjectID: optString(a.ProjectID),
+			ID: id, Text: text, Details: details, RemindAt: a.RemindAt,
+			ProjectID: optString(a.ProjectID),
 		}}, "", true
 	case "activity":
 		if strings.TrimSpace(a.ProjectID) == "" {
@@ -1052,13 +1084,17 @@ func (h *Handler) buildConversion(a classifyArgs, raw string, loc *time.Location
 		if err != nil {
 			return store.Conversion{}, "internal error", false
 		}
-		title := a.Title
-		if title == "" {
-			title = raw
+		title, rest := splitCapture(raw)
+		details := a.Details
+		if details == "" {
+			details = rest
+		}
+		if a.Title != "" {
+			title = a.Title
 		}
 		return store.Conversion{Kind: "activity", Activity: &store.ActivityEntry{
 			ID: id, ProjectID: a.ProjectID, Date: h.today(loc), Type: actType, Title: title,
-			Details: "", Source: "capture", Tags: []string{}, Links: []store.ActivityLink{},
+			Details: details, Source: "capture", Tags: []string{}, Links: []store.ActivityLink{},
 		}}, "", true
 	default: // project
 		color := a.Color
@@ -1236,6 +1272,7 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 		SpaceID   string  `json:"space_id"`
 		TaskID    string  `json:"task_id"`
 		Title     *string `json:"title"`
+		Details   *string `json:"details"`
 		Status    *string `json:"status"`
 		Due       *string `json:"due"`
 		ProjectID *string `json:"project_id"`
@@ -1264,6 +1301,9 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 	updated, err := h.spaces.PatchTask(ctx, sp.ID, a.TaskID, func(t *store.TaskItem) error {
 		if a.Title != nil {
 			t.Title = *a.Title
+		}
+		if a.Details != nil {
+			t.Details = *a.Details
 		}
 		if a.Status != nil {
 			t.Status = *a.Status
@@ -1405,6 +1445,7 @@ func toolUpdateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 		SpaceID    string  `json:"space_id"`
 		ReminderID string  `json:"reminder_id"`
 		Text       *string `json:"text"`
+		Details    *string `json:"details"`
 		RemindAt   *string `json:"remind_at"`
 		Done       *bool   `json:"done"`
 		ProjectID  *string `json:"project_id"`
@@ -1428,6 +1469,9 @@ func toolUpdateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 	updated, err := h.spaces.PatchReminder(ctx, sp.ID, a.ReminderID, func(r *store.Reminder) error {
 		if a.Text != nil {
 			r.Text = *a.Text
+		}
+		if a.Details != nil {
+			r.Details = *a.Details
 		}
 		if a.RemindAt != nil {
 			r.RemindAt = *a.RemindAt

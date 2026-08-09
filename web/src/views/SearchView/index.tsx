@@ -105,9 +105,9 @@ export default function SearchView() {
       activities: state.activities
         .filter((a) => has(a.title) || has(a.details) || a.tags.some(has))
         .sort((a, b) => b.date.localeCompare(a.date)),
-      tasks: state.tasks.filter((t) => has(t.title) || has(t.waitingOn)),
+      tasks: state.tasks.filter((t) => has(t.title) || has(t.details) || has(t.waitingOn)),
       notes: state.notes.filter((n) => has(n.title) || has(n.body)),
-      reminders: state.reminders.filter((r) => has(r.text)),
+      reminders: state.reminders.filter((r) => has(r.details) || has(r.text)),
       inbox: state.inbox.filter((i) => has(i.raw)),
     };
   }, [q, state.projects, state.activities, state.tasks, state.notes, state.reminders, state.inbox]);
@@ -249,7 +249,19 @@ export default function SearchView() {
                         <Highlight text={t.title} query={q} />
                       </span>
                     </button>
-                    {open && <div className={cn(META, "pb-2 pl-[4.75rem]")}>{detail}</div>}
+                    {open && (
+                      <div className="pb-2 pl-[4.75rem]">
+                        <div className={META}>{detail}</div>
+                        {/* Search matches details, so a row whose only match is
+                            there has to show it — otherwise expanding a hit
+                            reveals nothing that explains the hit. */}
+                        {t.details && (
+                          <p className="mt-1 whitespace-pre-wrap font-sans text-[0.8rem] leading-relaxed text-gtc-muted">
+                            <Highlight text={t.details} query={q} />
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -299,13 +311,22 @@ export default function SearchView() {
               {cap(results.reminders, "reminders").map((r) => (
                 <div
                   key={r.id}
-                  className="-mx-2 flex items-center gap-3 border-b border-gtc-line/60 px-2 py-2"
+                  className="-mx-2 flex items-start gap-3 border-b border-gtc-line/60 px-2 py-2"
                 >
-                  <Bell className="h-3.5 w-3.5 shrink-0 text-gtc-muted" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-[0.85rem] text-gtc-text">
-                    <Highlight text={r.text} query={q} />
+                  <Bell className="mt-1 h-3.5 w-3.5 shrink-0 self-start text-gtc-muted" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[0.85rem] text-gtc-text">
+                      <Highlight text={r.text} query={q} />
+                    </span>
+                    {/* Reminders have no expander, so a details match would
+                        otherwise be a result with nothing to show for it. */}
+                    {r.details && (
+                      <span className="mt-0.5 line-clamp-2 block whitespace-pre-wrap font-sans text-[0.8rem] leading-relaxed text-gtc-muted">
+                        <Highlight text={r.details} query={q} />
+                      </span>
+                    )}
                   </span>
-                  <span className={cn(META, "shrink-0")}>
+                  <span className={cn(META, "shrink-0 self-start pt-1")}>
                     {formatDay(r.remindAt.slice(0, 10))} {r.remindAt.slice(11, 16)}
                   </span>
                 </div>

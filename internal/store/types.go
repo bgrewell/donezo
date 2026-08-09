@@ -91,6 +91,10 @@ type TaskItem struct {
 	ID        string  `json:"id"`
 	ProjectID *string `json:"projectId,omitempty"`
 	Title     string  `json:"title"`
+	// Details is the optional long form, mirroring ActivityEntry.Details.
+	// Empty is the normal resting state, not an absence to be distinguished
+	// from one.
+	Details   string  `json:"details"`
 	Status    string  `json:"status"`
 	Due       *string `json:"due,omitempty"`
 	WaitingOn *string `json:"waitingOn,omitempty"`
@@ -108,8 +112,11 @@ type NoteItem struct {
 
 // Reminder mirrors the frontend Reminder type.
 type Reminder struct {
-	ID        string  `json:"id"`
-	Text      string  `json:"text"`
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	// Details is the optional long form. Text is the short one — a reminder's
+	// Text plays the part Title plays elsewhere.
+	Details   string  `json:"details"`
 	RemindAt  string  `json:"remindAt"`
 	ProjectID *string `json:"projectId,omitempty"`
 	Done      *bool   `json:"done,omitempty"`

@@ -6,6 +6,7 @@ import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { latestActivityDate } from "@/state/selectors";
 import { addDaysISO, diffDays, formatDay, relativeFromToday, todayISO } from "@/lib/time";
 import { EmptyState } from "@/components/common/EmptyState";
+import { DetailsDisclosure } from "@/components/common/DetailsDisclosure";
 import { ProjectMark } from "@/components/common/ProjectMark";
 
 const META = "font-mono text-[0.64rem] uppercase tracking-label text-gtc-muted";
@@ -185,6 +186,7 @@ export default function ReviewView() {
                   }
                 >
                   <div className={TITLE}>{t.title}</div>
+                  <DetailsDisclosure details={t.details} />
                   <div className={cn(META, "mt-0.5")}>
                     was due {formatDay(t.due ?? today)} — still relevant?
                   </div>
@@ -221,6 +223,7 @@ export default function ReviewView() {
                   }
                 >
                   <div className={TITLE}>{t.title}</div>
+                  <DetailsDisclosure details={t.details} />
                   <div className={cn(META, "mt-0.5")}>
                     someday · added {relativeFromToday(t.createdAt)}
                   </div>
@@ -276,6 +279,7 @@ export default function ReviewView() {
                   }
                 >
                   <div className={TITLE}>{t.title}</div>
+                  <DetailsDisclosure details={t.details} />
                   <div className={cn(META, "mt-0.5")}>
                     waiting on {t.waitingOn ?? "—"} · since {formatDay(t.createdAt)}
                   </div>

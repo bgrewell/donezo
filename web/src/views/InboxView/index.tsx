@@ -7,6 +7,7 @@ import type { InboxItem, ItemKind, Project, ProjectColor } from "@/domain/types"
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject, projectById } from "@/state/selectors";
 import { newId } from "@/lib/id";
+import { splitCapture } from "@/lib/capture";
 import { addDaysISO, relativeFromToday, toISODate, todayISO } from "@/lib/time";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ProjectMark } from "@/components/common/ProjectMark";
@@ -102,6 +103,10 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
 
   const convert = () => {
     const raw = item.raw.trim();
+    // A capture is often a first line plus context. Splitting it here is what
+    // stops a paragraph becoming a title — the same split classify_inbox_item
+    // does over MCP, so a capture lands the same way either route.
+    const { short, long } = splitCapture(raw);
     const pid = projectId || undefined;
     const base = { type: "CONVERT_INBOX" as const, id: item.id, kind };
     switch (kind) {
@@ -111,7 +116,8 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
           task: {
             id: newId("task"),
             projectId: pid,
-            title: raw,
+            title: short,
+            details: long,
             status: "open",
             due: due || undefined,
             createdAt: todayISO(),
@@ -122,9 +128,13 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
         dispatch({
           ...base,
           note: {
+            // A note's body is its content rather than a supplement, so the
+            // whole capture stays in it; the split only supplies a title that
+            // is a real first line instead of the first 60 characters cut
+            // mid-word.
             id: newId("note"),
             projectId: pid,
-            title: raw.slice(0, 60),
+            title: long ? short : raw.slice(0, 60),
             body: raw,
             createdAt: todayISO(),
           },
@@ -135,7 +145,8 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
           ...base,
           reminder: {
             id: newId("rem"),
-            text: raw,
+            text: short,
+            details: long,
             remindAt: remindAtFor(remindChoice),
             projectId: pid,
           },
@@ -150,8 +161,8 @@ function ClassifyPanel({ item, onCollapse }: { item: InboxItem; onCollapse: () =
             projectId: pid,
             date: todayISO(),
             type: "work",
-            title: raw,
-            details: "",
+            title: short,
+            details: long,
             source: "capture",
             tags: [],
             links: [],

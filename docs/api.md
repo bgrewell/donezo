@@ -65,6 +65,8 @@ writes into an archived space answer `409` (reads, rename, and
 archive/unarchive still work), so archiving is a real write barrier, not
 just something the UI hides.
 
+**Short form and long form.** Every content entity carries a short field that stands on its own and, where it makes sense, an optional long one: activities have `title`/`details`, notes `title`/`body`, and — since [#44](https://github.com/bgrewell/donezo/issues/44) — tasks and reminders have `details` beside `title`/`text`. `details` is a plain string that is always present on the wire and empty when unset, so a reader never has to tell an absent field from a blank one; `""` is how a `PATCH` clears it, and there is no `null` form. Inbox items keep a single `raw` field on purpose — capture is meant to cost zero decisions, and "is this the title or the detail?" is exactly the decision the inbox exists to defer.
+
 Everything else under `/api/` requires a session; only `/api/healthz` and
 `/api/auth/*` are public.
 
@@ -335,19 +337,19 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `list_reminders` | read | Reminders sorted by `remindAt`; pending unless `include_done`. |
 | `capture_to_inbox` | write | Zero-decision capture into any owned space — the default when classification is uncertain. |
 | `log_activity` | write | Record a PAST fact on a project (timeline); never for future work. |
-| `create_task` | write | A FUTURE possibility with a lifecycle. |
+| `create_task` | write | A FUTURE possibility with a lifecycle. `details` carries the long form. |
 | `complete_task` | write | Mark done; with `log_activity` (default true) also logs today's activity from the task title. |
 | `create_note` | write | Durable reference text. |
-| `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). |
+| `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). `details` carries the long form. |
 | `create_project` | write | A stream of work; only `name` required, `color` defaults to blue and `status` to active. |
-| `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. |
-| `convert_note` | write | Convert a note into a `task`/`reminder`/`activity`, deleting the note. Fields default from the note; its body reaches an activity's `details` and is otherwise lost. |
+| `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. A multi-line capture splits: first line to the short field, the rest to `details`. |
+| `convert_note` | write | Convert a note into a `task`/`reminder`/`activity`, deleting the note. Fields default from the note, and its body becomes the new item's `details` — nothing is lost. |
 | `dismiss_inbox_item` | write | Mark a pending capture `dismissed` (kept, not deleted); errors if it is already triaged. |
 | `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`). |
-| `update_task` | write | `title`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |
+| `update_task` | write | `title`, `details`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |
 | `update_note` | write | `title`, `body`, `project_id`; empty `project_id` detaches. |
 | `update_activity` | write | `title`, `details`, `type`, `date`, `effort_hours` (0 clears), `project_id`. |
-| `update_reminder` | write | `text`, `remind_at`, `done`, `project_id`. |
+| `update_reminder` | write | `text`, `details`, `remind_at`, `done`, `project_id`. |
 | `delete_item` | write | Permanent delete by `kind` (`task`/`note`/`reminder`/`activity`/`inbox_item`) + `item_id`. Projects are refused with an explanation — their delete cascades and stays a web-app action. |
 
 The exact names, arguments, and JSON Schemas are published by the server

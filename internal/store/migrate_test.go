@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -350,5 +352,176 @@ func TestLoadMigrationsBadNames(t *testing.T) {
 	}
 	if _, err := loadMigrations(coreMigrationFS, "migrations/missing"); err == nil {
 		t.Fatal("want error for missing migrations dir")
+	}
+}
+
+// 0002 adds details to tasks and reminders. What matters is what happens to
+// rows that were already there — an ALTER that dropped or rewrote them would
+// still leave a table with the right columns, and the schema assertions above
+// would not notice.
+//
+// So this genuinely starts at 0001: a store opened at the full current schema
+// would write its rows into a table that already had the column, and the
+// migration under test would have nothing to migrate.
+func TestMigrateAddsDetailsWithoutDisturbingExistingRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "space.db")
+	db, err := openDB(path)
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	defer closeQuietly2(t, db)
+
+	// Only 0001, so the tables are the pre-details shape.
+	firstOnly, err := fs.Sub(onlyFirstMigration{spaceMigrationFS}, ".")
+	if err != nil {
+		t.Fatalf("sub fs: %v", err)
+	}
+	if _, err := migrate(ctx, db, firstOnly, "migrations/space", func() string { return fixedNow }); err != nil {
+		t.Fatalf("migrate to 0001: %v", err)
+	}
+	// Written through the old schema, which has no details column at all —
+	// naming it here would fail to compile against the pre-migration table.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO tasks (id, title, status, created_at) VALUES ('t-keep', 'still here', 'open', '2026-07-01')`); err != nil {
+		t.Fatalf("insert pre-migration task: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO reminders (id, text, remind_at) VALUES ('r-keep', 'still here', '2026-07-27T09:00:00')`); err != nil {
+		t.Fatalf("insert pre-migration reminder: %v", err)
+	}
+
+	// Now the rest of the ledger, including 0002.
+	applied, err := migrate(ctx, db, spaceMigrationFS, "migrations/space", func() string { return fixedNow })
+	if err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+	if applied == 0 {
+		t.Fatal("no migrations applied on the second pass — the test is not exercising 0002")
+	}
+
+	var title, details, status string
+	if err := db.QueryRowContext(ctx,
+		`SELECT title, details, status FROM tasks WHERE id = 't-keep'`).Scan(&title, &details, &status); err != nil {
+		t.Fatalf("task lost across the migration: %v", err)
+	}
+	if title != "still here" || status != "open" {
+		t.Errorf("task = %q/%q, want its original fields", title, status)
+	}
+	if details != "" {
+		t.Errorf("task details = %q, want empty for a row that predates the column", details)
+	}
+	var text string
+	if err := db.QueryRowContext(ctx,
+		`SELECT text, details FROM reminders WHERE id = 'r-keep'`).Scan(&text, &details); err != nil {
+		t.Fatalf("reminder lost across the migration: %v", err)
+	}
+	if text != "still here" {
+		t.Errorf("reminder text = %q, want its original", text)
+	}
+	if details != "" {
+		t.Errorf("reminder details = %q, want empty", details)
+	}
+}
+
+// onlyFirstMigration hides every space migration after 0001, so a test can
+// stand a database up at the schema that existed before a later one.
+type onlyFirstMigration struct{ fs.FS }
+
+func (o onlyFirstMigration) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(o.FS, name)
+	if err != nil {
+		return nil, err
+	}
+	kept := entries[:0]
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "0001_") {
+			kept = append(kept, e)
+		}
+	}
+	return kept, nil
+}
+
+// closeQuietly2 closes a test database and reports a failure to close.
+func closeQuietly2(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Errorf("close db: %v", err)
+	}
+}
+
+// Details has to survive the round trip on both entities, and an update must
+// be able to clear it again.
+func TestTaskAndReminderDetailsRoundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+
+	if _, err := s.CreateTask(ctx, "sandbox", TaskItem{
+		ID: "t-d", Title: "short title", Details: "the long version,\nover two lines",
+		Status: "open", CreatedAt: "2026-07-01",
+	}); err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	got, err := s.GetTask(ctx, "sandbox", "t-d")
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if got.Details != "the long version,\nover two lines" {
+		t.Errorf("task details = %q", got.Details)
+	}
+	// Listing reads through a different statement than Get, so it gets its
+	// own assertion rather than being assumed to match.
+	tasks, err := s.ListTasks(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].Details != got.Details {
+		t.Errorf("listed task details = %+v, want the stored one", tasks)
+	}
+	got.Details = ""
+	if _, err := s.UpdateTask(ctx, "sandbox", got); err != nil {
+		t.Fatalf("update task: %v", err)
+	}
+	if after, err := s.GetTask(ctx, "sandbox", "t-d"); err != nil || after.Details != "" {
+		t.Errorf("details = %q after clearing (err %v)", after.Details, err)
+	}
+
+	if _, err := s.CreateReminder(ctx, "sandbox", Reminder{
+		ID: "r-d", Text: "short text", Details: "why this matters",
+		RemindAt: "2026-07-27T09:00:00",
+	}); err != nil {
+		t.Fatalf("create reminder: %v", err)
+	}
+	rem, err := s.GetReminder(ctx, "sandbox", "r-d")
+	if err != nil {
+		t.Fatalf("get reminder: %v", err)
+	}
+	if rem.Details != "why this matters" {
+		t.Errorf("reminder details = %q", rem.Details)
+	}
+	rems, err := s.ListReminders(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list reminders: %v", err)
+	}
+	if len(rems) != 1 || rems[0].Details != "why this matters" {
+		t.Errorf("listed reminder details = %+v", rems)
+	}
+	// UpdateReminder as well as UpdateTask: execUpdateReminder writes the new
+	// column too, and without this it could stop doing so with nothing red.
+	rem.Details = "why it still matters"
+	if _, err := s.UpdateReminder(ctx, "sandbox", rem); err != nil {
+		t.Fatalf("update reminder: %v", err)
+	}
+	if after, err := s.GetReminder(ctx, "sandbox", "r-d"); err != nil || after.Details != "why it still matters" {
+		t.Errorf("reminder details = %q after update (err %v)", after.Details, err)
+	}
+	rem.Details = ""
+	if _, err := s.UpdateReminder(ctx, "sandbox", rem); err != nil {
+		t.Fatalf("clear reminder details: %v", err)
+	}
+	if after, err := s.GetReminder(ctx, "sandbox", "r-d"); err != nil || after.Details != "" {
+		t.Errorf("reminder details = %q after clearing (err %v)", after.Details, err)
 	}
 }

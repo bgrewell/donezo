@@ -43,19 +43,19 @@ is a summary, not the source of truth:
 | `list_reminders`      | read  | Reminders in a space, soonest first. Pending only unless you ask for done ones too.             |
 | `capture_to_inbox`    | write | Zero-decision capture — the default verb when something should be remembered but you're not sure yet what it is. Works into **any** space you own, not just the active one. |
 | `log_activity`        | write | Record a **past** fact on a project — appears on the timeline. Never for future work.            |
-| `create_task`         | write | Create a task — a **future** possibility with a lifecycle (open → done).                        |
+| `create_task`         | write | Create a task — a **future** possibility with a lifecycle (open → done). `details` holds anything too long for the title. |
 | `complete_task`       | write | Mark a task done. By default also logs today's activity from the task title, mirroring the app's check-off flow. |
 | `create_note`         | write | Create a durable reference note.                                                                |
-| `create_reminder`     | write | Create a reminder that resurfaces at a specific time.                                           |
+| `create_reminder`     | write | Create a reminder that resurfaces at a specific time. `details` holds the longer version.        |
 | `create_project`      | write | Create a project — a stream of work with a purpose and an outcome.                              |
 | `classify_inbox_item` | write | Atomically convert a pending inbox capture into a task, note, reminder, activity, or project.    |
-| `convert_note`        | write | Turn an existing note into a task, reminder, or activity. The note is **removed** — unlike an inbox capture, which stays behind marked converted. |
+| `convert_note`        | write | Turn an existing note into a task, reminder, or activity. The note is **removed** — unlike an inbox capture, which stays behind marked converted. Its body becomes the new item's details. |
 | `dismiss_inbox_item`  | write | Close out a reviewed capture that needs no follow-up. The other half of triage.                 |
 | `update_project`      | write | Update a project — its designations (next action, alternates, current focus, resume context, status) and descriptive fields (name, purpose, outcome, color, tags). Status is always a deliberate choice; the model never flips it automatically. |
-| `update_task`         | write | Change a task's title, status, due date, project, or what it's waiting on.                      |
+| `update_task`         | write | Change a task's title, details, status, due date, project, or what it's waiting on.              |
 | `update_note`         | write | Change a note's title, body, or project.                                                        |
 | `update_activity`     | write | Correct a past fact already on the timeline — title, details, type, date, effort, project.       |
-| `update_reminder`     | write | Reschedule a reminder, change its text or project, or mark it handled.                          |
+| `update_reminder`     | write | Reschedule a reminder, change its text, details or project, or mark it handled.                  |
 | `delete_item`         | write | Permanently delete a task, note, reminder, activity, or inbox item. **Not** projects — see below. |
 
 The 9 `read` tools work with either scope; the 16 `write` tools require a
@@ -66,6 +66,18 @@ The write surface is deliberately close to parity with what you can do in
 the app: a connected model that creates something can also correct it
 afterwards, so a misclassification or a typo doesn't become permanent just
 because it arrived over MCP.
+
+### Short form and long form
+
+Every item has a short field that should stay scannable — a task's `title`, a
+reminder's `text` — and an optional `details` for everything else. Put one line
+in the short one and the context in `details`; a paragraph crammed into a title
+makes the list it appears in unreadable, which is what donezo's own backlog
+looked like before this existed.
+
+`classify_inbox_item` splits a multi-line capture for you: the first line
+becomes the short field and the rest becomes `details`. `convert_note` puts the
+note's body in `details`, so converting never loses anything.
 
 ### Which day "today" is
 
