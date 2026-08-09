@@ -37,7 +37,11 @@ donezo frontend itself).
 | `GET /api/spaces/{id}/revision`                    | `{revision}` — a counter that moves whenever anything in the space changes. Answered from memory without touching the space database; this is the endpoint clients poll |
 | `POST /api/spaces/{id}/projects`                   | Create a project → `201`                                               |
 | `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`) |
-| `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional cascade → `200 {deleted}` with per-table counts: owned activities/tasks/notes are deleted; inbox suggestions and reminders survive with the project reference nulled |
+| `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional → `200 {deleted}` with per-table counts. Moves the project and the activities/tasks/notes it owns to the trash as one batch; reminders and inbox items keep their project link and read as unfiled until it is restored or purged |
+| `GET /api/spaces/{id}/trash`                       | Any user: what is currently trashed → `200 {trash}` |
+| `POST /api/spaces/{id}/trash/{entity}/{tid}/restore` | Restore an item and its whole delete batch → `200 {restored}` |
+| `DELETE /api/spaces/{id}/trash/{entity}/{tid}`     | Permanently remove an item and its batch → `200 {purged}` |
+| `POST /api/spaces/{id}/trash/empty`                | Permanently remove everything trashed → `200 {purged}` |
 | `POST /api/spaces/{id}/activities`                 | Create an activity entry → `201`                                       |
 | `PATCH /api/spaces/{id}/activities/{aid}`          | Partial update                                                         |
 | `DELETE /api/spaces/{id}/activities/{aid}`         | Delete → `204`                                                         |
@@ -188,6 +192,14 @@ Configuration is **instance-wide** and read from the environment at startup — 
 
 `--llm-provider`, `--llm-base-url`, and `--llm-model` exist as flags too; the API key does not, by design.
 
+**The trash.** Since [#16](https://github.com/bgrewell/donezo/issues/16) a `DELETE` on any content route is a soft delete: the row is marked, leaves every read immediately, and can be restored. Only a purge removes data.
+
+Deleting a project marks it and the activities, tasks and notes it owns with one *delete batch*, and restore acts on the batch — so a project comes back with its content, and only the content this delete took. Something deleted separately beforehand keeps its own batch and stays in the trash.
+
+Note what a soft cascade does **not** do: reminders and inbox items are left alone entirely. The old hard cascade nulled their project link because the foreign key would not survive the row disappearing; a trashed project is still there, so the link stays valid and the relationship returns intact on restore. They read as unfiled meanwhile, because the project itself is filtered out of reads. The detach happens at purge, which is the only point a row really goes.
+
+`--trash-retention-days` / `DONEZOD_TRASH_RETENTION_DAYS` sets how long an item stays restorable (default 30; `0` disables the sweep and leaves the trash to be emptied by hand). The sweep runs at startup and then daily — startup matters more than the interval, since an instance stopped and started every day would otherwise never reach the first tick. Archived spaces are skipped: they are deliberately frozen.
+
 **Which day it is.** A calendar date — an activity's `date`, a task's `due`, a `createdAt` — means "the day it was where the person was". An instant (`createdAt`/`updatedAt` timestamps, `capturedAt`) does not, and stays UTC.
 
 The web app resolves dates in the browser's zone, so it has always been right. Writes that arrive without a browser — an agent over MCP — have to be told, and until they were, the server used UTC: every entry logged after 17:00 Pacific landed on tomorrow, and the browser and MCP disagreed about the date for that whole window ([#39](https://github.com/bgrewell/donezo/issues/39)).
@@ -314,7 +326,7 @@ that means in practice.
 
 **Scopes.** A token is `read_only` or `read_write`, fixed at creation.
 `tools/list` returns **only the tools the scope permits** — a `read_only`
-token sees the nine read tools; a `read_write` token sees all twenty-five. A
+token sees the ten read tools; a `read_write` token sees all twenty-seven. A
 write call made with a `read_only` token is refused with a clear `isError`
 tool result (never a silent no-op).
 
@@ -350,7 +362,9 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `update_note` | write | `title`, `body`, `project_id`; empty `project_id` detaches. |
 | `update_activity` | write | `title`, `details`, `type`, `date`, `effort_hours` (0 clears), `project_id`. |
 | `update_reminder` | write | `text`, `details`, `remind_at`, `done`, `project_id`. |
-| `delete_item` | write | Permanent delete by `kind` (`task`/`note`/`reminder`/`activity`/`inbox_item`) + `item_id`. Projects are refused with an explanation — their delete cascades and stays a web-app action. |
+| `delete_item` | write | Move to the trash by `kind` (`task`/`note`/`reminder`/`activity`/`inbox_item`) + `item_id`. Reversible via `restore_item`. Projects are refused with an explanation — their delete cascades and stays a web-app action. |
+| `list_trash` | read | What is in the trash: entity, id, label, `deletedAt`, and the `batchSize` of its delete. |
+| `restore_item` | write | Restore a trashed item and everything deleted alongside it. Accepts `project`, unlike `delete_item`. |
 
 The exact names, arguments, and JSON Schemas are published by the server
 itself over `tools/list` — every MCP client reads them on connect — so

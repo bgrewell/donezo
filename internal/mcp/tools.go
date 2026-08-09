@@ -35,6 +35,11 @@ var (
 	// (update_note does that), and note-to-project is not a sensible target:
 	// a note is content, not a stream of work.
 	noteTargetKinds = []string{"task", "reminder", "activity"}
+	// restorableKinds is wider than deletableKinds by one: a project can be
+	// restored here even though it cannot be deleted here. Undoing a
+	// destructive web-app action is not itself destructive, and refusing it
+	// would leave an agent able to see a trashed project it cannot help with.
+	restorableKinds = []string{"task", "note", "reminder", "activity", "inbox_item", "project"}
 )
 
 // maxItems caps how many rows a read tool returns; past it the result
@@ -565,10 +570,13 @@ func buildTools() []tool {
 		{
 			name:  "delete_item",
 			title: "Delete item",
-			description: "Permanently delete a task, note, reminder, activity, or inbox item. Use it for things " +
-				"created by mistake — to close out real work use complete_task, and to clear a reviewed capture use " +
-				"dismiss_inbox_item. Deleting a PROJECT is not possible here: that cascades to everything the " +
-				"project owns and stays a web-app action. Deletion cannot be undone, so confirm with the user first.",
+			description: "Move a task, note, reminder, activity, or inbox item to the trash. Use it for things " +
+				"created by mistake — to close out real work use complete_task, and to clear a reviewed capture " +
+				"use dismiss_inbox_item. It leaves every view immediately but is NOT destroyed: list_trash shows " +
+				"it and restore_item puts it back, until the instance's retention window (30 days by default) " +
+				"expires. Still worth confirming with the user, but a mistake here is recoverable. Deleting a " +
+				"PROJECT is not available here — that cascades to everything the project owns and stays a web-app " +
+				"action.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id": strProp("The space the item lives in."),
@@ -576,6 +584,33 @@ func buildTools() []tool {
 				"item_id":  strProp("The id of the item to delete."),
 			}, "space_id", "kind", "item_id"),
 			handler: toolDeleteItem,
+		},
+		{
+			name:  "list_trash",
+			title: "List trash",
+			description: "Everything currently in the space's trash: what it was, when it was deleted, and how " +
+				"many rows share its delete. Use it to find something that was removed by mistake — including by " +
+				"you — before restoring it. Deleting a project trashes the content it owns in the same batch, so " +
+				"a batchSize above 1 means restoring brings all of it back together.",
+			inputSchema: objectSchema(map[string]any{
+				"space_id": strProp("The space whose trash to list."),
+			}, "space_id"),
+			handler: toolListTrash,
+		},
+		{
+			name:  "restore_item",
+			title: "Restore item",
+			description: "Put a trashed item back. It returns to every view exactly as it was. Restoring names " +
+				"one item but brings back everything deleted alongside it — restoring a project restores the " +
+				"activities, tasks and notes that went with it, and only those: something deleted separately " +
+				"beforehand stays in the trash. Get ids from list_trash.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id": strProp("The space the item was deleted in."),
+				"kind":     enumProp("What kind of item to restore.", restorableKinds),
+				"item_id":  strProp("The id of the trashed item (from list_trash)."),
+			}, "space_id", "kind", "item_id"),
+			handler: toolRestoreItem,
 		},
 	}
 }

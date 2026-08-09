@@ -22,7 +22,7 @@ touching a given space's content at all.
 
 ## What the MCP server exposes
 
-The server presents 25 tools built around how donezo is used day to day —
+The server presents 27 tools built around how donezo is used day to day —
 oriented on donezo's own model of work: an **activity** is a past fact (it
 lands on the timeline), a **task** is a future possibility with a lifecycle,
 and the **inbox** exists so capturing something never requires deciding what
@@ -56,9 +56,11 @@ is a summary, not the source of truth:
 | `update_note`         | write | Change a note's title, body, or project.                                                        |
 | `update_activity`     | write | Correct a past fact already on the timeline — title, details, type, date, effort, project.       |
 | `update_reminder`     | write | Reschedule a reminder, change its text, details or project, or mark it handled.                  |
-| `delete_item`         | write | Permanently delete a task, note, reminder, activity, or inbox item. **Not** projects — see below. |
+| `delete_item`         | write | Move a task, note, reminder, activity, or inbox item to the **trash** — reversible, not destroyed. **Not** projects — see below. |
+| `list_trash`          | read  | What is currently in the trash: what it was, when it went, and how many rows share its delete.  |
+| `restore_item`        | write | Put a trashed item back, along with everything deleted alongside it. Projects included.          |
 
-The 9 `read` tools work with either scope; the 16 `write` tools require a
+The 10 `read` tools work with either scope; the 17 `write` tools require a
 `read_write` token. Which of these a token may call is governed by its
 **scope** (below).
 
@@ -106,13 +108,22 @@ these, a well-behaved model will say so plainly and point you at the app
 rather than improvise a workaround — that instruction is built into what
 the server tells the model at connection time.
 
-Project deletion is held back specifically because it cascades to every
-activity, task, note, and reminder the project owns — an irreversible
-action that shouldn't be one tool call away. `delete_item` covers the
-individual entities, and is likewise permanent: the server instructs
-connected models to confirm with you before calling it, and to prefer
-`complete_task` for finished work or `dismiss_inbox_item` for a reviewed
-capture.
+Project deletion is held back because it cascades to every activity,
+task, note, and reminder the project owns — enough of a decision that it
+should not be one tool call away, even now that it is reversible.
+
+**Deleting is no longer destructive.** Since [#16](https://github.com/bgrewell/donezo/issues/16),
+`delete_item` moves a row to the trash: it leaves every view at once, but
+`list_trash` shows it and `restore_item` puts it back, until the
+instance's retention window (30 days by default) expires. A model is
+still told to confirm before deleting, and to prefer `complete_task` for
+finished work or `dismiss_inbox_item` for a reviewed capture — but a
+mistake is now recoverable rather than final.
+
+`restore_item` accepts projects even though `delete_item` does not.
+Undoing a destructive action is not itself destructive, and refusing it
+would leave a connected model able to *see* a trashed project it cannot
+help you with.
 
 ## Token scopes
 

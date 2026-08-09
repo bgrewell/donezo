@@ -1573,3 +1573,66 @@ func toolDeleteItem(ctx context.Context, h *Handler, c caller, args json.RawMess
 	}
 	return jsonText(map[string]any{"deleted": true, "kind": a.Kind, "id": a.ItemID}), false
 }
+
+// toolListTrash returns everything currently trashed in a space.
+func toolListTrash(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID string `json:"space_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	items, err := h.spaces.ListTrash(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp list trash: %v", err)
+		return "internal error", true
+	}
+	shown, truncated := capItems(items)
+	out := map[string]any{"trash": shown, "count": len(items)}
+	if truncated {
+		out["note"] = fmt.Sprintf("showing the first %d of %d trashed items", maxItems, len(items))
+	}
+	return jsonText(out), false
+}
+
+// toolRestoreItem puts a trashed item, and everything deleted with it, back.
+func toolRestoreItem(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID string `json:"space_id"`
+		Kind    string `json:"kind"`
+		ItemID  string `json:"item_id"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	if strings.TrimSpace(a.ItemID) == "" {
+		return "item_id is required", true
+	}
+	if !oneOf(a.Kind, restorableKinds) {
+		return "kind must be one of " + strings.Join(restorableKinds, ", "), true
+	}
+	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	restored, err := h.spaces.RestoreItem(ctx, sp.ID, a.Kind, a.ItemID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Distinguish the two ways this fails, because they call for
+			// different next steps: nothing to restore versus already live.
+			return "no trashed " + a.Kind + " with that id — check list_trash; " +
+				"an item that was never deleted, or one already purged, will not be there", true
+		}
+		return h.storeErrText(a.Kind, err), true
+	}
+	out := map[string]any{"kind": a.Kind, "itemId": a.ItemID, "restored": restored}
+	if restored > 1 {
+		out["note"] = fmt.Sprintf("%d rows were restored: this item was deleted together with %d other(s)",
+			restored, restored-1)
+	}
+	return jsonText(out), false
+}
