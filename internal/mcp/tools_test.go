@@ -53,6 +53,7 @@ func TestReadToolsForeignSpaceNotFound(t *testing.T) {
 		{"list_tasks", `{"space_id":"private"}`},
 		{"list_notes", `{"space_id":"private"}`},
 		{"list_reminders", `{"space_id":"private"}`},
+		{"list_trash", `{"space_id":"private"}`},
 		{"get_space_overview", `{"space_id":"nope"}`},
 		{"list_notes", `{"space_id":"nope"}`},
 	} {
@@ -116,6 +117,7 @@ func TestWriteToolsRejectArchivedSpace(t *testing.T) {
 		{"create_reminder", `{"space_id":"sandbox","text":"x","remind_at":"2026-08-01T09:00:00"}`},
 		{"classify_inbox_item", `{"space_id":"sandbox","inbox_id":"i-1","kind":"task"}`},
 		{"convert_note", `{"space_id":"sandbox","note_id":"n-1","kind":"task"}`},
+		{"restore_item", `{"space_id":"sandbox","kind":"task","item_id":"t-1"}`},
 		{"update_project", `{"space_id":"sandbox","project_id":"loom","status":"paused"}`},
 		{"create_project", `{"space_id":"sandbox","name":"x"}`},
 		{"update_task", `{"space_id":"sandbox","task_id":"t-1","title":"x"}`},

@@ -391,7 +391,7 @@ func TestEntityMutationEndpoints(t *testing.T) {
 		},
 		// ── deletes ─────────────────────────────────────────────────────
 		{
-			name: "delete project cascades and reports counts",
+			name: "delete project trashes it and the content it owns",
 			seed: []step{
 				{http.MethodPost, "/api/spaces/sandbox/activities", activityBody},
 				{http.MethodPost, "/api/spaces/sandbox/tasks",
@@ -405,24 +405,26 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			},
 			method: http.MethodDelete, path: "/api/spaces/sandbox/projects/loom",
 			wantStatus: http.StatusOK,
-			wantInBody: `"deleted":{"project":1,"activities":1,"tasks":1,"notes":1,` +
-				`"detachedInbox":1,"detachedReminders":1}`,
+			wantInBody: `"deleted":{"project":1,"activities":1,"tasks":1,"notes":1}`,
 			checkState: func(t *testing.T, state map[string]json.RawMessage) {
 				t.Helper()
-				// Owned content dies with the project…
+				// The project and the content it owns leave every read…
 				for _, key := range []string{"projects", "activities", "tasks", "notes"} {
 					if string(state[key]) != "[]" {
-						t.Errorf("%s after cascade = %s, want []", key, state[key])
+						t.Errorf("%s after delete = %s, want []", key, state[key])
 					}
 				}
-				// …while loose references survive, detached.
+				// …while loose references stay live AND keep their link. Since
+				// the trash landed there is no detach here: a trashed project
+				// still exists for the reference to point at, so a restore puts
+				// the relationship back. The detach happens at purge.
 				reminders := string(state["reminders"])
-				if !strings.Contains(reminders, `"id":"rem-1"`) || strings.Contains(reminders, "projectId") {
-					t.Errorf("reminder not detached: %s", reminders)
+				if !strings.Contains(reminders, `"id":"rem-1"`) || !strings.Contains(reminders, `"projectId":"loom"`) {
+					t.Errorf("reminder should stay live with its link: %s", reminders)
 				}
 				inbox := string(state["inbox"])
-				if !strings.Contains(inbox, `"id":"inb-1"`) || strings.Contains(inbox, "suggestedProjectId") {
-					t.Errorf("inbox item not detached: %s", inbox)
+				if !strings.Contains(inbox, `"id":"inb-1"`) || !strings.Contains(inbox, `"suggestedProjectId":"loom"`) {
+					t.Errorf("inbox item should stay live with its link: %s", inbox)
 				}
 			},
 		},
@@ -696,6 +698,11 @@ func TestArchivedSpaceWriteGuard(t *testing.T) {
 			`{"kind":"task","task":` + taskBody + `}`},
 		{http.MethodPost, "/api/spaces/sandbox/notes/note-1/convert",
 			`{"kind":"task","task":` + taskBody + `}`},
+		// The trash writes: restoring or purging inside an archived space is
+		// a content mutation like any other.
+		{http.MethodPost, "/api/spaces/sandbox/trash/note/note-1/restore", ""},
+		{http.MethodDelete, "/api/spaces/sandbox/trash/note/note-1", ""},
+		{http.MethodPost, "/api/spaces/sandbox/trash/empty", ""},
 	}
 	for _, wr := range writes {
 		wr := wr // capture (golangci-lint predates Go 1.22 loopvar)

@@ -39,10 +39,13 @@ type Server struct {
 	llmLimiter  *auth.RateLimiter
 	clock       func() time.Time
 	location    *time.Location
-	trustProxy  bool
-	logger      *log.Logger
-	ui          fs.FS
-	version     string
+	// trashRetention is how long a deleted item stays restorable before the
+	// sweep purges it. Zero or less disables the sweep.
+	trashRetention time.Duration
+	trustProxy     bool
+	logger         *log.Logger
+	ui             fs.FS
+	version        string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -82,6 +85,13 @@ func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
 // deployment, not a degraded one.
 func WithLLM(c llm.Client) ServerOption {
 	return func(s *Server) { s.llm = c }
+}
+
+// WithTrashRetention sets how long a deleted item stays restorable before the
+// sweep purges it for good. Zero or less turns the sweep off, leaving the
+// trash to be emptied by hand. Defaults to DefaultTrashRetention.
+func WithTrashRetention(d time.Duration) ServerOption {
+	return func(s *Server) { s.trashRetention = d }
 }
 
 // WithLocation sets the instance's fallback zone for calendar days, used for
@@ -171,11 +181,12 @@ func WithWebUI(fsys fs.FS) ServerOption {
 // rate-limited per client IP, and requests are logged to stderr.
 func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOption) *Server {
 	s := &Server{
-		core:     core,
-		spaces:   spaces,
-		clock:    time.Now,
-		location: time.Local,
-		logger:   defaultLogger(),
+		core:           core,
+		spaces:         spaces,
+		clock:          time.Now,
+		location:       time.Local,
+		trashRetention: DefaultTrashRetention,
+		logger:         defaultLogger(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -257,46 +268,56 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/spaces/{id}/inbox", s.handleCreateInboxItem)
 	mux.HandleFunc("PATCH /api/spaces/{id}/inbox/{iid}", s.handlePatchInboxItem)
 	mux.HandleFunc("POST /api/spaces/{id}/inbox/{iid}/convert", s.handleConvertInboxItem)
+	// The trash (#16). Deleting anywhere above moves a row here; these make
+	// that visible and reversible.
+	mux.HandleFunc("GET /api/spaces/{id}/trash", s.handleListTrash)
+	mux.HandleFunc("POST /api/spaces/{id}/trash/empty", s.handleEmptyTrash)
+	mux.HandleFunc("POST /api/spaces/{id}/trash/{entity}/{tid}/restore", s.handleRestoreTrash)
+	mux.HandleFunc("DELETE /api/spaces/{id}/trash/{entity}/{tid}", s.handlePurgeTrash)
 	// Method-agnostic fallbacks: with the JSON catch-all below registered,
 	// ServeMux's built-in 405 logic never fires, so known paths get an
 	// explicit JSON 405 for other methods (method patterns win when they
 	// match). Values are the Allow header for each path.
 	allowed := map[string]string{
-		"/api/healthz":                         http.MethodGet,
-		"/api/auth/status":                     http.MethodGet,
-		"/api/auth/setup":                      http.MethodPost,
-		"/api/auth/login":                      http.MethodPost,
-		"/api/auth/logout":                     http.MethodPost,
-		"/api/auth/register":                   http.MethodPost,
-		"/api/auth/me":                         http.MethodGet,
-		"/api/invites":                         "GET, POST",
-		"/api/invites/{id}":                    http.MethodDelete,
-		"/api/llm":                             http.MethodGet,
-		"/api/llm/rewrite":                     http.MethodPost,
-		"/api/instance":                        http.MethodGet,
-		"/api/settings":                        "GET, PATCH",
-		"/api/tokens":                          "GET, POST",
-		"/api/tokens/{id}":                     http.MethodDelete,
-		"/api/spaces":                          "GET, POST",
-		"/api/spaces/{id}":                     http.MethodPatch,
-		"/api/spaces/{id}/archive":             http.MethodPost,
-		"/api/spaces/{id}/unarchive":           http.MethodPost,
-		"/api/spaces/{id}/state":               http.MethodGet,
-		"/api/spaces/{id}/revision":            http.MethodGet,
-		"/api/spaces/{id}/projects":            http.MethodPost,
-		"/api/spaces/{id}/projects/{pid}":      "PATCH, DELETE",
-		"/api/spaces/{id}/activities":          http.MethodPost,
-		"/api/spaces/{id}/activities/{aid}":    "PATCH, DELETE",
-		"/api/spaces/{id}/tasks":               http.MethodPost,
-		"/api/spaces/{id}/tasks/{tid}":         http.MethodPatch,
-		"/api/spaces/{id}/notes":               http.MethodPost,
-		"/api/spaces/{id}/notes/{nid}":         "PATCH, DELETE",
-		"/api/spaces/{id}/notes/{nid}/convert": http.MethodPost,
-		"/api/spaces/{id}/reminders":           http.MethodPost,
-		"/api/spaces/{id}/reminders/{rid}":     http.MethodPatch,
-		"/api/spaces/{id}/inbox":               http.MethodPost,
-		"/api/spaces/{id}/inbox/{iid}":         http.MethodPatch,
-		"/api/spaces/{id}/inbox/{iid}/convert": http.MethodPost,
+		"/api/healthz":                          http.MethodGet,
+		"/api/auth/status":                      http.MethodGet,
+		"/api/auth/setup":                       http.MethodPost,
+		"/api/auth/login":                       http.MethodPost,
+		"/api/auth/logout":                      http.MethodPost,
+		"/api/auth/register":                    http.MethodPost,
+		"/api/auth/me":                          http.MethodGet,
+		"/api/invites":                          "GET, POST",
+		"/api/invites/{id}":                     http.MethodDelete,
+		"/api/llm":                              http.MethodGet,
+		"/api/llm/rewrite":                      http.MethodPost,
+		"/api/instance":                         http.MethodGet,
+		"/api/settings":                         "GET, PATCH",
+		"/api/tokens":                           "GET, POST",
+		"/api/tokens/{id}":                      http.MethodDelete,
+		"/api/spaces":                           "GET, POST",
+		"/api/spaces/{id}":                      http.MethodPatch,
+		"/api/spaces/{id}/archive":              http.MethodPost,
+		"/api/spaces/{id}/unarchive":            http.MethodPost,
+		"/api/spaces/{id}/state":                http.MethodGet,
+		"/api/spaces/{id}/trash":                http.MethodGet,
+		"/api/spaces/{id}/trash/empty":          http.MethodPost,
+		"/api/spaces/{id}/trash/{entity}/{tid}": http.MethodDelete,
+		"/api/spaces/{id}/trash/{entity}/{tid}/restore": http.MethodPost,
+		"/api/spaces/{id}/revision":                     http.MethodGet,
+		"/api/spaces/{id}/projects":                     http.MethodPost,
+		"/api/spaces/{id}/projects/{pid}":               "PATCH, DELETE",
+		"/api/spaces/{id}/activities":                   http.MethodPost,
+		"/api/spaces/{id}/activities/{aid}":             "PATCH, DELETE",
+		"/api/spaces/{id}/tasks":                        http.MethodPost,
+		"/api/spaces/{id}/tasks/{tid}":                  http.MethodPatch,
+		"/api/spaces/{id}/notes":                        http.MethodPost,
+		"/api/spaces/{id}/notes/{nid}":                  "PATCH, DELETE",
+		"/api/spaces/{id}/notes/{nid}/convert":          http.MethodPost,
+		"/api/spaces/{id}/reminders":                    http.MethodPost,
+		"/api/spaces/{id}/reminders/{rid}":              http.MethodPatch,
+		"/api/spaces/{id}/inbox":                        http.MethodPost,
+		"/api/spaces/{id}/inbox/{iid}":                  http.MethodPatch,
+		"/api/spaces/{id}/inbox/{iid}/convert":          http.MethodPost,
 	}
 	for path, methods := range allowed {
 		methods := methods // capture (golangci-lint predates Go 1.22 loopvar)

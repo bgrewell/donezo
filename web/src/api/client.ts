@@ -223,19 +223,78 @@ export function revokeApiToken(id: string): Promise<void> {
   return api.del(`/api/tokens/${encodeURIComponent(id)}`);
 }
 
-/** Counts returned by DELETE project: deleted rows plus references that
- *  were detached (kept, project link nulled) rather than removed. */
+/** Counts returned by DELETE project: the rows moved to the trash.
+ *
+ *  No detached counts since the trash landed: reminders and inbox items keep
+ *  their project link, because a trashed project is still there to point at.
+ *  They read as unfiled until it is restored or purged. */
 export interface ProjectCascade {
   project: number;
   activities: number;
   tasks: number;
   notes: number;
-  detachedInbox: number;
-  detachedReminders: number;
 }
 
-/** DELETE /api/spaces/{id}/projects/{pid} — remove a project and all the
- *  content it owns; raw captures and reminders survive, detached. */
+/** One entry in the trash. */
+export interface TrashItem {
+  /** project | activity | task | note | reminder | inbox_item */
+  entity: string;
+  id: string;
+  /** The row's one-line description, so the view can say what it was. */
+  label: string;
+  /** RFC 3339 UTC instant — convert for display, do not slice. */
+  deletedAt: string;
+  /** Groups everything one delete removed. */
+  batch: string;
+  /** How many rows share the batch; above 1 only for a project that took
+   *  content with it, which is exactly when it is worth saying so. */
+  batchSize: number;
+}
+
+/** GET /api/spaces/{id}/trash */
+export async function fetchTrash(spaceId: string): Promise<TrashItem[]> {
+  return (
+    await api.get<{ trash: TrashItem[] }>(`/api/spaces/${encodeURIComponent(spaceId)}/trash`)
+  ).trash;
+}
+
+/** Restore an item and everything deleted alongside it. */
+export async function restoreTrashItem(
+  spaceId: string,
+  entity: string,
+  id: string
+): Promise<number> {
+  return (
+    await api.post<{ restored: number }>(
+      `/api/spaces/${encodeURIComponent(spaceId)}/trash/${encodeURIComponent(entity)}/${encodeURIComponent(id)}/restore`,
+      {}
+    )
+  ).restored;
+}
+
+/** Permanently remove an item and its batch. */
+export async function purgeTrashItem(
+  spaceId: string,
+  entity: string,
+  id: string
+): Promise<number> {
+  return (
+    await request<{ purged: number }>(
+      "DELETE",
+      `/api/spaces/${encodeURIComponent(spaceId)}/trash/${encodeURIComponent(entity)}/${encodeURIComponent(id)}`
+    )
+  ).purged;
+}
+
+/** Permanently remove everything in the trash. */
+export async function emptyTrash(spaceId: string): Promise<number> {
+  return (
+    await api.post<{ purged: number }>(`/api/spaces/${encodeURIComponent(spaceId)}/trash/empty`, {})
+  ).purged;
+}
+
+/** DELETE /api/spaces/{id}/projects/{pid} — move a project and the content it
+ *  owns to the trash, restorable as one batch. */
 export async function deleteProject(
   spaceId: string,
   projectId: string

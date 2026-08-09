@@ -216,7 +216,7 @@ func (s *SpaceStore) GetProject(ctx context.Context, spaceID, id string) (Projec
 // getProjectRow reads one project by id via q, or ErrNotFound.
 func getProjectRow(ctx context.Context, q rowQuerier, id string) (Project, error) {
 	p, err := scanProject(q.QueryRowContext(ctx,
-		`SELECT `+projectColumns+` FROM projects WHERE id = ?`, id))
+		`SELECT `+projectColumns+` FROM projects WHERE id = ? AND deleted_at IS NULL`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, fmt.Errorf("store: project %q: %w", id, ErrNotFound)
 	}
@@ -300,7 +300,7 @@ func (s *SpaceStore) ListProjects(ctx context.Context, spaceID string) ([]Projec
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects ORDER BY rowid`)
+	rows, err := db.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list projects: %w", err)
 	}
@@ -394,7 +394,7 @@ func (s *SpaceStore) GetActivity(ctx context.Context, spaceID, id string) (Activ
 // getActivityRow reads one activity by id via q, or ErrNotFound.
 func getActivityRow(ctx context.Context, q rowQuerier, id string) (ActivityEntry, error) {
 	a, err := scanActivity(q.QueryRowContext(ctx,
-		`SELECT `+activityColumns+` FROM activities WHERE id = ?`, id))
+		`SELECT `+activityColumns+` FROM activities WHERE id = ? AND deleted_at IS NULL`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ActivityEntry{}, fmt.Errorf("store: activity %q: %w", id, ErrNotFound)
 	}
@@ -459,17 +459,10 @@ func execUpdateActivity(ctx context.Context, ex execer, a ActivityEntry) (sql.Re
 		tags, links, a.NextAction, boolPtrToInt(a.Planned), a.UpdatedAt, a.ID)
 }
 
-// DeleteActivity removes an activity by id. Returns ErrNotFound if absent.
+// DeleteActivity moves an activity to the trash. Returns ErrNotFound if the
+// id does not exist or is already trashed. Nothing is removed until a purge.
 func (s *SpaceStore) DeleteActivity(ctx context.Context, spaceID, id string) error {
-	db, err := s.db(ctx, spaceID)
-	if err != nil {
-		return err
-	}
-	res, err := db.ExecContext(ctx, `DELETE FROM activities WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete activity %q: %w", id, err)
-	}
-	return notFoundIfZero(res, "activity", id)
+	return s.softDeleteRow(ctx, spaceID, "activities", id)
 }
 
 // ListActivities returns all activities in insertion order.
@@ -478,7 +471,7 @@ func (s *SpaceStore) ListActivities(ctx context.Context, spaceID string) ([]Acti
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT `+activityColumns+` FROM activities ORDER BY rowid`)
+	rows, err := db.QueryContext(ctx, `SELECT `+activityColumns+` FROM activities WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list activities: %w", err)
 	}
@@ -536,7 +529,7 @@ func (s *SpaceStore) GetTask(ctx context.Context, spaceID, id string) (TaskItem,
 func getTaskRow(ctx context.Context, q rowQuerier, id string) (TaskItem, error) {
 	var t TaskItem
 	err := q.QueryRowContext(ctx,
-		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE id = ?`,
+		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE id = ? AND deleted_at IS NULL`,
 		id).Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due, &t.WaitingOn, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskItem{}, fmt.Errorf("store: task %q: %w", id, ErrNotFound)
@@ -575,17 +568,10 @@ func execUpdateTask(ctx context.Context, ex execer, t TaskItem) (sql.Result, err
 		t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
 }
 
-// DeleteTask removes a task by id. Returns ErrNotFound if absent.
+// DeleteTask moves a task to the trash. Returns ErrNotFound if the id does
+// not exist or is already trashed.
 func (s *SpaceStore) DeleteTask(ctx context.Context, spaceID, id string) error {
-	db, err := s.db(ctx, spaceID)
-	if err != nil {
-		return err
-	}
-	res, err := db.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete task %q: %w", id, err)
-	}
-	return notFoundIfZero(res, "task", id)
+	return s.softDeleteRow(ctx, spaceID, "tasks", id)
 }
 
 // ListTasks returns all tasks in insertion order.
@@ -595,7 +581,7 @@ func (s *SpaceStore) ListTasks(ctx context.Context, spaceID string) ([]TaskItem,
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks ORDER BY rowid`)
+		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list tasks: %w", err)
 	}
@@ -653,7 +639,7 @@ func (s *SpaceStore) GetNote(ctx context.Context, spaceID, id string) (NoteItem,
 func getNoteRow(ctx context.Context, q rowQuerier, id string) (NoteItem, error) {
 	var n NoteItem
 	err := q.QueryRowContext(ctx,
-		`SELECT id, project_id, title, body, created_at FROM notes WHERE id = ?`,
+		`SELECT id, project_id, title, body, created_at FROM notes WHERE id = ? AND deleted_at IS NULL`,
 		id).Scan(&n.ID, &n.ProjectID, &n.Title, &n.Body, &n.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return NoteItem{}, fmt.Errorf("store: note %q: %w", id, ErrNotFound)
@@ -694,17 +680,10 @@ func execUpdateNote(ctx context.Context, ex execer, n NoteItem) (sql.Result, err
 		n.ProjectID, n.Title, n.Body, n.CreatedAt, n.ID)
 }
 
-// DeleteNote removes a note by id. Returns ErrNotFound if absent.
+// DeleteNote moves a note to the trash. Returns ErrNotFound if the id does
+// not exist or is already trashed.
 func (s *SpaceStore) DeleteNote(ctx context.Context, spaceID, id string) error {
-	db, err := s.db(ctx, spaceID)
-	if err != nil {
-		return err
-	}
-	res, err := db.ExecContext(ctx, `DELETE FROM notes WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete note %q: %w", id, err)
-	}
-	return notFoundIfZero(res, "note", id)
+	return s.softDeleteRow(ctx, spaceID, "notes", id)
 }
 
 // ListNotes returns all notes in insertion order.
@@ -714,7 +693,7 @@ func (s *SpaceStore) ListNotes(ctx context.Context, spaceID string) ([]NoteItem,
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, title, body, created_at FROM notes ORDER BY rowid`)
+		`SELECT id, project_id, title, body, created_at FROM notes WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list notes: %w", err)
 	}
@@ -771,7 +750,7 @@ func getReminderRow(ctx context.Context, q rowQuerier, id string) (Reminder, err
 	var r Reminder
 	var done *int64
 	err := q.QueryRowContext(ctx,
-		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE id = ?`,
+		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE id = ? AND deleted_at IS NULL`,
 		id).Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Reminder{}, fmt.Errorf("store: reminder %q: %w", id, ErrNotFound)
@@ -810,17 +789,10 @@ func execUpdateReminder(ctx context.Context, ex execer, r Reminder) (sql.Result,
 		r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
 }
 
-// DeleteReminder removes a reminder by id. Returns ErrNotFound if absent.
+// DeleteReminder moves a reminder to the trash. Returns ErrNotFound if the id
+// does not exist or is already trashed.
 func (s *SpaceStore) DeleteReminder(ctx context.Context, spaceID, id string) error {
-	db, err := s.db(ctx, spaceID)
-	if err != nil {
-		return err
-	}
-	res, err := db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete reminder %q: %w", id, err)
-	}
-	return notFoundIfZero(res, "reminder", id)
+	return s.softDeleteRow(ctx, spaceID, "reminders", id)
 }
 
 // ListReminders returns all reminders in insertion order.
@@ -830,7 +802,7 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, text, details, remind_at, project_id, done FROM reminders ORDER BY rowid`)
+		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list reminders: %w", err)
 	}
@@ -890,7 +862,7 @@ func getInboxRow(ctx context.Context, q rowQuerier, id string) (InboxItem, error
 	var it InboxItem
 	err := q.QueryRowContext(ctx,
 		`SELECT id, raw, captured_at, suggested_kind, suggested_project_id, status
-		 FROM inbox WHERE id = ?`,
+		 FROM inbox WHERE id = ? AND deleted_at IS NULL`,
 		id).Scan(&it.ID, &it.Raw, &it.CapturedAt, &it.SuggestedKind, &it.SuggestedProjectID, &it.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return InboxItem{}, fmt.Errorf("store: inbox item %q: %w", id, ErrNotFound)
@@ -932,15 +904,7 @@ func execUpdateInbox(ctx context.Context, ex execer, it InboxItem) (sql.Result, 
 // DeleteInboxItem removes an inbox item by id. Returns ErrNotFound if
 // absent.
 func (s *SpaceStore) DeleteInboxItem(ctx context.Context, spaceID, id string) error {
-	db, err := s.db(ctx, spaceID)
-	if err != nil {
-		return err
-	}
-	res, err := db.ExecContext(ctx, `DELETE FROM inbox WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete inbox item %q: %w", id, err)
-	}
-	return notFoundIfZero(res, "inbox item", id)
+	return s.softDeleteRow(ctx, spaceID, "inbox", id)
 }
 
 // ListInboxItems returns all inbox items in insertion order.
@@ -951,7 +915,7 @@ func (s *SpaceStore) ListInboxItems(ctx context.Context, spaceID string) ([]Inbo
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, raw, captured_at, suggested_kind, suggested_project_id, status
-		 FROM inbox ORDER BY rowid`)
+		 FROM inbox WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list inbox: %w", err)
 	}

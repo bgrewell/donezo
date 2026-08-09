@@ -7,6 +7,7 @@ export const VIEW_IDS: ViewId[] = [
   "projects",
   "review",
   "search",
+  "trash",
 ];
 
 export interface ParsedRoute {

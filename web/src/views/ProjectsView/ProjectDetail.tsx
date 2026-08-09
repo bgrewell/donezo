@@ -580,8 +580,9 @@ function DangerSection({ project }: { project: Project }) {
         Danger
       </div>
       <p className="mt-2 max-w-[70ch] font-sans text-[0.85rem] text-gtc-muted">
-        Deleting removes this project and its activities, tasks, and notes. Raw captures and
-        reminders are kept but detached.
+        Deleting moves this project and its activities, tasks, and notes to the Trash, where
+        they can be restored together. Raw captures and reminders keep their link and come back
+        with it. Nothing is destroyed until the Trash is emptied or the retention window passes.
       </p>
       {!confirming ? (
         <Button
