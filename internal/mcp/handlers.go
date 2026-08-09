@@ -316,7 +316,11 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	sort.SliceStable(activities, func(i, j int) bool { return activities[i].Date > activities[j].Date })
 	tasks := []store.TaskItem{}
 	for _, t := range st.Tasks {
-		if containsFold(t.Title, q) || (t.WaitingOn != nil && containsFold(*t.WaitingOn, q)) {
+		// Details is searched for the same reason an activity's is: this is
+		// where long-form text now lives, and update_task actively tells
+		// callers to move it here.
+		if containsFold(t.Title, q) || containsFold(t.Details, q) ||
+			(t.WaitingOn != nil && containsFold(*t.WaitingOn, q)) {
 			tasks = append(tasks, t)
 		}
 	}
@@ -328,7 +332,7 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	}
 	reminders := []store.Reminder{}
 	for _, rem := range st.Reminders {
-		if containsFold(rem.Text, q) {
+		if containsFold(rem.Text, q) || containsFold(rem.Details, q) {
 			reminders = append(reminders, rem)
 		}
 	}

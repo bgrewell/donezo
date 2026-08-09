@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/bgrewell/donezo/internal/store"
 )
 
 // #44: tasks and reminders carry an optional details field, and the paths that
@@ -132,6 +134,28 @@ func TestClassifySplitsMultiLineCaptures(t *testing.T) {
 		}
 	})
 
+	// The reminder branch is the twin of the task one and was unpinned: the
+	// whole of it could be reverted with every other test still green.
+	t.Run("reminder", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.seedInbox(t, raw)
+		if text, isErr := f.callTool(t, f.rw, "classify_inbox_item",
+			`{"space_id":"sandbox","inbox_id":"inb-seed","kind":"reminder","remind_at":"2026-08-20T09:00:00"}`); isErr {
+			t.Fatalf("classify: %s", text)
+		}
+		rems, err := f.spaces.ListReminders(context.Background(), "sandbox")
+		if err != nil || len(rems) != 1 {
+			t.Fatalf("reminders = %+v (err %v)", rems, err)
+		}
+		if rems[0].Text != "Dig into CORE and decide whether to continue" {
+			t.Errorf("text = %q, want just the first line", rems[0].Text)
+		}
+		if !strings.HasPrefix(rems[0].Details, "Only the eval context") {
+			t.Errorf("details = %q, want the rest of the capture", rems[0].Details)
+		}
+	})
+
 	// A single line has no break the author gave, so it stays whole rather
 	// than being guessed apart at a sentence boundary.
 	t.Run("single line is left alone", func(t *testing.T) {
@@ -171,6 +195,63 @@ func TestClassifySplitsMultiLineCaptures(t *testing.T) {
 			t.Errorf("details = %q, want the remainder still carried", tasks[0].Details)
 		}
 	})
+}
+
+// convert_note's reminder target carries the body too — the same gap as the
+// split above, on the other conversion path.
+func TestConvertNoteCarriesBodyIntoReminderDetails(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.seedNote(t, "n-rbody", "Renew the domain", "Registrar is Gandi; card expires in March.", nil)
+
+	if text, isErr := f.callTool(t, f.rw, "convert_note",
+		`{"space_id":"sandbox","note_id":"n-rbody","kind":"reminder","remind_at":"2026-08-20T09:00:00"}`); isErr {
+		t.Fatalf("convert_note: %s", text)
+	}
+	rems, err := f.spaces.ListReminders(context.Background(), "sandbox")
+	if err != nil || len(rems) != 1 {
+		t.Fatalf("reminders = %+v (err %v)", rems, err)
+	}
+	if rems[0].Text != "Renew the domain" {
+		t.Errorf("text = %q", rems[0].Text)
+	}
+	if rems[0].Details != "Registrar is Gandi; card expires in March." {
+		t.Errorf("details = %q, want the note's body", rems[0].Details)
+	}
+}
+
+// Search has to reach the field long-form text was just moved into, or
+// splitting a title makes it unfindable.
+func TestSearchMatchesTaskAndReminderDetails(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.spaces.CreateTask(ctx, "sandbox", store.TaskItem{
+		ID: "tsk-s1", Title: "Investigate nightly drops", Status: "open",
+		Details: "the upstream connector renegotiates TLS", CreatedAt: "2026-08-09",
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	if _, err := f.spaces.CreateReminder(ctx, "sandbox", store.Reminder{
+		ID: "rem-s1", Text: "Renew the domain", Details: "registrar is Gandi",
+		RemindAt: "2026-08-20T09:00:00",
+	}); err != nil {
+		t.Fatalf("seed reminder: %v", err)
+	}
+
+	for _, tc := range []struct{ query, want string }{
+		{"renegotiates", "tsk-s1"},
+		{"Gandi", "rem-s1"},
+	} {
+		text, isErr := f.callTool(t, f.rw, "search",
+			`{"space_id":"sandbox","query":"`+tc.query+`"}`)
+		if isErr {
+			t.Fatalf("search %q: %s", tc.query, text)
+		}
+		if !strings.Contains(text, tc.want) {
+			t.Errorf("search %q did not find %s — details are not searched: %s", tc.query, tc.want, text)
+		}
+	}
 }
 
 // Converting a note into a task used to destroy the body. It now lands in

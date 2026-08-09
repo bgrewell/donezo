@@ -508,4 +508,20 @@ func TestTaskAndReminderDetailsRoundTrip(t *testing.T) {
 	if len(rems) != 1 || rems[0].Details != "why this matters" {
 		t.Errorf("listed reminder details = %+v", rems)
 	}
+	// UpdateReminder as well as UpdateTask: execUpdateReminder writes the new
+	// column too, and without this it could stop doing so with nothing red.
+	rem.Details = "why it still matters"
+	if _, err := s.UpdateReminder(ctx, "sandbox", rem); err != nil {
+		t.Fatalf("update reminder: %v", err)
+	}
+	if after, err := s.GetReminder(ctx, "sandbox", "r-d"); err != nil || after.Details != "why it still matters" {
+		t.Errorf("reminder details = %q after update (err %v)", after.Details, err)
+	}
+	rem.Details = ""
+	if _, err := s.UpdateReminder(ctx, "sandbox", rem); err != nil {
+		t.Fatalf("clear reminder details: %v", err)
+	}
+	if after, err := s.GetReminder(ctx, "sandbox", "r-d"); err != nil || after.Details != "" {
+		t.Errorf("reminder details = %q after clearing (err %v)", after.Details, err)
+	}
 }

@@ -317,6 +317,12 @@ export function QuickCapture() {
       });
   };
 
+  // The inbox is deliberately one field, so the long form is folded back into
+  // the raw text rather than dropped. splitCapture pulls the two apart again
+  // at classify time — in the app and over MCP — so nothing is lost and the
+  // capture still costs zero decisions.
+  const rawWithDetails = () => (details.trim() === "" ? raw : `${raw}\n\n${details}`);
+
   const saveToInbox = () => {
     if (!raw || capturePending || targetSpaceId === null) return;
     if (crossSpace) {
@@ -327,7 +333,7 @@ export function QuickCapture() {
       api
         .post(`/api/spaces/${encodeURIComponent(targetSpaceId)}/inbox`, {
           id: newId("inb"),
-          raw,
+          raw: rawWithDetails(),
           capturedAt: nowLocalISO(),
           suggestedKind: kind,
           status: "pending",
@@ -355,7 +361,7 @@ export function QuickCapture() {
       type: "ADD_INBOX",
       item: {
         id: newId("inb"),
-        raw,
+        raw: rawWithDetails(),
         capturedAt: nowLocalISO(),
         suggestedKind: kind,
         suggestedProjectId: projectId || undefined,
@@ -496,6 +502,13 @@ export function QuickCapture() {
       const target = e.target;
       if (!panel || !(target instanceof HTMLElement) || !panel.contains(target)) return;
       const mod = e.metaKey || e.ctrlKey;
+      // A plain Enter inside the multi-line details field is a newline, not a
+      // submit. This handler predates the field: when every input on the panel
+      // was single-line, capturing every Enter was right. Cmd/Ctrl+Enter still
+      // reaches the inbox from inside it, which is the one deliberate submit.
+      if (!mod && target.tagName === "TEXTAREA") {
+        return;
+      }
       if (
         !mod &&
         target.tagName === "BUTTON" &&
@@ -661,7 +674,10 @@ export function QuickCapture() {
             is its purpose, which ProjectFields already offers. Kept outside
             the grid above because it is the same control whichever kind is
             selected — switching kind should not throw away what was typed. */}
-        {kind !== "project" && !crossSpace && !noLiveTarget && (
+        {/* Shown for a cross-space capture too: that path is inbox-only, and
+            the inbox now carries the long form, so hiding a filled field
+            would look exactly like losing it. */}
+        {kind !== "project" && !noLiveTarget && (
           <DetailsField
             value={details}
             onChange={setDetails}

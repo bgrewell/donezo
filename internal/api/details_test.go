@@ -94,6 +94,17 @@ func TestReminderDetailsRoundTripAndPatch(t *testing.T) {
 		t.Errorf("marking done disturbed details: %v", got)
 	}
 
+	// Setting a NEW non-empty value, not just surviving and clearing: without
+	// this an apply() that assigned the empty string unconditionally would
+	// pass both assertions above.
+	if rec := doJSON(t, h, http.MethodPatch, "/api/spaces/sandbox/reminders/rem-d1",
+		`{"details":"Replaced."}`); rec.Code != http.StatusOK {
+		t.Fatalf("patch details = %d (body %s)", rec.Code, rec.Body)
+	}
+	if got := stateEntity(t, h, "reminders", "rem-d1")["details"]; got != "Replaced." {
+		t.Errorf("details = %v after patch", got)
+	}
+
 	if rec := doJSON(t, h, http.MethodPatch, "/api/spaces/sandbox/reminders/rem-d1",
 		`{"details":""}`); rec.Code != http.StatusOK {
 		t.Fatalf("clear = %d (body %s)", rec.Code, rec.Body)

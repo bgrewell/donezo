@@ -2809,6 +2809,7 @@
       "id": "task-001",
       "projectId": "loom",
       "title": "Write failing test: stale sessions after user delete",
+      "details": "",
       "status": "open",
       "due": "2026-07-27",
       "createdAt": "2026-07-21"
@@ -2817,6 +2818,7 @@
       "id": "task-002",
       "projectId": "5g-testbed",
       "title": "Email Dan about the RAN550 licensing quote",
+      "details": "",
       "status": "open",
       "due": "2026-07-28",
       "createdAt": "2026-07-20"
@@ -2825,6 +2827,7 @@
       "id": "task-003",
       "projectId": "loom",
       "title": "Cut v0.9.0 final (gated on stale-session fix)",
+      "details": "",
       "status": "open",
       "due": "2026-07-31",
       "createdAt": "2026-07-17"
@@ -2833,6 +2836,7 @@
       "id": "task-004",
       "projectId": "home-infra",
       "title": "Install replacement PSU in pve-01",
+      "details": "",
       "status": "open",
       "due": "2026-08-01",
       "createdAt": "2026-07-25"
@@ -2841,6 +2845,7 @@
       "id": "task-005",
       "projectId": "openops",
       "title": "Write runner-02 conntrack RCA doc",
+      "details": "",
       "status": "open",
       "due": "2026-08-04",
       "createdAt": "2026-07-20"
@@ -2849,6 +2854,7 @@
       "id": "task-006",
       "projectId": "home-infra",
       "title": "Rotate remaining service PATs; add expiry alerts",
+      "details": "",
       "status": "open",
       "due": "2026-08-07",
       "createdAt": "2026-07-19"
@@ -2857,6 +2863,7 @@
       "id": "task-007",
       "projectId": "openops",
       "title": "Canary-stage rollout plan for top three services",
+      "details": "",
       "status": "open",
       "createdAt": "2026-07-16"
     },
@@ -2864,6 +2871,7 @@
       "id": "task-008",
       "projectId": "loom",
       "title": "Productionize orphan-session sweep job",
+      "details": "",
       "status": "open",
       "createdAt": "2026-07-23"
     },
@@ -2871,6 +2879,7 @@
       "id": "task-009",
       "projectId": "ai-research",
       "title": "Write up RAG eval results (34/40, multi-hop failures)",
+      "details": "",
       "status": "open",
       "createdAt": "2026-07-11"
     },
@@ -2878,18 +2887,21 @@
       "id": "task-010",
       "projectId": "home-infra",
       "title": "Eval MAAS 3.6 — IPMI power-query timeout fix?",
+      "details": "",
       "status": "open",
       "createdAt": "2026-06-18"
     },
     {
       "id": "task-011",
       "title": "Update resume with the 5G lab work",
+      "details": "",
       "status": "open",
       "createdAt": "2026-06-30"
     },
     {
       "id": "task-012",
       "title": "File expense report for the attenuator pads",
+      "details": "",
       "status": "open",
       "createdAt": "2026-07-08"
     },
@@ -2897,6 +2909,7 @@
       "id": "task-013",
       "projectId": "5g-testbed",
       "title": "Script SIM provisioning end-to-end (pySim + Open5GS)",
+      "details": "",
       "status": "open",
       "createdAt": "2026-06-19"
     },
@@ -2904,6 +2917,7 @@
       "id": "task-014",
       "projectId": "loom",
       "title": "Dashboard panel for session_owner_check hit rate",
+      "details": "",
       "status": "open",
       "createdAt": "2026-07-22"
     },
@@ -2911,6 +2925,7 @@
       "id": "task-015",
       "projectId": "5g-testbed",
       "title": "Second cell bring-up on RAN550",
+      "details": "",
       "status": "waiting",
       "waitingOn": "Dan (vendor quote)",
       "createdAt": "2026-06-12"
@@ -2919,6 +2934,7 @@
       "id": "task-016",
       "projectId": "openops",
       "title": "Open inbound port for deploy webhook",
+      "details": "",
       "status": "waiting",
       "waitingOn": "IT — firewall change window",
       "createdAt": "2026-07-15"
@@ -2927,6 +2943,7 @@
       "id": "task-017",
       "projectId": "loom",
       "title": "Security review of v0.9 auth changes",
+      "details": "",
       "status": "waiting",
       "waitingOn": "Priya (security team)",
       "createdAt": "2026-07-17"
@@ -2935,6 +2952,7 @@
       "id": "task-018",
       "projectId": "5g-testbed",
       "title": "Programmable attenuator delivery",
+      "details": "",
       "status": "waiting",
       "waitingOn": "RF vendor — backorder ETA",
       "createdAt": "2026-05-26"
@@ -2943,6 +2961,7 @@
       "id": "task-019",
       "projectId": "home-infra",
       "title": "Offsite backup box at Dad's place",
+      "details": "",
       "status": "waiting",
       "waitingOn": "Dad — shelf space and a network drop",
       "createdAt": "2026-05-30"
@@ -2951,6 +2970,7 @@
       "id": "task-020",
       "projectId": "personal-website",
       "title": "Finish homelab writeup and relaunch the site",
+      "details": "",
       "status": "someday",
       "createdAt": "2026-05-08"
     },
@@ -2958,6 +2978,7 @@
       "id": "task-021",
       "projectId": "ai-research",
       "title": "Fine-tune a small model on my notes style",
+      "details": "",
       "status": "someday",
       "createdAt": "2026-04-24"
     },
@@ -2965,12 +2986,14 @@
       "id": "task-022",
       "projectId": "home-infra",
       "title": "IPv6 rollout across all VLANs",
+      "details": "",
       "status": "someday",
       "createdAt": "2026-03-21"
     },
     {
       "id": "task-023",
       "title": "Learn Rust properly (Advent of Code?)",
+      "details": "",
       "status": "someday",
       "createdAt": "2026-03-02"
     },
@@ -2978,6 +3001,7 @@
       "id": "task-024",
       "projectId": "home-infra",
       "title": "Rotate Puppet PAT and store in hiera-eyaml",
+      "details": "",
       "status": "done",
       "createdAt": "2026-07-19"
     },
@@ -2985,6 +3009,7 @@
       "id": "task-025",
       "projectId": "loom",
       "title": "Tag v0.9.0-rc1 with known-issues note",
+      "details": "",
       "status": "done",
       "createdAt": "2026-07-15"
     },
@@ -2992,6 +3017,7 @@
       "id": "task-026",
       "projectId": "openops",
       "title": "Pull ops-runner-02 from the pool",
+      "details": "",
       "status": "done",
       "createdAt": "2026-07-10"
     },
@@ -2999,6 +3025,7 @@
       "id": "task-027",
       "projectId": "iso-kit",
       "title": "Publish 1.0 release notes",
+      "details": "",
       "status": "done",
       "createdAt": "2026-04-16"
     }
@@ -3077,18 +3104,21 @@
     {
       "id": "rem-001",
       "text": "Email Dan about the RAN550 licensing quote",
+      "details": "",
       "remindAt": "2026-07-28T09:00:00",
       "projectId": "5g-testbed"
     },
     {
       "id": "rem-002",
       "text": "Check LXD snapshot rotation ran clean this week",
+      "details": "",
       "remindAt": "2026-07-26T08:00:00",
       "projectId": "home-infra"
     },
     {
       "id": "rem-003",
       "text": "Confirm PSU delivery before the weekend install",
+      "details": "",
       "remindAt": "2026-07-27T18:00:00",
       "projectId": "home-infra",
       "done": true
@@ -3096,18 +3126,21 @@
     {
       "id": "rem-004",
       "text": "Loom v0.9.0 go/no-go — is the stale-session fix soaked?",
+      "details": "",
       "remindAt": "2026-07-31T10:00:00",
       "projectId": "loom"
     },
     {
       "id": "rem-005",
       "text": "Silenced alerts expire soon — fix thresholds or re-triage",
+      "details": "",
       "remindAt": "2026-08-04T09:00:00",
       "projectId": "openops"
     },
     {
       "id": "rem-006",
       "text": "Verify the Puppet PAT expiry alert actually fires (90-day window)",
+      "details": "",
       "remindAt": "2026-08-10T09:00:00",
       "projectId": "home-infra"
     }
