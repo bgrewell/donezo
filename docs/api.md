@@ -28,7 +28,7 @@ donezo frontend itself).
 | `POST /api/llm/rewrite`                            | Any user: `{promptId, text}` → `200 {text}`. `400` if the text exceeds 4000 characters (refused, never truncated), `503` when no model is configured, `502` when it cannot be reached or the reply was cut off, `504` on timeout, `429` past 20 calls / 5 min per user |
 | `GET /api/instance`                                | Any user: `{version?}` — what this donezod is. `version` is **absent** when the operator runs `--hide-version`; the web UI shows it in the nav rail when present |
 | `GET /api/settings`                                | Any user: own preferences → `200 {settings}`. Never having saved one returns `{}`, not `404` |
-| `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?, welcomed?, tourDone?, dismissedHints?, resetOnboarding?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears an appearance one so it follows the default again. Onboarding fields merge one way — see below. Acts on the authenticated user only — there is no user id in the path |
+| `PATCH /api/settings`                              | Any user: `{theme?, font?, fontSize?, timezone?, welcomed?, tourDone?, dismissedHints?, resetOnboarding?}` → `200 {settings}` (the full stored set). Omitted fields are left alone; `""` clears an appearance one so it follows the default again. Onboarding fields merge one way — see below. Acts on the authenticated user only — there is no user id in the path |
 | `GET /api/spaces`                                  | `{spaces}` — the requester's spaces                                    |
 | `POST /api/spaces`                                 | `{name, color}` → `201 {space}`; id = name slug + random suffix        |
 | `PATCH /api/spaces/{id}`                           | Any of `{name, color, position}` → `{space}`                           |
@@ -184,6 +184,14 @@ Configuration is **instance-wide** and read from the environment at startup — 
 | `DONEZOD_LLM_API_KEY` | for `anthropic` | **Environment only — there is no flag.** A key passed as an argument is visible in the host's process list to every user |
 
 `--llm-provider`, `--llm-base-url`, and `--llm-model` exist as flags too; the API key does not, by design.
+
+**Which day it is.** A calendar date — an activity's `date`, a task's `due`, a `createdAt` — means "the day it was where the person was". An instant (`createdAt`/`updatedAt` timestamps, `capturedAt`) does not, and stays UTC.
+
+The web app resolves dates in the browser's zone, so it has always been right. Writes that arrive without a browser — an agent over MCP — have to be told, and until they were, the server used UTC: every entry logged after 17:00 Pacific landed on tomorrow, and the browser and MCP disagreed about the date for that whole window ([#39](https://github.com/bgrewell/donezo/issues/39)).
+
+So the browser reports its zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) into `settings.timezone` on load — nobody has to find a setting, and it follows the user between machines and across a move. A name that this host cannot resolve is refused at `PATCH` time rather than stored and silently ignored; `""` clears it.
+
+`--timezone` / `DONEZOD_TIMEZONE` is the fallback for a user who has only ever connected over MCP and so has never had a browser report one. It defaults to the **host's** zone, not UTC, which is right for the usual case of one person running donezod where they are. **Set it explicitly when the host runs somewhere else, as a container almost always does** — a UTC container puts an evening's work on tomorrow. An unusable name fails at startup. donezod embeds a copy of the IANA database, so a slim image without `tzdata` still resolves zones.
 
 **Showing the running version.** The web UI puts the build in the nav rail, above the collapse control, so "is this the build I just deployed?" is answerable by looking rather than by checking the release page. `--hide-version` / `DONEZOD_HIDE_VERSION=1` switches it off by omitting the field from `GET /api/instance` entirely — a client then cannot tell a hidden version from a server too old to report one. It is worth switching off once an instance is public: an exact build number is of more use to somebody looking up which exploits apply than to the people using it.
 

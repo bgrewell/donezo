@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bgrewell/donezo/internal/store"
 )
@@ -637,15 +638,16 @@ func toolLogActivity(ctx context.Context, h *Handler, c caller, args json.RawMes
 	if !oneOf(actType, activityTypes) {
 		return "type must be one of " + strings.Join(activityTypes, ", "), true
 	}
-	date := a.Date
-	if date == "" {
-		date = h.today()
-	} else if !validDate(date) {
+	if a.Date != "" && !validDate(a.Date) {
 		return "date must be a yyyy-MM-dd date", true
 	}
 	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
 	if !ok {
 		return msg, true
+	}
+	date := a.Date
+	if date == "" {
+		date = h.today(h.callerLocation(ctx, c))
 	}
 	id, err := newID("act")
 	if err != nil {
@@ -701,7 +703,7 @@ func toolCreateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 		Title:     a.Title,
 		Status:    "open",
 		Due:       optString(a.Due),
-		CreatedAt: h.today(),
+		CreatedAt: h.today(h.callerLocation(ctx, c)),
 	})
 	if err != nil {
 		return h.storeErrText("task", err), true
@@ -751,7 +753,7 @@ func toolCompleteTask(ctx context.Context, h *Handler, c caller, args json.RawMe
 		activity, err := h.spaces.CreateActivity(ctx, sp.ID, store.ActivityEntry{
 			ID:        id,
 			ProjectID: *updated.ProjectID,
-			Date:      h.today(),
+			Date:      h.today(h.callerLocation(ctx, c)),
 			Type:      "work",
 			Title:     updated.Title,
 			Details:   "",
@@ -804,7 +806,7 @@ func toolCreateNote(ctx context.Context, h *Handler, c caller, args json.RawMess
 		ProjectID: optString(a.ProjectID),
 		Title:     title,
 		Body:      a.Body,
-		CreatedAt: h.today(),
+		CreatedAt: h.today(h.callerLocation(ctx, c)),
 	})
 	if err != nil {
 		return h.storeErrText("note", err), true
@@ -892,7 +894,7 @@ func toolClassifyInboxItem(ctx context.Context, h *Handler, c caller, args json.
 	}
 	raw := item.Raw
 
-	conv, vmsg, okc := h.buildConversion(a, raw)
+	conv, vmsg, okc := h.buildConversion(a, raw, h.callerLocation(ctx, c))
 	if !okc {
 		return vmsg, true
 	}
@@ -903,8 +905,9 @@ func toolClassifyInboxItem(ctx context.Context, h *Handler, c caller, args json.
 }
 
 // buildConversion assembles the store.Conversion for a classify call,
-// generating the target id and filling defaults from the raw capture.
-func (h *Handler) buildConversion(a classifyArgs, raw string) (store.Conversion, string, bool) {
+// generating the target id and filling defaults from the raw capture. loc is
+// the caller's zone, in which every date it defaults is resolved.
+func (h *Handler) buildConversion(a classifyArgs, raw string, loc *time.Location) (store.Conversion, string, bool) {
 	switch a.Kind {
 	case "task":
 		if a.Due != "" && !validDate(a.Due) {
@@ -920,7 +923,7 @@ func (h *Handler) buildConversion(a classifyArgs, raw string) (store.Conversion,
 		}
 		return store.Conversion{Kind: "task", Task: &store.TaskItem{
 			ID: id, ProjectID: optString(a.ProjectID), Title: title, Status: "open",
-			Due: optString(a.Due), CreatedAt: h.today(),
+			Due: optString(a.Due), CreatedAt: h.today(loc),
 		}}, "", true
 	case "note":
 		id, err := newID("note")
@@ -936,7 +939,7 @@ func (h *Handler) buildConversion(a classifyArgs, raw string) (store.Conversion,
 			body = raw
 		}
 		return store.Conversion{Kind: "note", Note: &store.NoteItem{
-			ID: id, ProjectID: optString(a.ProjectID), Title: title, Body: body, CreatedAt: h.today(),
+			ID: id, ProjectID: optString(a.ProjectID), Title: title, Body: body, CreatedAt: h.today(loc),
 		}}, "", true
 	case "reminder":
 		if !validDateTime(a.RemindAt) {
@@ -973,7 +976,7 @@ func (h *Handler) buildConversion(a classifyArgs, raw string) (store.Conversion,
 			title = raw
 		}
 		return store.Conversion{Kind: "activity", Activity: &store.ActivityEntry{
-			ID: id, ProjectID: a.ProjectID, Date: h.today(), Type: actType, Title: title,
+			ID: id, ProjectID: a.ProjectID, Date: h.today(loc), Type: actType, Title: title,
 			Details: "", Source: "capture", Tags: []string{}, Links: []store.ActivityLink{},
 		}}, "", true
 	default: // project

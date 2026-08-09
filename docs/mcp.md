@@ -66,6 +66,23 @@ the app: a connected model that creates something can also correct it
 afterwards, so a misclassification or a typo doesn't become permanent just
 because it arrived over MCP.
 
+### Which day "today" is
+
+A tool that dates something without being told a date — `log_activity`,
+`create_task`, `create_note`, `complete_task`, `classify_inbox_item` — uses
+**your** calendar day, not the server's. The zone comes from your account,
+which the web app fills in from the browser on load; an instance-wide
+`--timezone` covers an account that has only ever connected over MCP.
+
+This matters more than it sounds. Until [#39](https://github.com/bgrewell/donezo/issues/39)
+the server used UTC, so anything an agent wrote after 17:00 Pacific was
+filed on tomorrow, and the same action taken in the browser and over MCP
+landed on different days. If you have never opened the web app in the
+browser you actually work in, open it once — that is what teaches donezo
+where you are.
+
+A date you pass explicitly is always used as given.
+
 ### What this doesn't do
 
 MCP is a tool surface for **doing work**, not for administering the

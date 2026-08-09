@@ -3,6 +3,7 @@ import * as React from "react";
 import { useAppDispatch, useAppState, useSpaceId } from "@/state/AppStore";
 import { useAppearanceSync } from "@/state/useAppearanceSync";
 import { useSpaceFreshness } from "@/state/useSpaceFreshness";
+import { useTimezoneSync } from "@/state/useTimezoneSync";
 import { parseHash } from "@/lib/route";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { NavRail } from "./NavRail";
@@ -24,6 +25,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // rather than in ThemeProvider because the provider sits above the auth
   // gate, and an anonymous request has no settings to read.
   useAppearanceSync();
+  // Tell the server which zone this browser is in, so a write that arrives
+  // without one — an agent over MCP — is dated the same day this browser
+  // would date it.
+  useTimezoneSync();
   // Keep the store current as the server changes — another tab, another
   // machine, or an agent writing over MCP. Mounted here for the same reason
   // as appearance: it needs an authenticated session.

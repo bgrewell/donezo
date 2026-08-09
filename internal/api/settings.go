@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bgrewell/donezo/internal/llm"
@@ -25,6 +26,13 @@ type settingsPatch struct {
 	Theme    *string `json:"theme"`
 	Font     *string `json:"font"`
 	FontSize *string `json:"fontSize"`
+
+	// Timezone is the IANA zone the user's calendar days are read in. Unlike
+	// the appearance fields it is not something anyone picks: the web app
+	// reports the browser's zone, so it follows the user between machines and
+	// while travelling. An empty string clears it back to the instance
+	// default.
+	Timezone *string `json:"timezone"`
 
 	// Onboarding progress. These do not behave like the appearance fields
 	// above: see apply for why they only ever move one way.
@@ -63,9 +71,41 @@ func (p settingsPatch) validate() error {
 		optionalOneOf("theme", p.Theme, themeIDs),
 		optionalOneOf("font", p.Font, fontIDs),
 		optionalOneOf("fontSize", p.FontSize, fontSizeIDs),
+		p.validateTimezone(),
 		p.validateHints(),
 		p.validatePrompts(),
 	)
+}
+
+// maxTimezoneRunes bounds a stored zone name. Every real IANA name is far
+// shorter; the cap keeps a hostile caller from making LoadLocation do work on
+// an arbitrarily long string.
+const maxTimezoneRunes = 64
+
+// validateTimezone checks the name by actually loading it, which is the only
+// honest test — a name this host cannot resolve would be stored and then
+// silently ignored on every read, looking exactly like the setting not
+// working.
+func (p settingsPatch) validateTimezone() error {
+	if p.Timezone == nil || *p.Timezone == "" {
+		// Absent leaves it alone; empty clears it back to the instance default.
+		return nil
+	}
+	name := *p.Timezone
+	if utf8.RuneCountInString(name) > maxTimezoneRunes {
+		return fmt.Errorf("timezone must be at most %d characters", maxTimezoneRunes)
+	}
+	// "Local" is the one name time.LoadLocation accepts that must not be
+	// stored: it means "wherever this process is running", so it would say
+	// something different on the server than it did in the browser that sent
+	// it — the precise confusion this field exists to end.
+	if name == "Local" {
+		return errors.New(`timezone must be an IANA zone name such as "America/Los_Angeles", not "Local"`)
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("unknown timezone %q", name)
+	}
+	return nil
 }
 
 // validatePrompts checks that each key names a prompt this build serves and
@@ -129,6 +169,9 @@ func (p settingsPatch) apply(s *store.UserSettings) error {
 	}
 	if p.FontSize != nil {
 		s.FontSize = *p.FontSize
+	}
+	if p.Timezone != nil {
+		s.Timezone = *p.Timezone
 	}
 	if p.Welcomed != nil && *p.Welcomed {
 		s.Welcomed = true

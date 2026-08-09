@@ -66,6 +66,7 @@ type Handler struct {
 	spaces     *store.SpaceStore
 	limiter    *auth.RateLimiter
 	clock      func() time.Time
+	location   *time.Location
 	logger     *log.Logger
 	version    string
 	trustProxy bool
@@ -85,6 +86,21 @@ func WithClock(clock func() time.Time) Option {
 	return func(h *Handler) {
 		if clock != nil {
 			h.clock = clock
+		}
+	}
+}
+
+// WithLocation sets the instance's fallback zone for calendar days: the zone
+// used for a caller whose account has no timezone of its own.
+//
+// Defaults to the host's zone, deliberately not UTC. A donezo instance is
+// usually one person's, running where they are, so the host zone is the right
+// answer with no configuration — and when it is wrong, it is wrong in a way
+// they will notice on the first entry rather than only after 17:00.
+func WithLocation(loc *time.Location) Option {
+	return func(h *Handler) {
+		if loc != nil {
+			h.location = loc
 		}
 	}
 }
@@ -140,11 +156,12 @@ func WithOnWrite(fn func(spaceID string)) Option {
 // use time.Now, and logs go to stderr.
 func NewHandler(core *store.CoreStore, spaces *store.SpaceStore, opts ...Option) *Handler {
 	h := &Handler{
-		core:    core,
-		spaces:  spaces,
-		clock:   time.Now,
-		logger:  log.New(os.Stderr, "donezod-mcp ", log.LstdFlags),
-		version: "dev",
+		core:     core,
+		spaces:   spaces,
+		clock:    time.Now,
+		location: time.Local,
+		logger:   log.New(os.Stderr, "donezod-mcp ", log.LstdFlags),
+		version:  "dev",
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -420,13 +437,48 @@ func (h *Handler) rateLimited(tokenID string) (bool, int) {
 }
 
 // nowRFC3339 renders the handler clock as an RFC 3339 UTC timestamp.
+//
+// UTC is right here and wrong in today(): this is an *instant*, and an instant
+// is the same moment everywhere. A calendar day is not.
 func (h *Handler) nowRFC3339() string {
 	return h.clock().UTC().Format(time.RFC3339)
 }
 
-// today renders the handler clock as a yyyy-MM-dd date.
-func (h *Handler) today() string {
-	return h.clock().UTC().Format("2006-01-02")
+// today renders the handler clock as a yyyy-MM-dd date in loc.
+//
+// The zone is a parameter rather than something this reaches for, because
+// getting it wrong is invisible: rendering in UTC put every entry written west
+// of Greenwich after 17:00 on the following day, and the entry looked
+// perfectly ordinary. Resolve the caller's zone with callerLocation.
+func (h *Handler) today(loc *time.Location) string {
+	return h.clock().In(loc).Format("2006-01-02")
+}
+
+// callerLocation is the zone this caller's calendar days are read in: their
+// own stored timezone, else the instance default.
+//
+// Every failure falls back rather than erroring. A person logging work should
+// not be refused because a preference could not be read, and the fallback is
+// the instance zone — which on a single-user instance is already the right
+// answer.
+func (h *Handler) callerLocation(ctx context.Context, c caller) *time.Location {
+	settings, err := h.core.GetUserSettings(ctx, c.user.ID)
+	if err != nil {
+		h.logger.Printf("mcp: reading timezone for user %d: %v", c.user.ID, err)
+		return h.location
+	}
+	if settings.Timezone == "" {
+		return h.location
+	}
+	loc, err := time.LoadLocation(settings.Timezone)
+	if err != nil {
+		// Validated when it was stored, so reaching here means this host can
+		// no longer resolve the name — a tzdata that has lost a zone, or a
+		// database moved to a machine without one.
+		h.logger.Printf("mcp: stored timezone %q for user %d is unusable: %v", settings.Timezone, c.user.ID, err)
+		return h.location
+	}
+	return loc
 }
 
 // writeJSON serializes v with the given status code. It backs the bearer-auth

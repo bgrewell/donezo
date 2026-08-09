@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bgrewell/donezo/internal/llm"
 )
@@ -28,6 +29,8 @@ const (
 	EnvTrustProxy = "DONEZOD_TRUST_PROXY"
 	// EnvHideVersion overrides --hide-version.
 	EnvHideVersion = "DONEZOD_HIDE_VERSION"
+	// EnvTimezone overrides --timezone.
+	EnvTimezone = "DONEZOD_TIMEZONE"
 	// EnvDevAutoLogin overrides --dev-auto-login.
 	EnvDevAutoLogin = "DONEZOD_DEV_AUTO_LOGIN"
 	// EnvLLMProvider overrides --llm-provider.
@@ -68,6 +71,16 @@ type Config struct {
 	// stable and public: knowing the exact build is of more use to somebody
 	// probing it than to the people using it.
 	HideVersion bool
+
+	// Timezone is the IANA zone name in which calendar days are resolved for
+	// a user who has no timezone of their own — someone who has only ever
+	// connected over MCP, and so has never had a browser report one.
+	//
+	// Empty means the host's own zone, which is right for the usual case of
+	// one person running donezod where they are. Set it when the host runs
+	// somewhere else, as a container almost always does: a UTC container
+	// would otherwise put an evening's work on tomorrow.
+	Timezone string
 	// DevAutoLogin disables authentication and attributes every request
 	// to the seeded dev user. It exists purely for frontend development
 	// and tests; Validate refuses it unless DataDir is under /tmp or
@@ -113,6 +126,9 @@ func (c Config) Validate() error {
 	if c.DataDir == "" {
 		return errors.New("config: data dir is required")
 	}
+	if _, err := c.Location(); err != nil {
+		return err
+	}
 	if err := c.validateLLM(); err != nil {
 		return err
 	}
@@ -122,6 +138,24 @@ func (c Config) Validate() error {
 			c.DataDir, EnvDevAutoLoginConsent)
 	}
 	return nil
+}
+
+// Location resolves Timezone, defaulting to the host's zone when it is empty.
+//
+// An unusable name fails at startup rather than being discovered later: the
+// symptom of falling back silently would be dates that are quietly a day out,
+// which nobody reads as a configuration error.
+func (c Config) Location() (*time.Location, error) {
+	if c.Timezone == "" {
+		return time.Local, nil
+	}
+	loc, err := time.LoadLocation(c.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"config: unknown timezone %q — use an IANA name such as America/Los_Angeles (%s)",
+			c.Timezone, EnvTimezone)
+	}
+	return loc, nil
 }
 
 // validateLLM checks the optional model configuration. No provider is a
