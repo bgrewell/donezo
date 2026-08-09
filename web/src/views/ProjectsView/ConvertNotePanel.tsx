@@ -26,12 +26,9 @@ const TARGETS: NoteTargetKind[] = ["task", "reminder", "activity"];
 function outcome(kind: NoteTargetKind, hasBody: boolean): string {
   // Only "activity" takes "an" — the two other targets are consonant-initial.
   const article = kind === "activity" ? "an" : "a";
-  const keeps =
-    kind === "activity"
-      ? " Its body is kept as the activity's details."
-      : hasBody
-        ? ` Its body is not kept — a ${kind} has nowhere to put it.`
-        : "";
+  // Since #44 every target has a details field, so nothing is lost whichever
+  // one is chosen.
+  const keeps = hasBody ? ` Its body is kept as the ${kind}'s details.` : "";
   return `This note becomes ${article} ${kind} and is removed.${keeps}`;
 }
 
@@ -71,6 +68,9 @@ export function ConvertNotePanel({ note, onDone }: { note: NoteItem; onDone: () 
             id: newId("tsk"),
             projectId: projectId || undefined,
             title: note.title,
+            // The body is carried, not destroyed: every target has somewhere
+            // to keep it now.
+            details: note.body,
             status: "open",
             due: due || undefined,
             createdAt: todayISO(),
@@ -83,6 +83,7 @@ export function ConvertNotePanel({ note, onDone }: { note: NoteItem; onDone: () 
           reminder: {
             id: newId("rem"),
             text: note.title,
+            details: note.body,
             remindAt: withSeconds(remindAt),
             projectId: projectId || undefined,
           },

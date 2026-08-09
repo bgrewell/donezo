@@ -17,6 +17,7 @@ import { TaskFields } from "./TaskFields";
 import { NoteFields } from "./NoteFields";
 import { ReminderFields, defaultRemindAt, type WhenChipId } from "./ReminderFields";
 import { ActivityFields } from "./ActivityFields";
+import { DetailsField } from "./DetailsField";
 import { ProjectFields, firstUnusedColor } from "./ProjectFields";
 
 /** Heuristic kind suggestion for raw captured text. */
@@ -92,6 +93,11 @@ export function QuickCapture() {
   // Reminder
   const [whenChip, setWhenChip] = React.useState<WhenChipId | null>("tomorrow");
   const [remindAt, setRemindAt] = React.useState(defaultRemindAt);
+  // The optional long form, shared by every kind that has one. One piece of
+  // state rather than one per kind: switching kind mid-capture keeps what was
+  // typed, which is what someone means by changing their mind about what a
+  // thing is.
+  const [details, setDetails] = React.useState("");
   // Activity
   const [activityType, setActivityType] = React.useState<ActivityType>("work");
   const [activityDate, setActivityDate] = React.useState(todayISO);
@@ -142,6 +148,7 @@ export function QuickCapture() {
     setManualKind(null);
     setProjectId("");
     setTaskDue("");
+    setDetails("");
     setWhenChip("tomorrow");
     setRemindAt(defaultRemindAt());
     setActivityType("work");
@@ -369,6 +376,7 @@ export function QuickCapture() {
             id: newId("tsk"),
             projectId: projectId || undefined,
             title: raw,
+            details,
             status: "open",
             due: taskDue || undefined,
             createdAt: todayISO(),
@@ -381,8 +389,10 @@ export function QuickCapture() {
           note: {
             id: newId("note"),
             projectId: projectId || undefined,
-            title: raw.slice(0, 60),
-            body: raw,
+            // With a body of its own, the typed line is a real title rather
+            // than the first 60 characters of the body cut mid-word.
+            title: details ? raw : raw.slice(0, 60),
+            body: details || raw,
             createdAt: todayISO(),
           },
         });
@@ -394,6 +404,7 @@ export function QuickCapture() {
           reminder: {
             id: newId("rem"),
             text: raw,
+            details,
             remindAt: withSeconds(remindAt),
             projectId: projectId || undefined,
           },
@@ -411,7 +422,7 @@ export function QuickCapture() {
             date: activityDate || todayISO(),
             type: activityType,
             title: raw,
-            details: "",
+            details,
             effortHours:
               activityEffort.trim() !== "" && Number.isFinite(hours) && hours > 0
                 ? hours
@@ -645,6 +656,23 @@ export function QuickCapture() {
             />
           </div>
         </div>
+
+        {/* The long form, for every kind that has one. A project's long form
+            is its purpose, which ProjectFields already offers. Kept outside
+            the grid above because it is the same control whichever kind is
+            selected — switching kind should not throw away what was typed. */}
+        {kind !== "project" && !crossSpace && !noLiveTarget && (
+          <DetailsField
+            value={details}
+            onChange={setDetails}
+            label={kind === "note" ? "Body" : "Details"}
+            placeholder={
+              kind === "note"
+                ? "The note itself; the line above becomes its title."
+                : "Context, links, what done looks like — anything too long for one line."
+            }
+          />
+        )}
 
         {/* Space chips — a non-active space forces save-to-inbox (the
             capture belongs to that space, not this store). */}

@@ -19,6 +19,7 @@ import { ActivityLogStrip, NextActionFlow } from "@/components/common/NextAction
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/Popover";
 import { MiniPulse } from "./MiniPulse";
 import { NoteRow } from "./NoteRow";
+import { DetailsDisclosure } from "@/components/common/DetailsDisclosure";
 
 const COLOR_RAMP: ProjectColor[] = ["blue", "green", "tan", "violet", "rose", "orange", "steel"];
 
@@ -433,34 +434,126 @@ function DueChip({ due }: { due: string }) {
   );
 }
 
+/** One task: a single scannable line, its details on demand, and an editor
+ *  reached the way NoteRow's is — hover or keyboard, quiet until then.
+ *
+ *  This is where an over-long title gets fixed, so the editor puts the title
+ *  and the details side by side: the move is almost always cutting one into
+ *  the other. */
 function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }) {
+  const dispatch = useAppDispatch();
+  const [editing, setEditing] = React.useState(false);
+  const [title, setTitle] = React.useState(task.title);
+  const [details, setDetails] = React.useState(task.details);
+  const [due, setDue] = React.useState(task.due ?? "");
   const waiting = task.status === "waiting";
-  return (
-    <div className="flex items-center gap-3 py-2">
-      {waiting ? (
-        <>
-          <span className="flex min-w-0 flex-1 items-center gap-2.5">
-            <span
-              aria-hidden
-              className="h-4 w-4 shrink-0 rounded-gtc border border-gtc-line bg-gtc-inset opacity-50"
-            />
-            <span className="min-w-0 truncate font-sans text-[0.9rem] text-gtc-text">
-              {task.title}
-            </span>
-          </span>
-          <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
-            waiting on {task.waitingOn ?? "—"}
-          </span>
-        </>
-      ) : (
-        <Checkbox
-          className="min-w-0 flex-1"
-          checked={false}
-          onChange={onDone}
-          label={<span className="block truncate">{task.title}</span>}
+
+  const startEdit = () => {
+    // Re-seed, so a cancelled edit is never resurrected.
+    setTitle(task.title);
+    setDetails(task.details);
+    setDue(task.due ?? "");
+    setEditing(true);
+  };
+
+  const trimmed = title.trim();
+  const save = () => {
+    if (!trimmed) return;
+    if (trimmed !== task.title || details !== task.details || (due || undefined) !== task.due) {
+      dispatch({
+        type: "UPDATE_TASK",
+        id: task.id,
+        patch: { title: trimmed, details, due: due || undefined },
+      });
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="space-y-2 py-2">
+        <Input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          aria-label="Task title"
+          className="!font-sans !text-[0.9rem] normal-case"
         />
-      )}
-      {task.due && <DueChip due={task.due} />}
+        <textarea
+          value={details}
+          onChange={(e) => setDetails(e.target.value)}
+          aria-label="Task details"
+          rows={4}
+          placeholder="Anything too long for the title."
+          className={cn(
+            "w-full rounded-gtc border border-gtc-line bg-gtc-inset px-2 py-1.5",
+            "font-sans text-[0.8rem] text-gtc-text placeholder:text-gtc-muted",
+            "focus:border-gtc-accent focus:outline-none"
+          )}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
+              Due
+            </span>
+            <Input
+              type="date"
+              value={due}
+              onChange={(e) => setDue(e.target.value)}
+              aria-label="Task due date"
+              className="!w-[9.5rem] !py-1.5 !text-[0.75rem]"
+            />
+          </span>
+          <Button size="sm" variant="primary" onClick={save} disabled={!trimmed}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" noGlyph onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group py-2">
+      <div className="flex items-center gap-3">
+        {waiting ? (
+          <>
+            <span className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span
+                aria-hidden
+                className="h-4 w-4 shrink-0 rounded-gtc border border-gtc-line bg-gtc-inset opacity-50"
+              />
+              <span className="min-w-0 truncate font-sans text-[0.9rem] text-gtc-text">
+                {task.title}
+              </span>
+            </span>
+            <span className="shrink-0 font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
+              waiting on {task.waitingOn ?? "—"}
+            </span>
+          </>
+        ) : (
+          <Checkbox
+            className="min-w-0 flex-1"
+            checked={false}
+            onChange={onDone}
+            label={<span className="block truncate">{task.title}</span>}
+          />
+        )}
+        {/* Stays in the DOM for keyboard reach and only fades in on hover, so
+            a long task list is not a wall of buttons. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          noGlyph
+          onClick={startEdit}
+          className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          Edit
+        </Button>
+        {task.due && <DueChip due={task.due} />}
+      </div>
+      <DetailsDisclosure details={task.details} className="ml-6" />
     </div>
   );
 }

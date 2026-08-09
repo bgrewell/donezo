@@ -103,6 +103,11 @@ export interface TaskItem {
   id: string;
   projectId?: string;
   title: string;
+  /** The optional long form, mirroring ActivityEntry.details. Always present
+   *  on the wire and empty when unset, so nothing has to tell an absent field
+   *  from a blank one. The title is what a list shows; this is what it opens
+   *  to reveal. */
+  details: string;
   status: TaskStatus;
   /** Due date, ISO yyyy-MM-dd. */
   due?: string;
@@ -124,6 +129,9 @@ export interface NoteItem {
 export interface Reminder {
   id: string;
   text: string;
+  /** The optional long form. `text` is the short one — a reminder's text plays
+   *  the part title plays elsewhere. */
+  details: string;
   /** When to resurface, ISO datetime. */
   remindAt: string;
   projectId?: string;
