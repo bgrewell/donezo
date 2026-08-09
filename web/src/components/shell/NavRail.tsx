@@ -8,6 +8,7 @@ import {
   PanelLeftOpen,
   Search,
   Target,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@grewelltech/console";
@@ -25,6 +26,9 @@ const NAV_ITEMS: { id: ViewId; label: string; Icon: LucideIcon }[] = [
   { id: "projects", label: "Projects", Icon: FolderKanban },
   { id: "review", label: "Review", Icon: ListChecks },
   { id: "search", label: "Search", Icon: Search },
+  // Last, and quiet: the trash is somewhere you go on purpose after a
+  // mistake, not part of the daily loop.
+  { id: "trash", label: "Trash", Icon: Trash2 },
 ];
 
 /** Narrow collapsible primary navigation rail. */

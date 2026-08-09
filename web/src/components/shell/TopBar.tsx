@@ -33,6 +33,7 @@ const VIEW_TITLES: Record<ViewId, string> = {
   projects: "Projects",
   review: "Review",
   search: "Search",
+  trash: "Trash",
 };
 
 /** Compact top bar: view title, global search, capture, reminders, theme, user. */

@@ -209,3 +209,50 @@ func TestRestoreAndPurgeRejectUnknownAndLiveRows(t *testing.T) {
 		t.Errorf("live tasks = %d, want 1", len(tasks))
 	}
 }
+
+// The listing is one entry per delete. A per-row listing was the obvious
+// first shape and it put a project's whole cascade on screen, the project
+// buried among it, with an identical Restore on every row.
+func TestListTrashIsOnePerDeleteNotPerRow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	if err := s.DeleteReminder(ctx, testSpace, "rem-k-1"); err != nil {
+		t.Fatalf("delete reminder: %v", err)
+	}
+
+	trash, err := s.ListTrash(ctx, testSpace)
+	if err != nil {
+		t.Fatalf("list trash: %v", err)
+	}
+	if len(trash) != 2 {
+		t.Fatalf("trash = %+v, want two entries: the project delete and the reminder", trash)
+	}
+	var project, reminder *TrashItem
+	for i := range trash {
+		switch trash[i].Entity {
+		case TrashProject:
+			project = &trash[i]
+		case TrashReminder:
+			reminder = &trash[i]
+		}
+	}
+	if project == nil {
+		t.Fatalf("no project entry: %+v", trash)
+	}
+	if project.ID != "loom" || project.Label != "loom" {
+		t.Errorf("project entry = %+v, want it described by the project itself", *project)
+	}
+	// 1 project + 3 activities + 2 tasks + 1 note.
+	if project.BatchSize != 7 {
+		t.Errorf("batchSize = %d, want 7", project.BatchSize)
+	}
+	if reminder == nil || reminder.BatchSize != 1 {
+		t.Errorf("reminder entry = %+v, want its own batch of 1", reminder)
+	}
+}

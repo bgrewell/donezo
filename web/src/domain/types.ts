@@ -7,7 +7,7 @@
  */
 
 /** Primary navigation destinations. */
-export type ViewId = "focus" | "timeline" | "inbox" | "projects" | "review" | "search";
+export type ViewId = "focus" | "timeline" | "inbox" | "projects" | "review" | "search" | "trash";
 
 /** Keys into the --dz-pj-* project color ramp (see styles/app.css). */
 export type ProjectColor =

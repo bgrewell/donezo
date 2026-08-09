@@ -87,14 +87,18 @@ func TestTrashRestoresAProjectBatchWhole(t *testing.T) {
 		t.Fatalf("delete project = %d (body %s)", rec.Code, rec.Body)
 	}
 
+	// One entry, not three: the trash lists deletes, not rows. Restore and
+	// purge act on the batch, so a row per member would put three identical
+	// Restore buttons on screen and bury the project among its own content.
 	trash := trashList(t, h)
-	if len(trash) != 3 {
-		t.Fatalf("trash = %+v, want the project and its two items", trash)
+	if len(trash) != 1 {
+		t.Fatalf("trash = %+v, want one entry for the whole delete", trash)
 	}
-	for _, it := range trash {
-		if it.BatchSize != 3 {
-			t.Errorf("%s %s batchSize = %d, want 3 so the view can warn what restoring brings", it.Entity, it.ID, it.BatchSize)
-		}
+	if trash[0].Entity != store.TrashProject || trash[0].ID != "loom" {
+		t.Errorf("entry = %s %s, want the project to represent its own delete", trash[0].Entity, trash[0].ID)
+	}
+	if trash[0].BatchSize != 3 {
+		t.Errorf("batchSize = %d, want 3 so the view can say what restoring brings back", trash[0].BatchSize)
 	}
 
 	if rec := doJSON(t, h, http.MethodPost,

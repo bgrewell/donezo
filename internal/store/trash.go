@@ -74,7 +74,13 @@ var labelColumn = map[string]string{
 	"inbox":      "raw",
 }
 
-// TrashItem is one entry in a trash listing.
+// TrashItem is one entry in a trash listing: one DELETE, not one row.
+//
+// Rows are grouped by batch because that is what restore and purge act on. A
+// per-row listing was the obvious first shape and it was wrong: deleting one
+// project put sixteen rows on screen, the project itself buried among the
+// activities it took, and every row carried a Restore button that did the
+// same thing without saying so.
 type TrashItem struct {
 	// Entity is the wire name: project, activity, task, note, reminder,
 	// inbox_item.
@@ -88,9 +94,9 @@ type TrashItem struct {
 	// Batch groups everything one delete removed. Restoring or purging any
 	// member acts on the whole batch, so a cascaded project comes back whole.
 	Batch string `json:"batch"`
-	// BatchSize is how many rows share this batch. Greater than one only for
-	// a project that took content with it, which is exactly when someone
-	// wants to know before restoring.
+	// BatchSize is how many rows this delete removed, including the one
+	// described above. Greater than one only for a project that took content
+	// with it — exactly when someone wants to know before restoring.
 	BatchSize int `json:"batchSize"`
 }
 
@@ -218,7 +224,11 @@ func (s *SpaceStore) ListTrash(ctx context.Context, spaceID string) ([]TrashItem
 	}
 	defer closeQuietly(rows)
 
-	out := []TrashItem{}
+	// One entry per batch, described by the row that best represents the
+	// delete: the project if there is one, since "I deleted Loom" is what the
+	// person did — the activities went along with it.
+	order := []string{}
+	byBatch := map[string]TrashItem{}
 	sizes := map[string]int{}
 	for rows.Next() {
 		var it TrashItem
@@ -226,13 +236,24 @@ func (s *SpaceStore) ListTrash(ctx context.Context, spaceID string) ([]TrashItem
 			return nil, fmt.Errorf("store: scan trash: %w", err)
 		}
 		sizes[it.Batch]++
-		out = append(out, it)
+		prev, seen := byBatch[it.Batch]
+		if !seen {
+			order = append(order, it.Batch)
+			byBatch[it.Batch] = it
+			continue
+		}
+		if prev.Entity != TrashProject && it.Entity == TrashProject {
+			byBatch[it.Batch] = it
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: list trash: %w", err)
 	}
-	for i := range out {
-		out[i].BatchSize = sizes[out[i].Batch]
+	out := make([]TrashItem, 0, len(order))
+	for _, batch := range order {
+		it := byBatch[batch]
+		it.BatchSize = sizes[batch]
+		out = append(out, it)
 	}
 	return out, nil
 }
