@@ -24,6 +24,11 @@ func TestConvertNoteReplacesTheNote(t *testing.T) {
 	s := newTestSpaceStore(t)
 	ctx := context.Background()
 	seedNote(t, s, "note-conv-1")
+	// A bystander, so the delete has to be scoped to prove anything. With a
+	// single note in the space, "DELETE FROM notes" and "DELETE FROM notes
+	// WHERE id = ?" are indistinguishable — one converted note would take
+	// every other note in the space with it, and the suite would stay green.
+	seedNote(t, s, "note-bystander")
 
 	got, err := s.ConvertNote(ctx, "sandbox", "note-conv-1", Conversion{
 		Kind: "task",
@@ -38,6 +43,9 @@ func TestConvertNoteReplacesTheNote(t *testing.T) {
 
 	if _, err := s.GetNote(ctx, "sandbox", "note-conv-1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("source note still present after conversion (err %v)", err)
+	}
+	if _, err := s.GetNote(ctx, "sandbox", "note-bystander"); err != nil {
+		t.Errorf("converting one note removed another: %v", err)
 	}
 	task, err := s.GetTask(ctx, "sandbox", "task-from-note")
 	if err != nil {
@@ -104,6 +112,31 @@ func TestConvertNoteRejectsUnsuitableKinds(t *testing.T) {
 				t.Fatalf("converting a note to %q should be refused", tt.conv.Kind)
 			}
 			// And the note survives being refused.
+			if _, err := s.GetNote(ctx, "sandbox", id); err != nil {
+				t.Errorf("note removed despite the conversion being refused: %v", err)
+			}
+		})
+	}
+}
+
+// conv.validate() is the only thing between a caller and a nil dereference:
+// the kind switch below it accepts "task" and then dereferences conv.Task.
+// Without a test that arrives with a nil payload, an exported method whose
+// contract is to return an error would panic instead, silently.
+func TestConvertNoteRejectsMissingPayload(t *testing.T) {
+	t.Parallel()
+	s := newTestSpaceStore(t)
+	ctx := context.Background()
+
+	for _, kind := range []string{"task", "reminder", "activity"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			id := "note-nil-" + kind
+			seedNote(t, s, id)
+			_, err := s.ConvertNote(ctx, "sandbox", id, Conversion{Kind: kind})
+			if err == nil {
+				t.Fatalf("kind %q with no payload should be refused", kind)
+			}
 			if _, err := s.GetNote(ctx, "sandbox", id); err != nil {
 				t.Errorf("note removed despite the conversion being refused: %v", err)
 			}

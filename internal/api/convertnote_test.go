@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -70,14 +71,20 @@ func jsonHasID(t *testing.T, body []byte, collection, id string) bool {
 	return false
 }
 
+// The bodies here carry no payload member on purpose. The handler's request
+// struct has no note or project field, so sending one is rejected by the
+// decoder's DisallowUnknownFields before any kind logic runs — the refusal
+// would look identical while proving nothing about the restriction. Asserting
+// the message, not just the 400, is what separates this guard from the
+// generic five-kind validator underneath it.
 func TestConvertNoteRejectsUnsuitableKinds(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
 		body string
 	}{
-		{"note", `{"kind":"note","note":{"id":"n9","title":"t","createdAt":"2026-08-08"}}`},
-		{"project", `{"kind":"project","project":{"id":"p9","name":"P","status":"active"}}`},
+		{"note", `{"kind":"note"}`},
+		{"project", `{"kind":"project"}`},
 		{"nonsense", `{"kind":"banana"}`},
 	}
 	for _, tt := range tests {
@@ -89,10 +96,47 @@ func TestConvertNoteRejectsUnsuitableKinds(t *testing.T) {
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("kind %q = %d, want 400 (body %s)", tt.name, rec.Code, rec.Body)
 			}
+			// The message must name what a note can become. Falling through to
+			// the shared validator would advertise all five kinds, telling the
+			// caller that note and project are legal targets here.
+			if got := rec.Body.String(); !strings.Contains(got, "kind must be one of task, reminder, activity") {
+				t.Errorf("body = %s, want it to name only the note targets", got)
+			}
 			if !noteExists(t, h, "note-c1") {
 				t.Error("note removed despite the conversion being refused")
 			}
 		})
+	}
+}
+
+// A payload that does not match the kind must be refused rather than
+// dereferenced — the handler passes the request straight to validateConversion
+// and then to the store, both of which assume the pointer for the named kind
+// is set.
+func TestConvertNoteRejectsMismatchedPayload(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t).Handler()
+	seedConvertibleNote(t, h, seedNoteBody)
+
+	rec := doJSON(t, h, http.MethodPost, "/api/spaces/sandbox/notes/note-c1/convert",
+		`{"kind":"reminder","task":{"id":"t9","title":"x","status":"open","createdAt":"2026-08-08"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("mismatched payload = %d, want 400 (body %s)", rec.Code, rec.Body)
+	}
+	if !noteExists(t, h, "note-c1") {
+		t.Error("note removed despite the conversion being refused")
+	}
+}
+
+// Ownership is per space: another user's space must be indistinguishable from
+// one that does not exist, on this route as on every other note route.
+func TestConvertNoteForeignSpace(t *testing.T) {
+	t.Parallel()
+	h := newTestServer(t).Handler()
+	rec := doJSON(t, h, http.MethodPost, "/api/spaces/private/notes/note-c1/convert",
+		`{"kind":"task","task":{"id":"t9","title":"x","status":"open","createdAt":"2026-08-08"}}`)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("foreign space = %d, want 404 (body %s)", rec.Code, rec.Body)
 	}
 }
 
