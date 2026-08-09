@@ -12,7 +12,7 @@ import {
   type CreatedApiToken,
 } from "@/api/client";
 import { useSession } from "@/components/auth/session";
-import { relativeFromToday } from "@/lib/time";
+import { relativeFromInstant } from "@/lib/time";
 
 /** User-facing MCP scope labels for the generate Select. */
 const SCOPE_CHOICES: { value: ApiTokenScope; label: string }[] = [
@@ -215,10 +215,10 @@ export function McpTokensDialog({ open, onClose }: { open: boolean; onClose: () 
           {SCOPE_WORD[token.scope]}
         </span>
         <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
-          created {relativeFromToday(token.createdAt.slice(0, 10))}
+          created {relativeFromInstant(token.createdAt)}
         </span>
         <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
-          {token.lastUsedAt ? `used ${relativeFromToday(token.lastUsedAt.slice(0, 10))}` : "never"}
+          {token.lastUsedAt ? `used ${relativeFromInstant(token.lastUsedAt)}` : "never"}
         </span>
         <span className="flex-1" />
         {revoked ? (

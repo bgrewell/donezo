@@ -11,6 +11,7 @@ import {
   type Invite,
 } from "@/api/client";
 import { useSession } from "@/components/auth/session";
+import { localDayOfInstant } from "@/lib/time";
 
 const EXPIRY_CHOICES = [
   { days: 7, label: "Expires in 7 days" },
@@ -185,7 +186,7 @@ export function InvitesDialog({ open, onClose }: { open: boolean; onClose: () =>
           {statusWord(invite)}
         </span>
         <span className="font-mono text-[0.66rem] uppercase tracking-label text-gtc-muted">
-          {invite.status === "active" ? "expires" : "expiry"} {invite.expiresAt.slice(0, 10)}
+          {invite.status === "active" ? "expires" : "expiry"} {localDayOfInstant(invite.expiresAt)}
         </span>
         <span className="flex-1" />
         {invite.status === "active" &&
