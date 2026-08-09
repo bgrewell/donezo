@@ -694,6 +694,8 @@ func TestArchivedSpaceWriteGuard(t *testing.T) {
 		{http.MethodPatch, "/api/spaces/sandbox/inbox/inb-1", `{"status":"dismissed"}`},
 		{http.MethodPost, "/api/spaces/sandbox/inbox/inb-1/convert",
 			`{"kind":"task","task":` + taskBody + `}`},
+		{http.MethodPost, "/api/spaces/sandbox/notes/note-1/convert",
+			`{"kind":"task","task":` + taskBody + `}`},
 	}
 	for _, wr := range writes {
 		wr := wr // capture (golangci-lint predates Go 1.22 loopvar)

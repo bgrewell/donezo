@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Input } from "@grewelltech/console";
 
 import type { Project } from "@/domain/types";
@@ -54,10 +55,13 @@ export function ReminderFields({
   remindAt: string;
   onWhen: (chip: WhenChipId | null, remindAt: string) => void;
 }) {
+  // Generated, not fixed: see TaskFields — these mount outside quick capture
+  // now, and a duplicate id would misdirect the label.
+  const remindAtId = React.useId();
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <QuietLabel htmlFor="qc-remind-at">When</QuietLabel>
+        <QuietLabel htmlFor={remindAtId}>When</QuietLabel>
         {WHEN_CHIPS.map((c) => (
           <Chip
             key={c.id}
@@ -71,7 +75,7 @@ export function ReminderFields({
             calendar glyph at the large text size without wrapping the WHEN
             row at desktop width / medium text. */}
         <Input
-          id="qc-remind-at"
+          id={remindAtId}
           type="datetime-local"
           value={remindAt}
           onChange={(e) => onWhen(null, e.target.value)}

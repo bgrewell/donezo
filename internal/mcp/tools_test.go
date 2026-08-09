@@ -115,6 +115,7 @@ func TestWriteToolsRejectArchivedSpace(t *testing.T) {
 		{"create_note", `{"space_id":"sandbox","body":"x"}`},
 		{"create_reminder", `{"space_id":"sandbox","text":"x","remind_at":"2026-08-01T09:00:00"}`},
 		{"classify_inbox_item", `{"space_id":"sandbox","inbox_id":"i-1","kind":"task"}`},
+		{"convert_note", `{"space_id":"sandbox","note_id":"n-1","kind":"task"}`},
 		{"update_project", `{"space_id":"sandbox","project_id":"loom","status":"paused"}`},
 		{"create_project", `{"space_id":"sandbox","name":"x"}`},
 		{"update_task", `{"space_id":"sandbox","task_id":"t-1","title":"x"}`},
@@ -538,6 +539,200 @@ func TestClassifyInboxItemActivity(t *testing.T) {
 	}
 	if len(acts) != 1 || acts[0].Type != "milestone" || acts[0].Source != "capture" || acts[0].Title != "shipped the thing" {
 		t.Errorf("classified activity = %+v", acts)
+	}
+}
+
+// seedNote adds one note to sandbox, optionally on a project.
+func (f *fixture) seedNote(t *testing.T, id, title, body string, projectID *string) {
+	t.Helper()
+	if _, err := f.spaces.CreateNote(context.Background(), "sandbox", store.NoteItem{
+		ID: id, Title: title, Body: body, ProjectID: projectID, CreatedAt: "2026-07-26",
+	}); err != nil {
+		t.Fatalf("seed note %s: %v", id, err)
+	}
+}
+
+// noteExists reports whether the note is still in sandbox.
+func (f *fixture) noteExists(t *testing.T, id string) bool {
+	t.Helper()
+	_, err := f.spaces.GetNote(context.Background(), "sandbox", id)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return false
+	}
+	t.Fatalf("get note %s: %v", id, err)
+	return false
+}
+
+// Each target kind takes its defaults from the note, and the note itself is
+// gone afterwards — the source not surviving is the whole difference from
+// classify_inbox_item.
+func TestConvertNote(t *testing.T) {
+	t.Parallel()
+	loom := "loom"
+
+	t.Run("task", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.seedNote(t, "n-task", "chase the invoice", "body worth losing", &loom)
+		text, isErr := f.callTool(t, f.rw, "convert_note",
+			`{"space_id":"sandbox","note_id":"n-task","kind":"task","due":"2026-08-20"}`)
+		if isErr {
+			t.Fatalf("convert to task: %s", text)
+		}
+		tasks, err := f.spaces.ListTasks(context.Background(), "sandbox")
+		if err != nil {
+			t.Fatalf("list tasks: %v", err)
+		}
+		if len(tasks) != 1 {
+			t.Fatalf("tasks = %+v, want 1", tasks)
+		}
+		got := tasks[0]
+		if got.Title != "chase the invoice" || got.Status != "open" {
+			t.Errorf("task = %+v, want the note's title and status open", got)
+		}
+		if got.ProjectID == nil || *got.ProjectID != "loom" {
+			t.Errorf("task project = %v, want the note's project carried over", got.ProjectID)
+		}
+		if got.Due == nil || *got.Due != "2026-08-20" {
+			t.Errorf("task due = %v, want 2026-08-20", got.Due)
+		}
+		if f.noteExists(t, "n-task") {
+			t.Error("note survived its conversion")
+		}
+		// A task has nowhere to keep a body; the result says so and echoes
+		// what was dropped, since the note is already gone.
+		if !strings.Contains(text, "body worth losing") {
+			t.Errorf("result should report the dropped body, got %s", text)
+		}
+	})
+
+	t.Run("reminder", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.seedNote(t, "n-rem", "renew the domain", "", nil)
+		text, isErr := f.callTool(t, f.rw, "convert_note",
+			`{"space_id":"sandbox","note_id":"n-rem","kind":"reminder","remind_at":"2026-08-20T09:00:00"}`)
+		if isErr {
+			t.Fatalf("convert to reminder: %s", text)
+		}
+		rems, err := f.spaces.ListReminders(context.Background(), "sandbox")
+		if err != nil {
+			t.Fatalf("list reminders: %v", err)
+		}
+		if len(rems) != 1 || rems[0].Text != "renew the domain" || rems[0].RemindAt != "2026-08-20T09:00:00" {
+			t.Errorf("reminder = %+v", rems)
+		}
+		if f.noteExists(t, "n-rem") {
+			t.Error("note survived its conversion")
+		}
+		// Nothing was dropped: the note had no body.
+		if strings.Contains(text, "droppedBody") {
+			t.Errorf("empty body should not be reported as dropped, got %s", text)
+		}
+	})
+
+	t.Run("activity keeps the body as details", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.seedNote(t, "n-act", "rewrote the parser", "took most of Tuesday", &loom)
+		if text, isErr := f.callTool(t, f.rw, "convert_note",
+			`{"space_id":"sandbox","note_id":"n-act","kind":"activity","type":"milestone"}`); isErr {
+			t.Fatalf("convert to activity: %s", text)
+		}
+		acts, err := f.spaces.ListActivities(context.Background(), "sandbox")
+		if err != nil {
+			t.Fatalf("list activities: %v", err)
+		}
+		if len(acts) != 1 {
+			t.Fatalf("activities = %+v, want 1", acts)
+		}
+		got := acts[0]
+		if got.Title != "rewrote the parser" || got.Details != "took most of Tuesday" {
+			t.Errorf("activity = %+v, want the note's title and body", got)
+		}
+		if got.ProjectID != "loom" || got.Type != "milestone" {
+			t.Errorf("activity project/type = %q/%q, want loom/milestone", got.ProjectID, got.Type)
+		}
+		// Not "capture": this came from a note somebody wrote, not the
+		// capture buffer.
+		if got.Source != "manual" {
+			t.Errorf("activity source = %q, want manual", got.Source)
+		}
+		if f.noteExists(t, "n-act") {
+			t.Error("note survived its conversion")
+		}
+	})
+
+	t.Run("explicit fields win over the note", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture(t)
+		f.seedNote(t, "n-over", "vague title", "vague body", nil)
+		if text, isErr := f.callTool(t, f.rw, "convert_note",
+			`{"space_id":"sandbox","note_id":"n-over","kind":"activity","project_id":"loom",`+
+				`"title":"precise title","details":"precise details"}`); isErr {
+			t.Fatalf("convert with overrides: %s", text)
+		}
+		acts, err := f.spaces.ListActivities(context.Background(), "sandbox")
+		if err != nil {
+			t.Fatalf("list activities: %v", err)
+		}
+		if len(acts) != 1 || acts[0].Title != "precise title" || acts[0].Details != "precise details" {
+			t.Errorf("activity = %+v, want the caller's fields", acts)
+		}
+	})
+}
+
+// A refused conversion must leave the note exactly where it was: the store
+// does both halves in one transaction, and the handler refuses before
+// touching it. A note deleted by a rejected call is unrecoverable.
+func TestConvertNoteRefusalsKeepTheNote(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.seedNote(t, "n-keep", "still a note", "with a body", nil)
+
+	for _, tc := range []struct {
+		name, args, want string
+	}{
+		{"unknown note", `{"space_id":"sandbox","note_id":"ghost","kind":"task"}`, "note not found"},
+		{"missing note_id", `{"space_id":"sandbox","kind":"task"}`, "note_id is required"},
+		{"kind note", `{"space_id":"sandbox","note_id":"n-keep","kind":"note"}`, "update_note"},
+		{"kind project", `{"space_id":"sandbox","note_id":"n-keep","kind":"project"}`, "cannot become"},
+		{"unknown kind", `{"space_id":"sandbox","note_id":"n-keep","kind":"sandwich"}`, "kind must be one of"},
+		{"reminder without remind_at", `{"space_id":"sandbox","note_id":"n-keep","kind":"reminder"}`, "remind_at is required"},
+		{"activity without project", `{"space_id":"sandbox","note_id":"n-keep","kind":"activity"}`, "project_id is required"},
+		{"task with a bad due", `{"space_id":"sandbox","note_id":"n-keep","kind":"task","due":"soon"}`, "yyyy-MM-dd"},
+		{"activity on a missing project", `{"space_id":"sandbox","note_id":"n-keep","kind":"activity","project_id":"ghost"}`, "project"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text, isErr := f.callTool(t, f.rw, "convert_note", tc.args)
+			if !isErr || !strings.Contains(text, tc.want) {
+				t.Errorf("isErr=%v text=%q, want an error containing %q", isErr, text, tc.want)
+			}
+			if !f.noteExists(t, "n-keep") {
+				t.Fatal("a refused conversion deleted the note")
+			}
+		})
+	}
+
+	// Nothing was created along the way either.
+	ctx := context.Background()
+	tasks, err := f.spaces.ListTasks(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	acts, err := f.spaces.ListActivities(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list activities: %v", err)
+	}
+	rems, err := f.spaces.ListReminders(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list reminders: %v", err)
+	}
+	if len(tasks)+len(acts)+len(rems) != 0 {
+		t.Errorf("refused conversions created %d tasks, %d activities, %d reminders", len(tasks), len(acts), len(rems))
 	}
 }
 
@@ -1174,6 +1369,7 @@ func TestNewWriteToolsGated(t *testing.T) {
 		{"update_reminder", `{"space_id":"private","reminder_id":"r-1","text":"x"}`},
 		{"dismiss_inbox_item", `{"space_id":"private","inbox_id":"i-1"}`},
 		{"delete_item", `{"space_id":"private","kind":"task","item_id":"t-1"}`},
+		{"convert_note", `{"space_id":"private","note_id":"n-1","kind":"task"}`},
 	}
 
 	listed := listToolNames(t, f.ro)

@@ -46,6 +46,7 @@ donezo frontend itself).
 | `POST /api/spaces/{id}/notes`                      | Create a note → `201`                                                  |
 | `PATCH /api/spaces/{id}/notes/{nid}`               | Partial update: `{title?, body?, projectId?, createdAt?}` → `200`. `projectId: null` detaches the note; an emptied `body` is allowed, matching the create route |
 | `DELETE /api/spaces/{id}/notes/{nid}`              | Delete a note → `204`. A note owns nothing, so this is a plain delete rather than a cascade |
+| `POST /api/spaces/{id}/notes/{nid}/convert`        | `{kind, task?\|reminder?\|activity?}` → `200 {note, <kind>}`. Atomically removes the note and inserts the target; `note` is the note as it was. `kind` is restricted to task/reminder/activity — note-to-note is an edit, note-to-project is not a sensible target. `409` on a duplicate target id, and the note stays put |
 | `POST /api/spaces/{id}/reminders`                  | Create a reminder → `201`                                              |
 | `PATCH /api/spaces/{id}/reminders/{rid}`           | Partial update                                                         |
 | `POST /api/spaces/{id}/inbox`                      | Capture a raw item → `201` (works against any owned space — the cross-space capture path) |
@@ -303,7 +304,7 @@ that means in practice.
 
 **Scopes.** A token is `read_only` or `read_write`, fixed at creation.
 `tools/list` returns **only the tools the scope permits** — a `read_only`
-token sees the nine read tools; a `read_write` token sees all twenty-four. A
+token sees the nine read tools; a `read_write` token sees all twenty-five. A
 write call made with a `read_only` token is refused with a clear `isError`
 tool result (never a silent no-op).
 
@@ -332,6 +333,7 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). |
 | `create_project` | write | A stream of work; only `name` required, `color` defaults to blue and `status` to active. |
 | `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. |
+| `convert_note` | write | Convert a note into a `task`/`reminder`/`activity`, deleting the note. Fields default from the note; its body reaches an activity's `details` and is otherwise lost. |
 | `dismiss_inbox_item` | write | Mark a pending capture `dismissed` (kept, not deleted); errors if it is already triaged. |
 | `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`). |
 | `update_task` | write | `title`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |

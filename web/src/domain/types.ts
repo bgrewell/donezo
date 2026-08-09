@@ -44,6 +44,12 @@ export type ActivityType = "work" | "research" | "meeting" | "decision" | "block
 /** What a raw capture can become. */
 export type ItemKind = "task" | "note" | "reminder" | "activity" | "project";
 
+/** What an existing note can become. Narrower than ItemKind: note-to-note is
+ *  an edit dressed up as a conversion, and note-to-project is not a sensible
+ *  target — a note is content, not a stream of work. Mirrors noteTargetKinds
+ *  in internal/api/mutations.go. */
+export type NoteTargetKind = Extract<ItemKind, "task" | "reminder" | "activity">;
+
 export interface Project {
   id: string;
   name: string;

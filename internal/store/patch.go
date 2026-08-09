@@ -335,3 +335,78 @@ func (s *SpaceStore) ConvertInboxItem(ctx context.Context, spaceID, id string, c
 	}
 	return it, nil
 }
+
+// ConvertNote atomically turns a note into another kind of item: in one
+// transaction the note row is deleted and the item described by conv is
+// inserted. Returns the note as it was immediately before deletion, so a
+// caller can report or undo what it replaced.
+//
+// This is a different shape from ConvertInboxItem, which is why it is a
+// separate method rather than a parameter on that one. An inbox capture
+// *survives* its conversion — the row stays and is re-statused to
+// "converted", because the inbox is a log of what was captured. A note has
+// no such role: leaving it behind would mean the content now exists twice,
+// so the source is removed.
+//
+// Any failure — unknown note id, duplicate target id, broken project
+// reference — rolls the whole conversion back, so a note is never lost
+// without its replacement existing. ErrNotFound if the note does not exist.
+func (s *SpaceStore) ConvertNote(ctx context.Context, spaceID, id string, conv Conversion) (NoteItem, error) {
+	if err := requireID("note", id); err != nil {
+		return NoteItem{}, err
+	}
+	if err := conv.validate(); err != nil {
+		return NoteItem{}, err
+	}
+	// Converting a note into a note would delete the source and insert a
+	// near-copy, which is an edit dressed up as a conversion. Projects are
+	// not a sensible target either: a note is a piece of content, not a
+	// stream of work, and the caller almost certainly wants a new project
+	// plus a note attached to it.
+	switch conv.Kind {
+	case "task", "reminder", "activity":
+	default:
+		return NoteItem{}, fmt.Errorf(
+			"store: cannot convert a note to %q (want task, reminder, or activity)", conv.Kind)
+	}
+
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return NoteItem{}, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return NoteItem{}, fmt.Errorf("store: convert note %q: begin: %w", id, err)
+	}
+	defer rollbackQuietly(tx)
+
+	// Read before deleting: the row is the only copy of what is being
+	// replaced, and the caller gets it back.
+	note, err := getNoteRow(ctx, tx, id)
+	if err != nil {
+		return NoteItem{}, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM notes WHERE id = ?`, id)
+	if err != nil {
+		return NoteItem{}, fmt.Errorf("store: convert note %q: %w", id, err)
+	}
+	if err := notFoundIfZero(res, "note", id); err != nil {
+		return NoteItem{}, err
+	}
+
+	switch conv.Kind {
+	case "task":
+		_, err = insertTask(ctx, tx, *conv.Task)
+	case "reminder":
+		_, err = insertReminder(ctx, tx, *conv.Reminder)
+	case "activity":
+		_, err = s.insertActivity(ctx, tx, *conv.Activity)
+	}
+	if err != nil {
+		return NoteItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return NoteItem{}, fmt.Errorf("store: convert note %q: commit: %w", id, err)
+	}
+	return note, nil
+}

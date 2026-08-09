@@ -8,7 +8,7 @@ import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
 import { useSession } from "@/components/auth/session";
 import { newId } from "@/lib/id";
-import { nowLocalISO, todayISO } from "@/lib/time";
+import { nowLocalISO, todayISO, withSeconds } from "@/lib/time";
 import { MOD_LABEL } from "@/lib/platform";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { Chip, ChipTag } from "./chips";
@@ -62,12 +62,6 @@ const PLACEHOLDERS: Record<ItemKind, string[]> = {
     "Homelab observability stack.",
   ],
 };
-
-/** Normalize a datetime-local value to the seconds-bearing local ISO the
- *  API expects (2026-07-26T09:00 → 2026-07-26T09:00:00). */
-function withSeconds(dt: string): string {
-  return dt.length === 16 ? `${dt}:00` : dt;
-}
 
 /** True while a Radix menu is open anywhere — Alt+digit then belongs to
  *  the menu layer, not the capture dialog. */

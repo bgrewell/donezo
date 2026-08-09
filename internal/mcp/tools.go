@@ -30,6 +30,11 @@ var (
 	// not deletable over MCP because deleting one cascades to every activity,
 	// task, note and reminder it owns. That stays a web-app action.
 	deletableKinds = []string{"task", "note", "reminder", "activity", "inbox_item"}
+	// noteTargetKinds are what a note may be converted into, mirroring the
+	// HTTP route. Note-to-note is an edit dressed up as a conversion
+	// (update_note does that), and note-to-project is not a sensible target:
+	// a note is content, not a stream of work.
+	noteTargetKinds = []string{"task", "reminder", "activity"}
 )
 
 // maxItems caps how many rows a read tool returns; past it the result
@@ -400,6 +405,32 @@ func buildTools() []tool {
 				"type":       enumProp("Optional activity type (kind activity, defaults to work).", activityTypes),
 			}, "space_id", "inbox_id", "kind"),
 			handler: toolClassifyInboxItem,
+		},
+		{
+			name:  "convert_note",
+			title: "Convert note",
+			description: "Turn an existing note into a task, reminder, or activity — for when something filed " +
+				"as reference turns out to be work. Unlike classify_inbox_item, the source does NOT survive: the " +
+				"note is removed and the new item created together, so use it only when the note has become the " +
+				"other thing rather than merely prompting it. Everything defaults from the note — its title " +
+				"becomes the task title, reminder text, or activity title, its body becomes an activity's " +
+				"details, and its project carries over. A task and a reminder have nowhere to keep a body, so a " +
+				"long note converted to one loses it; say so before converting. A note cannot become another " +
+				"note (that is update_note) or a project.",
+			write: true,
+			inputSchema: objectSchema(map[string]any{
+				"space_id":   strProp("The space the note lives in."),
+				"note_id":    strProp("The note to convert (from list_notes or search)."),
+				"kind":       enumProp("What to turn the note into.", noteTargetKinds),
+				"title":      strProp("Optional title (task/activity); defaults to the note's title."),
+				"text":       strProp("Optional text (reminder); defaults to the note's title."),
+				"remind_at":  strProp("Reminder time, ISO datetime (required when kind is reminder)."),
+				"project_id": strProp("Project id; defaults to the note's project (an activity needs one either way)."),
+				"due":        strProp("Optional due date for a task, yyyy-MM-dd."),
+				"type":       enumProp("Optional activity type (kind activity, defaults to work).", activityTypes),
+				"details":    strProp("Optional details (activity); defaults to the note's body."),
+			}, "space_id", "note_id", "kind"),
+			handler: toolConvertNote,
 		},
 		{
 			name:  "update_project",
