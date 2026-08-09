@@ -515,9 +515,9 @@ func insertTask(ctx context.Context, ex execer, t TaskItem) (TaskItem, error) {
 		return TaskItem{}, err
 	}
 	if _, err := ex.ExecContext(ctx,
-		`INSERT INTO tasks (id, project_id, title, status, due, waiting_on, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.ProjectID, t.Title, t.Status, t.Due, t.WaitingOn, t.CreatedAt); err != nil {
+		`INSERT INTO tasks (id, project_id, title, details, status, due, waiting_on, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt); err != nil {
 		return TaskItem{}, fmt.Errorf("store: create task %q: %w", t.ID, classifyConstraint(err))
 	}
 	return t, nil
@@ -536,8 +536,8 @@ func (s *SpaceStore) GetTask(ctx context.Context, spaceID, id string) (TaskItem,
 func getTaskRow(ctx context.Context, q rowQuerier, id string) (TaskItem, error) {
 	var t TaskItem
 	err := q.QueryRowContext(ctx,
-		`SELECT id, project_id, title, status, due, waiting_on, created_at FROM tasks WHERE id = ?`,
-		id).Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.Due, &t.WaitingOn, &t.CreatedAt)
+		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE id = ?`,
+		id).Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due, &t.WaitingOn, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskItem{}, fmt.Errorf("store: task %q: %w", id, ErrNotFound)
 	}
@@ -570,9 +570,9 @@ func (s *SpaceStore) UpdateTask(ctx context.Context, spaceID string, t TaskItem)
 // execUpdateTask rewrites all mutable columns of a task row via ex.
 func execUpdateTask(ctx context.Context, ex execer, t TaskItem) (sql.Result, error) {
 	return ex.ExecContext(ctx,
-		`UPDATE tasks SET project_id = ?, title = ?, status = ?, due = ?, waiting_on = ?,
+		`UPDATE tasks SET project_id = ?, title = ?, details = ?, status = ?, due = ?, waiting_on = ?,
 		   created_at = ? WHERE id = ?`,
-		t.ProjectID, t.Title, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
+		t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
 }
 
 // DeleteTask removes a task by id. Returns ErrNotFound if absent.
@@ -595,7 +595,7 @@ func (s *SpaceStore) ListTasks(ctx context.Context, spaceID string) ([]TaskItem,
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, title, status, due, waiting_on, created_at FROM tasks ORDER BY rowid`)
+		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list tasks: %w", err)
 	}
@@ -603,7 +603,7 @@ func (s *SpaceStore) ListTasks(ctx context.Context, spaceID string) ([]TaskItem,
 	out := []TaskItem{}
 	for rows.Next() {
 		var t TaskItem
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Status, &t.Due,
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due,
 			&t.WaitingOn, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan task: %w", err)
 		}
@@ -750,8 +750,8 @@ func insertReminder(ctx context.Context, ex execer, r Reminder) (Reminder, error
 		return Reminder{}, err
 	}
 	if _, err := ex.ExecContext(ctx,
-		`INSERT INTO reminders (id, text, remind_at, project_id, done) VALUES (?, ?, ?, ?, ?)`,
-		r.ID, r.Text, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done)); err != nil {
+		`INSERT INTO reminders (id, text, details, remind_at, project_id, done) VALUES (?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done)); err != nil {
 		return Reminder{}, fmt.Errorf("store: create reminder %q: %w", r.ID, classifyConstraint(err))
 	}
 	return r, nil
@@ -771,8 +771,8 @@ func getReminderRow(ctx context.Context, q rowQuerier, id string) (Reminder, err
 	var r Reminder
 	var done *int64
 	err := q.QueryRowContext(ctx,
-		`SELECT id, text, remind_at, project_id, done FROM reminders WHERE id = ?`,
-		id).Scan(&r.ID, &r.Text, &r.RemindAt, &r.ProjectID, &done)
+		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE id = ?`,
+		id).Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Reminder{}, fmt.Errorf("store: reminder %q: %w", id, ErrNotFound)
 	}
@@ -806,8 +806,8 @@ func (s *SpaceStore) UpdateReminder(ctx context.Context, spaceID string, r Remin
 // execUpdateReminder rewrites all mutable columns of a reminder row via ex.
 func execUpdateReminder(ctx context.Context, ex execer, r Reminder) (sql.Result, error) {
 	return ex.ExecContext(ctx,
-		`UPDATE reminders SET text = ?, remind_at = ?, project_id = ?, done = ? WHERE id = ?`,
-		r.Text, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
+		`UPDATE reminders SET text = ?, details = ?, remind_at = ?, project_id = ?, done = ? WHERE id = ?`,
+		r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
 }
 
 // DeleteReminder removes a reminder by id. Returns ErrNotFound if absent.
@@ -830,7 +830,7 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, text, remind_at, project_id, done FROM reminders ORDER BY rowid`)
+		`SELECT id, text, details, remind_at, project_id, done FROM reminders ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list reminders: %w", err)
 	}
@@ -839,7 +839,7 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 	for rows.Next() {
 		var r Reminder
 		var done *int64
-		if err := rows.Scan(&r.ID, &r.Text, &r.RemindAt, &r.ProjectID, &done); err != nil {
+		if err := rows.Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done); err != nil {
 			return nil, fmt.Errorf("store: scan reminder: %w", err)
 		}
 		r.Done = intPtrToBool(done)

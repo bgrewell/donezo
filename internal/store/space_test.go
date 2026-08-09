@@ -650,9 +650,9 @@ func TestStateAssemblyJSON(t *testing.T) {
 		`"title":"Fix bug","details":"Details here","effortHours":2.5,"source":"manual",` +
 		`"tags":["bug"],"links":[{"label":"PR","url":"https://example.com/pr/1"}],` +
 		`"nextAction":"Ship it","planned":true}],` +
-		`"tasks":[{"id":"t-1","title":"Standalone task","status":"open","createdAt":"2026-07-01"}],` +
+		`"tasks":[{"id":"t-1","title":"Standalone task","details":"","status":"open","createdAt":"2026-07-01"}],` +
 		`"notes":[{"id":"n-1","projectId":"loom","title":"Note","body":"Body","createdAt":"2026-07-02"}],` +
-		`"reminders":[{"id":"r-1","text":"Ping Dan","remindAt":"2026-07-27T09:00:00"}],` +
+		`"reminders":[{"id":"r-1","text":"Ping Dan","details":"","remindAt":"2026-07-27T09:00:00"}],` +
 		`"inbox":[{"id":"i-1","raw":"raw text","capturedAt":"2026-07-25T08:30:00",` +
 		`"suggestedKind":"task","status":"pending"}]}`
 	if string(got) != want {
