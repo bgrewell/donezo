@@ -1,13 +1,29 @@
+import * as React from "react";
 import { Bell } from "lucide-react";
 import { SectionLabel, cn } from "@grewelltech/console";
 
+import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { relativeFromToday } from "@/lib/time";
 import { ProjectMark } from "@/components/common/ProjectMark";
+import { RowActions } from "@/components/common/RowActions";
+import { DetailsDisclosure } from "@/components/common/DetailsDisclosure";
+import { ReminderEditor } from "@/components/common/ReminderEditor";
+import { TaskEditor } from "@/components/common/TaskEditor";
 import type { DueRow } from "./useFocusData";
 import { HAIRLINE_ROW } from "./shared";
 
-/** TIME SENSITIVE — due/overdue tasks and upcoming reminders, soonest first. */
+/** TIME SENSITIVE — due/overdue tasks and upcoming reminders, soonest first.
+ *
+ *  This was #29's clearest example: the rows told you what needed attention
+ *  and gave you nowhere to give it, so acting meant finding the same item
+ *  again somewhere it happened to be editable. Each row now completes, edits
+ *  or opens its project in place — revealed on hover, so the section still
+ *  reads as something to look at rather than a control panel. */
 export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const [editing, setEditing] = React.useState<string | null>(null);
+
   return (
     <section>
       <SectionLabel className="mb-1 mt-0" trailing={<span>{rows.length}</span>}>
@@ -19,11 +35,29 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
         </p>
       ) : (
         <ul>
-          {rows.map((row) => (
+          {rows.map((row) => {
+            const key = `${row.kind}-${row.id}`;
+            const task = row.kind === "task" ? state.tasks.find((t) => t.id === row.id) : undefined;
+            const reminder =
+              row.kind === "reminder" ? state.reminders.find((r) => r.id === row.id) : undefined;
+            const details = task?.details ?? reminder?.details ?? "";
+
+            if (editing === key) {
+              return (
+                <li key={key} className={cn("py-2", HAIRLINE_ROW)}>
+                  {task && <TaskEditor task={task} onDone={() => setEditing(null)} />}
+                  {reminder && (
+                    <ReminderEditor reminder={reminder} onDone={() => setEditing(null)} />
+                  )}
+                </li>
+              );
+            }
+
+            return (
             <li
-              key={`${row.kind}-${row.id}`}
+              key={key}
               className={cn(
-                "flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
+                "group flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
                 HAIRLINE_ROW
               )}
             >
@@ -52,8 +86,36 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
                   </span>
                 </span>
               )}
+              <RowActions
+                label={`Actions for ${row.title}`}
+                actions={[
+                  {
+                    label: "Done",
+                    onSelect: () =>
+                      row.kind === "task"
+                        ? dispatch({ type: "UPDATE_TASK", id: row.id, patch: { status: "done" } })
+                        : dispatch({ type: "UPDATE_REMINDER", id: row.id, patch: { done: true } }),
+                  },
+                  { label: "Edit", onSelect: () => setEditing(key) },
+                  ...(row.project
+                    ? [
+                        {
+                          label: "Open project",
+                          onSelect: () =>
+                            dispatch({ type: "OPEN_PROJECT", projectId: row.project!.id }),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+              {details && (
+                <span className="basis-full">
+                  <DetailsDisclosure details={details} />
+                </span>
+              )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </section>
