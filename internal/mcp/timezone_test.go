@@ -84,14 +84,25 @@ func firstTaskCreatedAt(t *testing.T, f *fixture) string {
 	return tasks[0].CreatedAt
 }
 
+// seededNoteID is the note every subtest plants so the convert_note cases
+// have something to convert. Note readers skip it: it is scenery, not the
+// thing the tool under test created.
+const seededNoteID = "n-dated"
+
 func firstNoteCreatedAt(t *testing.T, f *fixture) string {
 	t.Helper()
-	notes, err := f.spaces.ListNotes(context.Background(), "sandbox")
+	all, err := f.spaces.ListNotes(context.Background(), "sandbox")
 	if err != nil {
 		t.Fatalf("list notes: %v", err)
 	}
+	notes := make([]store.NoteItem, 0, len(all))
+	for _, n := range all {
+		if n.ID != seededNoteID {
+			notes = append(notes, n)
+		}
+	}
 	if len(notes) != 1 {
-		t.Fatalf("notes = %d, want exactly 1", len(notes))
+		t.Fatalf("created notes = %d, want exactly 1 (all: %+v)", len(notes), all)
 	}
 	return notes[0].CreatedAt
 }
@@ -99,6 +110,11 @@ func firstNoteCreatedAt(t *testing.T, f *fixture) string {
 // datedTools is every tool that puts a date on something without being told
 // one. Each has to resolve it in the caller's zone; a new one that forgets is
 // exactly the bug this file exists for, so add it here when you add it there.
+//
+// convert_note earns its place the hard way: it and the zone parameter landed
+// in two branches that were each green and merged cleanly into a tree that did
+// not compile. A table that already named the tool would have made the
+// omission a test failure rather than a broken main.
 var datedTools = []datedTool{
 	{
 		name: "log_activity", tool: "log_activity",
@@ -130,6 +146,16 @@ var datedTools = []datedTool{
 		args: `{"space_id":"sandbox","inbox_id":"inb-seed","kind":"activity","project_id":"loom"}`,
 		read: firstActivityDate,
 	},
+	{
+		name: "convert_note to task", tool: "convert_note",
+		args: `{"space_id":"sandbox","note_id":"n-dated","kind":"task"}`,
+		read: firstTaskCreatedAt,
+	},
+	{
+		name: "convert_note to activity", tool: "convert_note",
+		args: `{"space_id":"sandbox","note_id":"n-dated","kind":"activity","project_id":"loom"}`,
+		read: firstActivityDate,
+	},
 }
 
 // Every dating tool must use the caller's stored zone, not UTC and not the
@@ -145,6 +171,7 @@ func TestDatedToolsUseTheCallersTimezone(t *testing.T) {
 			f := newFixture(t, WithClock(eveningClock), WithLocation(time.UTC))
 			f.setTimezone(t, losAngeles)
 			f.seedInbox(t, "something captured")
+			f.seedNote(t, seededNoteID, "a note that turned out to be work", "", nil)
 
 			if text, isErr := f.callTool(t, f.rw, tc.tool, tc.args); isErr {
 				t.Fatalf("%s: %s", tc.tool, text)

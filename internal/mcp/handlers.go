@@ -957,7 +957,7 @@ func toolConvertNote(ctx context.Context, h *Handler, c caller, args json.RawMes
 	conv, vmsg, okc := h.buildConversion(classifyArgs{
 		Kind: a.Kind, Title: a.Title, Text: a.Text, RemindAt: a.RemindAt,
 		ProjectID: projectID, Due: a.Due, Type: a.Type,
-	}, note.Title)
+	}, note.Title, h.callerLocation(ctx, c))
 	if !okc {
 		return vmsg, true
 	}

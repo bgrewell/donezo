@@ -22,7 +22,7 @@ touching a given space's content at all.
 
 ## What the MCP server exposes
 
-The server presents 24 tools built around how donezo is used day to day —
+The server presents 25 tools built around how donezo is used day to day —
 oriented on donezo's own model of work: an **activity** is a past fact (it
 lands on the timeline), a **task** is a future possibility with a lifecycle,
 and the **inbox** exists so capturing something never requires deciding what
