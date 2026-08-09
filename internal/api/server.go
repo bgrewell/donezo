@@ -38,6 +38,7 @@ type Server struct {
 	hideVersion bool
 	llmLimiter  *auth.RateLimiter
 	clock       func() time.Time
+	location    *time.Location
 	trustProxy  bool
 	logger      *log.Logger
 	ui          fs.FS
@@ -81,6 +82,18 @@ func WithMCPRateLimiter(l *auth.RateLimiter) ServerOption {
 // deployment, not a degraded one.
 func WithLLM(c llm.Client) ServerOption {
 	return func(s *Server) { s.llm = c }
+}
+
+// WithLocation sets the instance's fallback zone for calendar days, used for
+// a user whose account carries no timezone of its own. It reaches the MCP
+// handler, which is the surface that has to decide what "today" means without
+// a browser to ask. Defaults to the host's zone.
+func WithLocation(loc *time.Location) ServerOption {
+	return func(s *Server) {
+		if loc != nil {
+			s.location = loc
+		}
+	}
 }
 
 // WithHideVersion suppresses the version in GET /api/instance, so the web UI
@@ -158,10 +171,11 @@ func WithWebUI(fsys fs.FS) ServerOption {
 // rate-limited per client IP, and requests are logged to stderr.
 func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOption) *Server {
 	s := &Server{
-		core:   core,
-		spaces: spaces,
-		clock:  time.Now,
-		logger: defaultLogger(),
+		core:     core,
+		spaces:   spaces,
+		clock:    time.Now,
+		location: time.Local,
+		logger:   defaultLogger(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -298,6 +312,7 @@ func (s *Server) Handler() http.Handler {
 	// authenticates every request itself.
 	mcpOpts := []mcp.Option{
 		mcp.WithClock(s.clock),
+		mcp.WithLocation(s.location),
 		mcp.WithLogger(s.logger),
 		mcp.WithVersion(s.version),
 		mcp.WithTrustProxy(s.trustProxy),

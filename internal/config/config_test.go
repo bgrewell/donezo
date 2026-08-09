@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDefaultDataDir(t *testing.T) {
@@ -148,6 +149,51 @@ func TestConfigValidateDevAutoLogin(t *testing.T) {
 			err := cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// A zone that cannot be resolved has to fail at startup. Falling back quietly
+// would show up only as dates that are a day out, which nobody reads as a
+// configuration error.
+func TestConfigLocation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		timezone string
+		wantErr  bool
+		wantName string
+	}{
+		{name: "empty uses the host zone", timezone: "", wantName: time.Local.String()},
+		{name: "named zone", timezone: "America/Los_Angeles", wantName: "America/Los_Angeles"},
+		{name: "UTC is a legitimate choice", timezone: "UTC", wantName: "UTC"},
+		{name: "unknown zone is refused", timezone: "Mars/Olympus_Mons", wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := Config{Port: DefaultPort, DataDir: t.TempDir(), Timezone: tt.timezone}
+			loc, err := c.Location()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Location() = %v, want an error", loc)
+				}
+				// Validate must refuse it too, or a bad zone reaches serving.
+				if err := c.Validate(); err == nil {
+					t.Error("Validate accepted an unusable timezone")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Location(): %v", err)
+			}
+			if loc.String() != tt.wantName {
+				t.Errorf("location = %q, want %q", loc.String(), tt.wantName)
+			}
+			if err := c.Validate(); err != nil {
+				t.Errorf("Validate rejected a usable timezone: %v", err)
 			}
 		})
 	}

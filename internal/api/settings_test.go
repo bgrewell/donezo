@@ -101,6 +101,11 @@ func TestSettingsPatchRejectsBadInput(t *testing.T) {
 		{"unknown theme", `{"theme":"neon"}`, "theme must be one of"},
 		{"unknown font", `{"font":"comic"}`, "font must be one of"},
 		{"unknown font size", `{"fontSize":"enormous"}`, "fontSize must be one of"},
+		{"unknown timezone", `{"timezone":"Mars/Olympus_Mons"}`, "unknown timezone"},
+		// Accepted by time.LoadLocation but meaningless once stored: it would
+		// name the server's zone rather than the browser's.
+		{"timezone Local", `{"timezone":"Local"}`, "must be an IANA zone name"},
+		{"timezone too long", `{"timezone":"` + strings.Repeat("A", 65) + `"}`, "at most"},
 		{"unknown field", `{"colour":"paper"}`, ""},
 		{"not an object", `["paper"]`, ""},
 		{"trailing content", `{"theme":"paper"}{}`, ""},
@@ -333,5 +338,57 @@ func TestSettingsResetOnboarding(t *testing.T) {
 	// Appearance is not onboarding state and must be untouched by the reset.
 	if theme, _ := got["theme"].(string); theme != "paper" {
 		t.Errorf("theme = %q, want it left alone by an onboarding reset", theme)
+	}
+}
+
+// The timezone is what lets the server date an agent's write the same day the
+// browser would, so a valid zone has to survive the round trip — and an empty
+// string has to clear it, since that is how a user goes back to the instance
+// default.
+func TestSettingsTimezoneRoundTrip(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+	h := srv.Handler()
+
+	rec := doJSON(t, h, http.MethodPatch, "/api/settings", `{"timezone":"America/Los_Angeles"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save timezone = %d (body %s)", rec.Code, rec.Body)
+	}
+	if got := settingsBody(t, rec.Body.Bytes())["timezone"]; got != "America/Los_Angeles" {
+		t.Errorf("timezone = %v, want America/Los_Angeles", got)
+	}
+	// Read back through a fresh request: the echo above could be the patch
+	// rather than what was stored.
+	rec = doJSON(t, h, http.MethodGet, "/api/settings", "")
+	if got := settingsBody(t, rec.Body.Bytes())["timezone"]; got != "America/Los_Angeles" {
+		t.Errorf("stored timezone = %v, want America/Los_Angeles", got)
+	}
+
+	rec = doJSON(t, h, http.MethodPatch, "/api/settings", `{"timezone":""}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear timezone = %d (body %s)", rec.Code, rec.Body)
+	}
+	rec = doJSON(t, h, http.MethodGet, "/api/settings", "")
+	if got, present := settingsBody(t, rec.Body.Bytes())["timezone"]; present {
+		t.Errorf("timezone = %v after clearing, want it gone", got)
+	}
+}
+
+// An omitted timezone must leave the stored one alone — otherwise every
+// appearance patch from a client that does not know about zones would wipe it.
+func TestSettingsPatchWithoutTimezoneKeepsIt(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t)
+	h := srv.Handler()
+
+	if rec := doJSON(t, h, http.MethodPatch, "/api/settings", `{"timezone":"Australia/Sydney"}`); rec.Code != http.StatusOK {
+		t.Fatalf("save timezone = %d (body %s)", rec.Code, rec.Body)
+	}
+	if rec := doJSON(t, h, http.MethodPatch, "/api/settings", `{"theme":"paper"}`); rec.Code != http.StatusOK {
+		t.Fatalf("save theme = %d (body %s)", rec.Code, rec.Body)
+	}
+	rec := doJSON(t, h, http.MethodGet, "/api/settings", "")
+	if got := settingsBody(t, rec.Body.Bytes())["timezone"]; got != "Australia/Sydney" {
+		t.Errorf("timezone = %v after an unrelated patch, want Australia/Sydney", got)
 	}
 }

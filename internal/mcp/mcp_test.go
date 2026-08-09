@@ -66,7 +66,9 @@ func mintToken(t *testing.T, core *store.CoreStore, userID int64, id, scope stri
 	return token
 }
 
-func newFixture(t *testing.T) *fixture {
+// newFixture builds the standard fixture. extra options are appended after
+// the defaults, so a test can override the clock or the instance zone.
+func newFixture(t *testing.T, extra ...Option) *fixture {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -106,11 +108,14 @@ func newFixture(t *testing.T) *fixture {
 	}); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	h := NewHandler(core, spaces,
+	h := NewHandler(core, spaces, append([]Option{
 		WithClock(fixedClock),
+		// UTC by default so a test that says nothing about zones is not
+		// silently steered by the machine it runs on.
+		WithLocation(time.UTC),
 		WithLogger(log.New(io.Discard, "", 0)),
 		WithVersion("test-1.2.3"),
-	)
+	}, extra...)...)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	f := &fixture{

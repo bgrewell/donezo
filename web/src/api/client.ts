@@ -310,6 +310,11 @@ export interface UserSettings {
   theme?: string;
   font?: string;
   fontSize?: string;
+  /** IANA zone this user's calendar days are read in, reported by the browser
+   *  rather than chosen. It is what lets the server date an agent's write the
+   *  same day this browser would — without it "today" is the server's idea of
+   *  today, which is a day out for part of every evening. */
+  timezone?: string;
   /** First-run welcome has been acknowledged. Only ever moves to true — the
    *  server refuses to unset it, so a browser that has not read the server
    *  yet cannot clear what another one recorded. */

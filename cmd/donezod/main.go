@@ -19,6 +19,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Embeds a copy of the IANA zone database, used only when the host has
+	// none of its own. donezod resolves calendar days in a named zone, and a
+	// slim container image without tzdata would otherwise fall back to UTC
+	// and quietly date an evening's work on tomorrow — the failure this
+	// whole path exists to prevent.
+	_ "time/tzdata"
 
 	"github.com/bgrewell/stencil"
 
@@ -57,6 +63,7 @@ func main() {
 	root.Flags.String("seed", "s", "Seed JSON file to import before serving (skipped if already seeded)", "").Env = config.EnvSeed
 	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
 	root.Flags.Bool("hide-version", "", "Do not report the running version to the web UI (it is shown in the nav rail otherwise)", false).Env = config.EnvHideVersion
+	root.Flags.String("timezone", "", "IANA zone for calendar days when a user has no timezone of their own, e.g. America/Los_Angeles (default: the host's zone)", "").Env = config.EnvTimezone
 	root.Flags.String("llm-provider", "", "Optional language-model provider: anthropic or openai-compatible (empty leaves model features off)", "").Env = config.EnvLLMProvider
 	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
 	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
@@ -84,6 +91,7 @@ func run(ctx *stencil.Context) error {
 		SeedPath:     ctx.Flags.String("seed"),
 		TrustProxy:   ctx.Flags.Bool("trust-proxy"),
 		HideVersion:  ctx.Flags.Bool("hide-version"),
+		Timezone:     ctx.Flags.String("timezone"),
 		DevAutoLogin: ctx.Flags.Bool("dev-auto-login"),
 		LLMProvider:  ctx.Flags.String("llm-provider"),
 		LLMBaseURL:   ctx.Flags.String("llm-base-url"),
@@ -95,7 +103,6 @@ func run(ctx *stencil.Context) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-
 	core, err := store.NewCoreStore(store.WithDataDir(cfg.DataDir))
 	if err != nil {
 		return err
@@ -169,12 +176,18 @@ func runSeed(ctx context.Context, path string, core *store.CoreStore, spaces *st
 func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) error {
 	limiter := auth.NewRateLimiter()
 	mcpLimiter := auth.NewRateLimiter(auth.WithLimit(120), auth.WithWindow(time.Minute))
+	// Validate already proved this resolves, so the error cannot fire here.
+	location, err := cfg.Location()
+	if err != nil {
+		return err
+	}
 	opts := []api.ServerOption{
 		api.WithRateLimiter(limiter),
 		api.WithMCPRateLimiter(mcpLimiter),
 		api.WithTrustProxy(cfg.TrustProxy),
 		api.WithServerVersion(appVersion),
 		api.WithHideVersion(cfg.HideVersion),
+		api.WithLocation(location),
 	}
 	// The model connection is optional: an unconfigured donezo serves the
 	// same app with the model-backed affordances simply absent.

@@ -34,6 +34,17 @@ type UserSettings struct {
 	// FontSize is the selected text-size id.
 	FontSize string `json:"fontSize,omitempty"`
 
+	// Timezone is the IANA zone name (e.g. "America/Los_Angeles") in which
+	// this user's calendar days are read. It is what makes a date written by
+	// an agent mean the same day as one written in the browser: the web app
+	// resolves "today" in the browser's zone, and without this the server
+	// would have to guess — which in practice meant UTC, so an evening entry
+	// west of Greenwich landed on tomorrow.
+	//
+	// Not a preference anyone should have to find: the web app reports the
+	// browser's zone on load. Empty means "use the instance default".
+	Timezone string `json:"timezone,omitempty"`
+
 	// Welcomed records that the first-run welcome has been acknowledged.
 	Welcomed bool `json:"welcomed,omitempty"`
 	// TourDone records that the tour was completed or skipped at least once.

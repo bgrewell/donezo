@@ -265,3 +265,110 @@ func checkErrorEnvelope(t *testing.T, body []byte) {
 		t.Errorf("error envelope empty: %s", body)
 	}
 }
+
+// TestWithLocationReachesTheMountedMCPHandler proves the Server actually
+// threads a WithLocation option down into the /mcp handler it mounts. That one
+// line in Handler() is the whole path by which --timezone / DONEZOD_TIMEZONE
+// reaches the code that decides what day an MCP write lands on, and the MCP
+// package's own tests build their handler directly — so this is the only place
+// a wiring regression there would be caught.
+//
+// It matters more than a usual wiring test because the regression is silent on
+// a developer's machine: mcp.NewHandler falls back to time.Local, which is
+// already correct there. It only shows up on the UTC container the flag exists
+// for, as issue #39 all over again.
+func TestWithLocationReachesTheMountedMCPHandler(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	core, err := store.NewCoreStore(store.WithDataDir(dir), store.WithClock(fixedClock))
+	if err != nil {
+		t.Fatalf("NewCoreStore: %v", err)
+	}
+	spaces, err := store.NewSpaceStore(store.WithDataDir(dir), store.WithClock(fixedClock))
+	if err != nil {
+		t.Fatalf("NewSpaceStore: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = core.Close()
+		_ = spaces.Close()
+	})
+
+	ctx := context.Background()
+	ben, err := core.CreateUser(ctx, "ben", "Ben")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := core.CreateSpace(ctx, store.Space{ID: "sandbox", UserID: ben.ID, Name: "Sandbox", Color: "blue"}); err != nil {
+		t.Fatalf("create space: %v", err)
+	}
+	if _, err := spaces.CreateProject(ctx, "sandbox", store.Project{
+		ID: "loom", Name: "Loom", Color: "blue", Status: "active",
+	}); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	token, hash, prefix, err := auth.NewAPIToken()
+	if err != nil {
+		t.Fatalf("NewAPIToken: %v", err)
+	}
+	if _, err := core.CreateAPIToken(ctx, store.APIToken{
+		ID: "tok-tz", UserID: ben.ID, Name: "tok-tz", TokenHash: hash, TokenPrefix: prefix,
+		Scope: store.ScopeReadWrite,
+	}); err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+
+	// The instance zone has to differ from BOTH UTC and the host's, or this
+	// test proves nothing: dropping the option falls back to time.Local, which
+	// on a maintainer's own machine is usually the answer the test wants. (It
+	// really does — a first version of this test named America/Los_Angeles and
+	// passed with the wiring deleted.)
+	instant := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	day := func(loc *time.Location) string { return instant.In(loc).Format("2006-01-02") }
+	var loc *time.Location
+	for _, candidate := range []*time.Location{
+		time.FixedZone("test-east", 13*60*60),
+		time.FixedZone("test-west", -13*60*60),
+	} {
+		if day(candidate) != day(time.UTC) && day(candidate) != day(time.Local) {
+			loc = candidate
+			break
+		}
+	}
+	if loc == nil {
+		t.Fatalf("no usable test zone: host is %s, which this test cannot distinguish", time.Local)
+	}
+	want := day(loc)
+
+	srv := NewServer(core, spaces,
+		WithLogger(log.New(io.Discard, "", 0)),
+		WithClock(func() time.Time { return instant }),
+		WithLocation(loc),
+	)
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"log_activity",` +
+		`"arguments":{"space_id":"sandbox","project_id":"loom","title":"evening work"}}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	// The stateless Streamable HTTP transport requires both accept types.
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tools/call = %d (body %s)", rec.Code, rec.Body)
+	}
+
+	// Assert against the store, not the reply: the date has to have been
+	// written, not merely echoed.
+	acts, err := spaces.ListActivities(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list activities: %v", err)
+	}
+	if len(acts) != 1 {
+		t.Fatalf("activities = %d, want 1 (body %s)", len(acts), rec.Body)
+	}
+	if acts[0].Date != want {
+		t.Errorf("date = %q, want %q (zone %s) — the instance zone did not reach the MCP handler; "+
+			"UTC would say %q and the host zone %q", acts[0].Date, want, loc, day(time.UTC), day(time.Local))
+	}
+}
