@@ -330,11 +330,12 @@ func buildTools() []tool {
 			title: "Create task",
 			description: "Create a task — a FUTURE possibility with a lifecycle (open → done). Use it for work " +
 				"that might happen. For something that already happened, use log_activity instead. project_id is " +
-				"optional (unlinked tasks are allowed).",
+				"optional (unlinked tasks are allowed). Keep the short field short — one scannable line — and put anything longer in details. A paragraph crammed into a title makes the list it appears in unreadable.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":   strProp("The space to create the task in."),
-				"title":      strProp("What needs doing."),
+				"title":      strProp("What needs doing — one short line."),
+				"details":    strProp("Optional longer detail: context, links, acceptance criteria."),
 				"project_id": strProp("Optional project to attach the task to (must exist if given)."),
 				"due":        strProp("Optional due date, yyyy-MM-dd."),
 			}, "space_id", "title"),
@@ -376,7 +377,8 @@ func buildTools() []tool {
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":   strProp("The space to create the reminder in."),
-				"text":       strProp("What to be reminded about."),
+				"text":       strProp("What to be reminded about — one short line."),
+				"details":    strProp("Optional longer detail: why it matters, what to have to hand."),
 				"remind_at":  strProp("When to resurface, ISO datetime (e.g. 2026-07-28T09:00:00)."),
 				"project_id": strProp("Optional project to attach the reminder to (must exist if given)."),
 			}, "space_id", "text", "remind_at"),
@@ -413,10 +415,9 @@ func buildTools() []tool {
 				"as reference turns out to be work. Unlike classify_inbox_item, the source does NOT survive: the " +
 				"note is removed and the new item created together, so use it only when the note has become the " +
 				"other thing rather than merely prompting it. Everything defaults from the note — its title " +
-				"becomes the task title, reminder text, or activity title, its body becomes an activity's " +
-				"details, and its project carries over. A task and a reminder have nowhere to keep a body, so a " +
-				"long note converted to one loses it; say so before converting. A note cannot become another " +
-				"note (that is update_note) or a project.",
+				"becomes the task title, reminder text, or activity title, its body becomes the new item's " +
+				"details, and its project carries over. Nothing is lost. A note cannot become another note (that " +
+				"is update_note) or a project.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":   strProp("The space the note lives in."),
@@ -428,7 +429,7 @@ func buildTools() []tool {
 				"project_id": strProp("Project id; defaults to the note's project (an activity needs one either way)."),
 				"due":        strProp("Optional due date for a task, yyyy-MM-dd."),
 				"type":       enumProp("Optional activity type (kind activity, defaults to work).", activityTypes),
-				"details":    strProp("Optional details (activity); defaults to the note's body."),
+				"details":    strProp("Optional details; defaults to the note's body."),
 			}, "space_id", "note_id", "kind"),
 			handler: toolConvertNote,
 		},
@@ -479,14 +480,16 @@ func buildTools() []tool {
 		{
 			name:  "update_task",
 			title: "Update task",
-			description: "Change an existing task: its title, status, due date, project, or what it is waiting on. " +
-				"Use it to correct or re-scope a task. To simply mark one done, prefer complete_task — it also logs " +
-				"the matching activity. Only the fields you pass change.",
+			description: "Change an existing task: its title, details, status, due date, project, or what it is " +
+				"waiting on. Use it to correct or re-scope a task, or to move an over-long title into details. To " +
+				"simply mark one done, prefer complete_task — it also logs the matching activity. Only the fields " +
+				"you pass change.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":   strProp("The space the task lives in."),
 				"task_id":    strProp("The task to update (from list_tasks or get_project)."),
-				"title":      strProp("What needs doing."),
+				"title":      strProp("What needs doing — one short line."),
+				"details":    strProp("Longer detail (empty string clears it)."),
 				"status":     enumProp("Task status.", taskStatuses),
 				"due":        strProp("Due date, yyyy-MM-dd (empty string clears it)."),
 				"project_id": strProp("Project to attach to (empty string detaches it)."),
@@ -531,13 +534,15 @@ func buildTools() []tool {
 		{
 			name:  "update_reminder",
 			title: "Update reminder",
-			description: "Change an existing reminder's text, time, project, or done flag. Use it to reschedule a " +
-				"reminder or mark one handled. Only the fields you pass change.",
+			description: "Change an existing reminder's text, details, time, project, or done flag. Use it to " +
+				"reschedule a reminder, mark one handled, or move an over-long text into details. Only the fields " +
+				"you pass change.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":    strProp("The space the reminder lives in."),
 				"reminder_id": strProp("The reminder to update (from list_reminders)."),
-				"text":        strProp("What to be reminded about."),
+				"text":        strProp("What to be reminded about — one short line."),
+				"details":     strProp("Longer detail (empty string clears it)."),
 				"remind_at":   strProp("When to resurface, ISO datetime (e.g. 2026-07-28T09:00:00)."),
 				"done":        boolProp("Whether the reminder has been handled."),
 				"project_id":  strProp("Project to attach to (empty string detaches it)."),

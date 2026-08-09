@@ -576,7 +576,7 @@ func TestConvertNote(t *testing.T) {
 	t.Run("task", func(t *testing.T) {
 		t.Parallel()
 		f := newFixture(t)
-		f.seedNote(t, "n-task", "chase the invoice", "body worth losing", &loom)
+		f.seedNote(t, "n-task", "chase the invoice", "body worth kept", &loom)
 		text, isErr := f.callTool(t, f.rw, "convert_note",
 			`{"space_id":"sandbox","note_id":"n-task","kind":"task","due":"2026-08-20"}`)
 		if isErr {
@@ -602,10 +602,15 @@ func TestConvertNote(t *testing.T) {
 		if f.noteExists(t, "n-task") {
 			t.Error("note survived its conversion")
 		}
-		// A task has nowhere to keep a body; the result says so and echoes
-		// what was dropped, since the note is already gone.
-		if !strings.Contains(text, "body worth losing") {
-			t.Errorf("result should report the dropped body, got %s", text)
+		// Since #44 a task has somewhere to keep the body, so the conversion
+		// carries it instead of destroying it. Asserted against the stored
+		// task: the body string also appears in the tool's reply, so checking
+		// the text alone would pass either way.
+		if got.Details != "body worth kept" {
+			t.Errorf("task details = %q, want the note's body carried over", got.Details)
+		}
+		if strings.Contains(text, "droppedBody") {
+			t.Errorf("nothing is dropped any more, got %s", text)
 		}
 	})
 
@@ -628,9 +633,11 @@ func TestConvertNote(t *testing.T) {
 		if f.noteExists(t, "n-rem") {
 			t.Error("note survived its conversion")
 		}
-		// Nothing was dropped: the note had no body.
+		if rems[0].Details != "" {
+			t.Errorf("reminder details = %q, want empty for a note with no body", rems[0].Details)
+		}
 		if strings.Contains(text, "droppedBody") {
-			t.Errorf("empty body should not be reported as dropped, got %s", text)
+			t.Errorf("nothing is dropped any more, got %s", text)
 		}
 	})
 
