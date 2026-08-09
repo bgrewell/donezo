@@ -436,12 +436,17 @@ func (h *Handler) rateLimited(tokenID string) (bool, int) {
 	return true, secs
 }
 
-// nowRFC3339 renders the handler clock as an RFC 3339 UTC timestamp.
+// nowLocal renders the handler clock as a naive wall-clock timestamp in loc:
+// "2026-07-25T20:30:05", no offset.
 //
-// UTC is right here and wrong in today(): this is an *instant*, and an instant
-// is the same moment everywhere. A calendar day is not.
-func (h *Handler) nowRFC3339() string {
-	return h.clock().UTC().Format(time.RFC3339)
+// That shape is the app's convention for capturedAt and remindAt (see the
+// comment on nowLocalISO in web/src/lib/time.ts), and it is not an accident
+// worth "fixing" into RFC 3339: every reader of capturedAt takes its first
+// ten characters as a calendar day. An offset-bearing UTC value slotted into
+// the same field would be read as the wrong day for exactly the hours this
+// change is about, and would sort against a browser-written one incorrectly.
+func (h *Handler) nowLocal(loc *time.Location) string {
+	return h.clock().In(loc).Format("2006-01-02T15:04:05")
 }
 
 // today renders the handler clock as a yyyy-MM-dd date in loc.

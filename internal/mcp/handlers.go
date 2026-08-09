@@ -601,7 +601,7 @@ func toolCaptureToInbox(ctx context.Context, h *Handler, c caller, args json.Raw
 	created, err := h.spaces.CreateInboxItem(ctx, sp.ID, store.InboxItem{
 		ID:                 id,
 		Raw:                a.Text,
-		CapturedAt:         h.nowRFC3339(),
+		CapturedAt:         h.nowLocal(h.callerLocation(ctx, c)),
 		SuggestedKind:      kind,
 		SuggestedProjectID: optString(a.SuggestedProjectID),
 		Status:             "pending",

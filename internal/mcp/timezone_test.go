@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -253,10 +254,13 @@ func TestExplicitDateIsNotReinterpreted(t *testing.T) {
 	}
 }
 
-// capturedAt is an instant, not a calendar day, and stays UTC. Mixing the two
-// up in the other direction would be just as wrong: an instant rendered in a
-// local zone with no offset cannot be ordered against one from another zone.
-func TestInstantsStayUTC(t *testing.T) {
+// capturedAt is a naive local wall-clock, matching what the browser writes
+// (web/src/lib/time.ts nowLocalISO). It has to be, because every reader takes
+// its first ten characters as a calendar day: the inbox shows captures as
+// "today"/"yesterday", and Review's staleness filter counts days from it. A
+// UTC value with a Z in the same field reads as the wrong day all evening and
+// sorts wrongly against a browser-written one.
+func TestCaptureUsesLocalWallClock(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, WithClock(eveningClock), WithLocation(time.UTC))
 	f.setTimezone(t, losAngeles)
@@ -272,7 +276,15 @@ func TestInstantsStayUTC(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("inbox = %d, want 1", len(items))
 	}
-	if want := "2026-07-26T03:30:00Z"; items[0].CapturedAt != want {
-		t.Errorf("capturedAt = %q, want the UTC instant %q", items[0].CapturedAt, want)
+	// 03:30 UTC is 20:30 the previous day in Los Angeles, and no offset.
+	if want := "2026-07-25T20:30:00"; items[0].CapturedAt != want {
+		t.Errorf("capturedAt = %q, want the local wall clock %q", items[0].CapturedAt, want)
+	}
+	if strings.HasSuffix(items[0].CapturedAt, "Z") {
+		t.Errorf("capturedAt = %q carries a zone; the field is naive local", items[0].CapturedAt)
+	}
+	// And the day a reader would take from it must be the user's day.
+	if day := items[0].CapturedAt[:10]; day != laDay {
+		t.Errorf("capturedAt day = %q, want %q", day, laDay)
 	}
 }

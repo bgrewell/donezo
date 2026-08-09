@@ -26,32 +26,56 @@ function browserTimezone(): string | null {
 /** Reports this browser's timezone to the server when it differs from what is
  *  stored.
  *
+ *  Re-checked when the tab becomes visible again, not only at mount. donezo is
+ *  a thing people leave open in a background tab for days (the same premise
+ *  useSpaceFreshness is built on), so a laptop that travels would otherwise
+ *  keep the server on the zone it was in when the tab was opened — the web UI
+ *  would move to the new day and MCP would not, which is issue #39 running
+ *  backwards.
+ *
  *  Best-effort in both directions, like the appearance sync: a failed read or
  *  write is dropped rather than surfaced. Nothing the user is doing depends on
- *  it, and the next load tries again.
+ *  it, and the next check tries again.
  *
  *  Must be mounted inside the authenticated tree — an anonymous caller has no
  *  settings and every request would 401. */
 export function useTimezoneSync(): void {
   React.useEffect(() => {
-    const tz = browserTimezone();
-    if (!tz) return;
     let cancelled = false;
-    fetchUserSettings()
-      .then((settings) => {
-        if (cancelled) return;
-        // Only write on a real change. An unconditional patch would mean a
-        // settings write on every page load, for a value that changes about
-        // as often as someone moves house.
-        if (settings.timezone === tz) return;
-        return saveUserSettings({ timezone: tz }).then(() => undefined);
-      })
-      .catch(() => {
-        // Offline, or the session lapsed. The stored zone stays as it was,
-        // which is the previous correct answer rather than a wrong one.
-      });
+    // What the server is believed to hold. Remembering it means a tab that
+    // wakes up fifty times only reads settings on the first one.
+    let remote: string | null = null;
+
+    const check = () => {
+      const tz = browserTimezone();
+      if (!tz || cancelled || tz === remote) return;
+      fetchUserSettings()
+        .then((settings) => {
+          if (cancelled) return;
+          remote = settings.timezone ?? null;
+          // Only write on a real change. An unconditional patch would mean a
+          // settings write on every page load, for a value that changes about
+          // as often as someone moves house.
+          if (remote === tz) return;
+          return saveUserSettings({ timezone: tz }).then(() => {
+            if (!cancelled) remote = tz;
+          });
+        })
+        .catch(() => {
+          // Offline, or the session lapsed. The stored zone stays as it was,
+          // which is the previous correct answer rather than a wrong one, and
+          // remote stays unset so the next wake tries again.
+        });
+    };
+
+    check();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 }
