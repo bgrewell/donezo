@@ -21,6 +21,10 @@ export interface DueRow {
   /** Due date is already past — rendered as a calm "needs review". */
   overdue: boolean;
   project?: Project;
+  /** A reminder this row stands in for, hidden because it mirrors the task.
+   *  Acting on the row has to act on both, or completing the task simply
+   *  un-hides the reminder and the row appears not to have changed. */
+  mirrors?: string;
 }
 
 /** A task with status "waiting", with its project resolved. */
@@ -127,11 +131,24 @@ export function computeFocusData(state: AppState): FocusData {
       .filter((r) => r.kind === "task")
       .map((r) => `${r.title.trim().toLowerCase()}|${r.project?.id ?? ""}`)
   );
-  const dedupedTimeSensitive = timeSensitive.filter(
-    (r) =>
-      r.kind !== "reminder" ||
-      !taskKeys.has(`${r.title.trim().toLowerCase()}|${r.project?.id ?? ""}`)
-  );
+  // Remember which reminder each surviving task row is standing in for. Once
+  // Focus could only be read this did not matter; now that a row can be
+  // completed there, completing the task alone would drop it from the list,
+  // re-admit the suppressed reminder, and redraw a byte-identical row — a
+  // Done button that looks like it did nothing.
+  const mirroredBy = new Map<string, string>();
+  const dedupedTimeSensitive = timeSensitive.filter((r) => {
+    if (r.kind !== "reminder") return true;
+    const key = `${r.title.trim().toLowerCase()}|${r.project?.id ?? ""}`;
+    if (!taskKeys.has(key)) return true;
+    mirroredBy.set(key, r.id);
+    return false;
+  });
+  for (const row of dedupedTimeSensitive) {
+    if (row.kind !== "task") continue;
+    const mirrored = mirroredBy.get(`${row.title.trim().toLowerCase()}|${row.project?.id ?? ""}`);
+    if (mirrored) row.mirrors = mirrored;
+  }
   dedupedTimeSensitive.sort(
     (a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title)
   );
