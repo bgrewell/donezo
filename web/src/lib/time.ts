@@ -42,6 +42,24 @@ export function withSeconds(dt: string): string {
   return dt.length === 16 ? `${dt}:00` : dt;
 }
 
+/** The local calendar day an *instant* falls on.
+ *
+ *  donezo stores two kinds of time and they are not interchangeable. Naive
+ *  local datetimes — capturedAt, remindAt — are already local, so slicing
+ *  their first ten characters gives the right day. True instants — the
+ *  RFC 3339 UTC timestamps on API tokens and invites — are not: slicing one
+ *  yields the day it was in *UTC*, which for anyone west of Greenwich is
+ *  tomorrow for the last hours of every day. Convert, don't slice. */
+export function localDayOfInstant(instant: string): string {
+  return toISODate(new Date(instant));
+}
+
+/** relativeFromToday for a true instant rather than a local day.
+ *  See localDayOfInstant for why the two cannot share a code path. */
+export function relativeFromInstant(instant: string): string {
+  return relativeFromToday(localDayOfInstant(instant));
+}
+
 export function addDaysISO(iso: string, n: number): string {
   return toISODate(addDays(parseDate(iso), n));
 }
