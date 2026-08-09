@@ -40,10 +40,27 @@ export function RowActions({
   const live = actions.filter(Boolean);
   if (live.length === 0) return null;
 
+  // Overlaid on the row's right edge rather than laid out in it. opacity-0
+  // hides the group but still reserves its width, and on a read-first screen
+  // that cost is real: an eight-character-wide action group was taking ~250px
+  // from every Time-sensitive title at desktop width, and pushing rows onto a
+  // second line on a phone. Absolute positioning keeps the group in the DOM
+  // and in the tab order — which is why opacity was used in the first place —
+  // without the row paying for it while it is invisible. The parent must be
+  // relative; every caller sets that.
+
   const pending = live.find((a) => a.label === confirming);
   if (pending?.confirm) {
     return (
-      <span className={cn("flex shrink-0 items-center gap-2", className)} role="group" aria-label={label}>
+      <span
+        role="group"
+        aria-label={label}
+        className={cn(
+          "absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-2",
+          "rounded-gtc bg-gtc-panel px-1 shadow-gtc-panel",
+          className
+        )}
+      >
         <span className="font-mono text-[0.62rem] uppercase tracking-label text-gtc-muted">
           {pending.confirm}
         </span>
@@ -71,8 +88,10 @@ export function RowActions({
       aria-label={label}
       className={cn(
         // In the DOM always, so Tab reaches them; visible on hover or when
-        // anything inside has focus, so a mouse-free path exists too.
-        "flex shrink-0 items-center gap-1 opacity-0 transition-opacity",
+        // anything inside has focus, so a mouse-free path exists too. Not
+        // laid out, so an invisible group costs the row no width.
+        "absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1",
+        "rounded-gtc bg-gtc-panel px-1 opacity-0 transition-opacity",
         "focus-within:opacity-100 group-hover:opacity-100",
         className
       )}

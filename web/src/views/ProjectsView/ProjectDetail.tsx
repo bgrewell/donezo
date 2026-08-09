@@ -454,7 +454,7 @@ function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }) {
   }
 
   return (
-    <div className="group py-2">
+    <div className="group relative py-2">
       <div className="flex items-center gap-3">
         {waiting ? (
           <>

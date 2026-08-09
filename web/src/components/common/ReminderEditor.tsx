@@ -29,6 +29,15 @@ export function ReminderEditor({
   // datetime-local wants no seconds; the API stores them.
   const [remindAt, setRemindAt] = React.useState(reminder.remindAt.slice(0, 16));
   const [projectId, setProjectId] = React.useState(reminder.projectId ?? "");
+  // See TaskEditor: diffed against what the editor opened on, so a field the
+  // user never touched cannot enter the patch and revert someone else's
+  // change.
+  const seeded = React.useRef({
+    text: reminder.text,
+    details: reminder.details,
+    remindAt: reminder.remindAt,
+    projectId: reminder.projectId,
+  });
 
   // Same rule as editing a note: a closed project stays listed while the item
   // is on it, so editing anything else cannot silently move it off.
@@ -39,11 +48,12 @@ export function ReminderEditor({
   const trimmed = text.trim();
   const save = () => {
     if (!trimmed || !remindAt) return;
+    const was = seeded.current;
     const patch: Partial<Reminder> = {};
-    if (trimmed !== reminder.text) patch.text = trimmed;
-    if (details !== reminder.details) patch.details = details;
-    if (withSeconds(remindAt) !== reminder.remindAt) patch.remindAt = withSeconds(remindAt);
-    if ((projectId || undefined) !== reminder.projectId) {
+    if (trimmed !== was.text) patch.text = trimmed;
+    if (details !== was.details) patch.details = details;
+    if (withSeconds(remindAt) !== was.remindAt) patch.remindAt = withSeconds(remindAt);
+    if ((projectId || undefined) !== was.projectId) {
       patch.projectId = projectId || undefined;
     }
     if (Object.keys(patch).length > 0) {

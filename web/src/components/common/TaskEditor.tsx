@@ -22,6 +22,18 @@ export function TaskEditor({ task, onDone }: { task: TaskItem; onDone: () => voi
   const [details, setDetails] = React.useState(task.details);
   const [due, setDue] = React.useState(task.due ?? "");
   const [projectId, setProjectId] = React.useState(task.projectId ?? "");
+  // What the task looked like when this editor opened. The patch is diffed
+  // against THIS, not against the live prop, and the difference is not
+  // academic: the prop moves under an open editor every time the freshness
+  // poll applies REPLACE_STATE, so diffing against it would put fields the
+  // user never touched into the patch and quietly overwrite whatever changed
+  // them — an agent's write, or the same task edited from another row.
+  const seeded = React.useRef({
+    title: task.title,
+    details: task.details,
+    due: task.due,
+    projectId: task.projectId,
+  });
 
   // Same rule as editing a note: a closed project stays listed while the task
   // is on it, so editing anything else cannot silently move it off.
@@ -30,11 +42,12 @@ export function TaskEditor({ task, onDone }: { task: TaskItem; onDone: () => voi
   const trimmed = title.trim();
   const save = () => {
     if (!trimmed) return;
+    const was = seeded.current;
     const patch: Partial<TaskItem> = {};
-    if (trimmed !== task.title) patch.title = trimmed;
-    if (details !== task.details) patch.details = details;
-    if ((due || undefined) !== task.due) patch.due = due || undefined;
-    if ((projectId || undefined) !== task.projectId) patch.projectId = projectId || undefined;
+    if (trimmed !== was.title) patch.title = trimmed;
+    if (details !== was.details) patch.details = details;
+    if ((due || undefined) !== was.due) patch.due = due || undefined;
+    if ((projectId || undefined) !== was.projectId) patch.projectId = projectId || undefined;
     if (Object.keys(patch).length > 0) {
       dispatch({ type: "UPDATE_TASK", id: task.id, patch });
     }

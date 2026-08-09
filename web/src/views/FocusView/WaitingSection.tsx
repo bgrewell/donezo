@@ -45,7 +45,7 @@ export function WaitingSection({
               <TaskEditor task={task} onDone={() => setEditing(null)} />
             </li>
           ) : (
-          <li key={task.id} className={cn("group", rowClass)}>
+          <li key={task.id} className={cn("group relative", rowClass)}>
             <span className="min-w-0 grow basis-full truncate font-sans text-[0.85rem] text-gtc-text sm:basis-0">
               {task.title}
             </span>

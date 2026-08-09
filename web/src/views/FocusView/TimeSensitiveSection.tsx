@@ -57,7 +57,7 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
             <li
               key={key}
               className={cn(
-                "group flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
+                "group relative flex flex-wrap items-center gap-x-3 gap-y-1 py-2 transition-colors hover:bg-gtc-tint-accent",
                 HAIRLINE_ROW
               )}
             >
@@ -91,10 +91,21 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
                 actions={[
                   {
                     label: "Done",
-                    onSelect: () =>
-                      row.kind === "task"
-                        ? dispatch({ type: "UPDATE_TASK", id: row.id, patch: { status: "done" } })
-                        : dispatch({ type: "UPDATE_REMINDER", id: row.id, patch: { done: true } }),
+                    onSelect: () => {
+                      if (row.kind === "task") {
+                        dispatch({ type: "UPDATE_TASK", id: row.id, patch: { status: "done" } });
+                        // One commitment can exist as both a task and a
+                        // reminder; this row hid the reminder, so finishing
+                        // the task has to finish it too. Otherwise the
+                        // reminder takes the row back and Done looks like it
+                        // did nothing.
+                        if (row.mirrors) {
+                          dispatch({ type: "UPDATE_REMINDER", id: row.mirrors, patch: { done: true } });
+                        }
+                      } else {
+                        dispatch({ type: "UPDATE_REMINDER", id: row.id, patch: { done: true } });
+                      }
+                    },
                   },
                   { label: "Edit", onSelect: () => setEditing(key) },
                   ...(row.project
