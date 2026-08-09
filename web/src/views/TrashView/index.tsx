@@ -43,6 +43,10 @@ export default function TrashView() {
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [confirmEmpty, setConfirmEmpty] = React.useState(false);
+  // Purging one entry is the only irreversible action in the product, and it
+  // sat one hover-revealed ghost button away from Restore, styled the same.
+  // Empty trash already asked; this had no reason not to.
+  const [confirmPurge, setConfirmPurge] = React.useState<string | null>(null);
 
   const load = React.useCallback(() => {
     if (!spaceId) return;
@@ -152,26 +156,50 @@ export default function TrashView() {
                       {it.batchSize > 1 && ` · with ${it.batchSize - 1} other item(s)`}
                     </span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      noGlyph
-                      disabled={busy !== null}
-                      onClick={() => void act(key, () => restoreTrashItem(spaceId, it.entity, it.id))}
-                    >
-                      {working ? "…" : "Restore"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      noGlyph
-                      disabled={busy !== null}
-                      onClick={() => void act(key, () => purgeTrashItem(spaceId, it.entity, it.id))}
-                    >
-                      Delete forever
-                    </Button>
-                  </span>
+                  {confirmPurge === key ? (
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className={META}>
+                        {it.batchSize > 1 ? `delete all ${it.batchSize} for good?` : "delete for good?"}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        noGlyph
+                        disabled={busy !== null}
+                        onClick={() =>
+                          void act(key, () => purgeTrashItem(spaceId, it.entity, it.id)).then(() =>
+                            setConfirmPurge(null)
+                          )
+                        }
+                      >
+                        Delete forever
+                      </Button>
+                      <Button size="sm" variant="ghost" noGlyph onClick={() => setConfirmPurge(null)}>
+                        Keep
+                      </Button>
+                    </span>
+                  ) : (
+                    <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        noGlyph
+                        disabled={busy !== null}
+                        onClick={() => void act(key, () => restoreTrashItem(spaceId, it.entity, it.id))}
+                      >
+                        {working ? "…" : "Restore"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        noGlyph
+                        disabled={busy !== null}
+                        onClick={() => setConfirmPurge(key)}
+                      >
+                        Delete forever
+                      </Button>
+                    </span>
+                  )}
                 </li>
               );
             })}

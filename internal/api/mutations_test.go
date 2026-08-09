@@ -698,6 +698,11 @@ func TestArchivedSpaceWriteGuard(t *testing.T) {
 			`{"kind":"task","task":` + taskBody + `}`},
 		{http.MethodPost, "/api/spaces/sandbox/notes/note-1/convert",
 			`{"kind":"task","task":` + taskBody + `}`},
+		// The trash writes: restoring or purging inside an archived space is
+		// a content mutation like any other.
+		{http.MethodPost, "/api/spaces/sandbox/trash/note/note-1/restore", ""},
+		{http.MethodDelete, "/api/spaces/sandbox/trash/note/note-1", ""},
+		{http.MethodPost, "/api/spaces/sandbox/trash/empty", ""},
 	}
 	for _, wr := range writes {
 		wr := wr // capture (golangci-lint predates Go 1.22 loopvar)

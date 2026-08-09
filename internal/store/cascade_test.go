@@ -139,6 +139,34 @@ func TestSoftDeleteProjectHidesOwnedContent(t *testing.T) {
 	}
 }
 
+// Deleting a project twice is the caller acting on a stale view, and the
+// second attempt has to say so — otherwise it would silently re-stamp the
+// delete, moving its retention clock and orphaning the first batch.
+func TestSoftDeleteProjectRefusesWhenAlreadyTrashed(t *testing.T) {
+	t.Parallel()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+	ctx := context.Background()
+
+	first, err := s.SoftDeleteProject(ctx, testSpace, "loom")
+	if err != nil {
+		t.Fatalf("first delete: %v", err)
+	}
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second delete: err = %v, want ErrNotFound", err)
+	}
+	// And the second attempt marked nothing extra, so one restore still
+	// brings back exactly what the first delete took.
+	restored, err := s.RestoreItem(ctx, testSpace, TrashProject, "loom")
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	want := first.Project + first.Activities + first.Tasks + first.Notes
+	if restored != want {
+		t.Errorf("restored %d rows, want the %d the first delete took", restored, want)
+	}
+}
+
 // Restore has to bring back exactly the batch — not a row the person had
 // deleted separately beforehand, which is the whole reason a batch exists.
 func TestRestoreProjectBringsBackOnlyItsOwnBatch(t *testing.T) {

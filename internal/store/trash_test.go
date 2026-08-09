@@ -256,3 +256,109 @@ func TestListTrashIsOnePerDeleteNotPerRow(t *testing.T) {
 		t.Errorf("reminder entry = %+v, want its own batch of 1", reminder)
 	}
 }
+
+// A purge must not be stoppable by whatever happens to reference the project.
+//
+// Under the old hard cascade only reminders and inbox items could outlive a
+// project delete, so those were the only things the purge detached. Soft
+// delete widened that set — a child trashed separately keeps its own batch,
+// and a live row can point at a trashed project — and each of those tripped
+// the foreign key, rolling back the whole purge. That failure was not local:
+// one poisoned project wedged Empty trash and the retention sweep for the
+// entire space, permanently and silently.
+func TestPurgeProjectSurvivesEveryKindOfReference(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+
+	// (a) A child trashed on its own BEFORE the project, so it keeps its own
+	//     batch and is not part of the project's.
+	if err := s.DeleteTask(ctx, testSpace, "tsk-l-1"); err != nil {
+		t.Fatalf("delete task first: %v", err)
+	}
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	// (b) A LIVE row pointing at the trashed project. It has to be one that
+	//     was NOT in the project's batch — restoring a member of that batch
+	//     restores the project along with it, which is the batch working as
+	//     intended and not the state under test.
+	if _, err := s.RestoreItem(ctx, testSpace, TrashTask, "tsk-l-1"); err != nil {
+		t.Fatalf("restore the separately-deleted task: %v", err)
+	}
+
+	n, err := s.PurgeItem(ctx, testSpace, TrashProject, "loom")
+	if err != nil {
+		t.Fatalf("purge with outside references: %v", err)
+	}
+	if n == 0 {
+		t.Error("purge removed nothing")
+	}
+	if _, err := s.GetProject(ctx, testSpace, "loom"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("project survived its purge: %v", err)
+	}
+
+	// The live task survives, detached rather than destroyed — a task can be
+	// unfiled, so there is no reason to take it.
+	tasks, err := s.ListTasks(ctx, testSpace)
+	if err != nil {
+		t.Fatalf("list tasks: %v", err)
+	}
+	var found bool
+	for _, tk := range tasks {
+		if tk.ID == "tsk-l-1" {
+			found = true
+			if tk.ProjectID != nil {
+				t.Errorf("tsk-l-1 projectId = %q, want detached", *tk.ProjectID)
+			}
+		}
+	}
+	if !found {
+		t.Error("a live task was destroyed by purging the project it referenced")
+	}
+
+	// And the space is not wedged: emptying the trash still works afterwards.
+	if _, err := s.EmptyTrash(ctx, testSpace); err != nil {
+		t.Fatalf("empty trash after the purge: %v", err)
+	}
+	if trash, _ := s.ListTrash(ctx, testSpace); len(trash) != 0 {
+		t.Errorf("trash = %+v after emptying", trash)
+	}
+}
+
+// The same hazard reached through the sweep, which is where it would have hurt
+// most: a failure there is logged and stepped over, so the retention window
+// would silently never happen again for that space.
+func TestRetentionPurgeIsNotWedgedByALiveReference(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	if _, err := s.RestoreItem(ctx, testSpace, TrashTask, "tsk-l-1"); err != nil {
+		t.Fatalf("restore task: %v", err)
+	}
+	db, err := s.db(ctx, testSpace)
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE projects SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = 'loom'`); err != nil {
+		t.Fatalf("age the delete: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE activities SET deleted_at = '2026-01-01T00:00:00Z' WHERE deleted_at IS NOT NULL`); err != nil {
+		t.Fatalf("age the batch: %v", err)
+	}
+
+	if _, err := s.PurgeExpired(ctx, testSpace, "2026-06-01T00:00:00Z"); err != nil {
+		t.Fatalf("retention purge: %v", err)
+	}
+	if _, err := s.GetProject(ctx, testSpace, "loom"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expired project survived the sweep: %v", err)
+	}
+}

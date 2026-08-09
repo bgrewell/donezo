@@ -216,6 +216,75 @@ func TestTrashSweepPurgesOnlyWhatIsOldEnough(t *testing.T) {
 	}
 }
 
+// RunTrashSweep sweeps once at STARTUP, before any tick. That is the whole
+// reason it is not a bare ticker: an instance stopped and started every day
+// would otherwise never reach the first interval and nothing would ever
+// expire. Deleting that one call left the suite green.
+func TestTrashSweepRunsAtStartup(t *testing.T) {
+	t.Parallel()
+	now := fixedClock()
+	srv := newTestServer(t,
+		WithClock(func() time.Time { return now }),
+		WithTrashRetention(7*24*time.Hour),
+	)
+	h := srv.Handler()
+	if rec := doJSON(t, h, http.MethodPost, "/api/spaces/sandbox/notes",
+		`{"id":"note-su","title":"old","body":"b","createdAt":"2026-08-09"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("seed = %d", rec.Code)
+	}
+	if rec := doJSON(t, h, http.MethodDelete, "/api/spaces/sandbox/notes/note-su", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", rec.Code)
+	}
+	// Past the window, so a sweep that runs will take it. The daily ticker
+	// cannot have fired in the moment this test allows.
+	now = now.Add(8 * 24 * time.Hour)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.RunTrashSweep(ctx)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-done
+
+	if got := trashList(t, h); len(got) != 0 {
+		t.Errorf("trash = %+v, want the expired item purged by the startup sweep", got)
+	}
+}
+
+// An archived space is deliberately frozen, so the sweep steps over it rather
+// than quietly destroying content inside one.
+func TestTrashSweepSkipsArchivedSpaces(t *testing.T) {
+	t.Parallel()
+	now := fixedClock()
+	srv := newTestServer(t,
+		WithClock(func() time.Time { return now }),
+		WithTrashRetention(7*24*time.Hour),
+	)
+	h := srv.Handler()
+	if rec := doJSON(t, h, http.MethodPost, "/api/spaces/sandbox/notes",
+		`{"id":"note-ar","title":"frozen","body":"b","createdAt":"2026-08-09"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("seed = %d", rec.Code)
+	}
+	if rec := doJSON(t, h, http.MethodDelete, "/api/spaces/sandbox/notes/note-ar", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", rec.Code)
+	}
+	if rec := doJSON(t, h, http.MethodPost, "/api/spaces/sandbox/archive", ""); rec.Code >= 400 {
+		t.Fatalf("archive = %d (body %s)", rec.Code, rec.Body)
+	}
+	now = now.Add(30 * 24 * time.Hour)
+
+	srv.sweepTrash(context.Background())
+
+	// Read the trash directly: the HTTP route still serves an archived space
+	// (reads are allowed), which is what makes this assertable.
+	if got := trashList(t, h); len(got) != 1 {
+		t.Errorf("trash = %+v, want the item kept — an archived space is frozen", got)
+	}
+}
+
 // Retention of zero means nothing is ever purged on a timer.
 func TestTrashSweepDisabled(t *testing.T) {
 	t.Parallel()

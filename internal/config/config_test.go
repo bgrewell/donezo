@@ -198,3 +198,41 @@ func TestConfigLocation(t *testing.T) {
 		})
 	}
 }
+
+// The retention window reaches the server as a duration, and a negative one is
+// refused rather than quietly disabling the sweep — 0 is the documented way to
+// do that, and the two should not be confusable.
+func TestConfigTrashRetention(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		days    int
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "default thirty days", days: 30, want: 30 * 24 * time.Hour},
+		{name: "one day", days: 1, want: 24 * time.Hour},
+		{name: "zero disables", days: 0, want: 0},
+		{name: "negative is refused", days: -1, wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := Config{Port: DefaultPort, DataDir: t.TempDir(), TrashRetentionDays: tt.days}
+			err := c.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Validate accepted a negative retention")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if got := c.TrashRetention(); got != tt.want {
+				t.Errorf("TrashRetention() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

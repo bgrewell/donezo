@@ -384,11 +384,28 @@ func (s *SpaceStore) purge(ctx context.Context, spaceID, where string, args ...a
 
 // purgeWhere hard-deletes matching rows from every trashed table inside tx.
 //
-// This is where the detach the soft cascade did not need finally happens: a
-// project row is about to go for real, so any live reminder or inbox item
-// still pointing at it must lose the reference or the foreign key fails.
-// Those rows are detached rather than deleted, which is the same distinction
-// the hard cascade always drew — a reminder's text stands on its own.
+// This is where the detachment the soft cascade did not need finally happens:
+// a project row is about to go for real, so nothing may still reference it.
+//
+// The set of things that can reference a purged project is WIDER than it was
+// under the old hard cascade, and that is the subtle part. The hard cascade
+// deleted a project's activities, tasks and notes in the same statement, so
+// they could never outlive it and only the loose references — reminders and
+// inbox items — needed detaching. Soft delete breaks that: a task trashed on
+// its own keeps its own batch and is not part of the project's, so purging
+// the project by batch leaves it behind, pointing at a row that is going
+// away. The foreign key then fails and the entire purge rolls back — which
+// wedges Empty trash and the retention sweep for the whole space, not just
+// this one delete.
+//
+// So each table is handled by what its reference can survive:
+//   - activities.project_id is NOT NULL, so an activity cannot be orphaned;
+//     any that reference a purged project go with it.
+//   - tasks and notes may have no project, so they are detached and live on
+//     unfiled — restoring one later gives an unfiled task rather than
+//     nothing.
+//   - reminders and inbox items are detached, as they always were: a
+//     reminder's text stands on its own.
 func purgeWhere(ctx context.Context, tx *sql.Tx, where string, args ...any) (int64, error) {
 	//nolint:gosec // where is a literal from this file, never caller input.
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM projects WHERE `+where, args...)
@@ -410,21 +427,35 @@ func purgeWhere(ctx context.Context, tx *sql.Tx, where string, args ...any) (int
 	}
 	closeQuietly(rows)
 
+	var total int64
 	for _, pid := range projectIDs {
-		for _, t := range []string{"reminders", "inbox"} {
-			col := "project_id"
-			if t == "inbox" {
-				col = "suggested_project_id"
-			}
-			//nolint:gosec // t and col are literals.
+		// Detachable references first.
+		for _, d := range []struct{ table, col string }{
+			{"reminders", "project_id"},
+			{"inbox", "suggested_project_id"},
+			{"tasks", "project_id"},
+			{"notes", "project_id"},
+		} {
+			//nolint:gosec // table and column are literals from the slice above.
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE `+t+` SET `+col+` = NULL WHERE `+col+` = ?`, pid); err != nil {
-				return 0, fmt.Errorf("store: purge: detach %s from project %q: %w", t, pid, err)
+				`UPDATE `+d.table+` SET `+d.col+` = NULL WHERE `+d.col+` = ?`, pid); err != nil {
+				return 0, fmt.Errorf("store: purge: detach %s from project %q: %w", d.table, pid, err)
 			}
 		}
+		// Activities cannot be detached — project_id is NOT NULL, and an
+		// activity is defined as a fact about a project. Any left over go
+		// with it, and they count towards what the purge removed.
+		res, err := tx.ExecContext(ctx, `DELETE FROM activities WHERE project_id = ?`, pid)
+		if err != nil {
+			return 0, fmt.Errorf("store: purge: activities of project %q: %w", pid, err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, fmt.Errorf("store: purge: activity rows of project %q: %w", pid, err)
+		}
+		total += n
 	}
 
-	var total int64
 	for _, t := range trashedTables {
 		//nolint:gosec // t is a literal from trashedTables, where from this file.
 		r, err := tx.ExecContext(ctx, `DELETE FROM `+t+` WHERE `+where, args...)
