@@ -223,19 +223,20 @@ export function revokeApiToken(id: string): Promise<void> {
   return api.del(`/api/tokens/${encodeURIComponent(id)}`);
 }
 
-/** Counts returned by DELETE project: deleted rows plus references that
- *  were detached (kept, project link nulled) rather than removed. */
+/** Counts returned by DELETE project: the rows moved to the trash.
+ *
+ *  No detached counts since the trash landed: reminders and inbox items keep
+ *  their project link, because a trashed project is still there to point at.
+ *  They read as unfiled until it is restored or purged. */
 export interface ProjectCascade {
   project: number;
   activities: number;
   tasks: number;
   notes: number;
-  detachedInbox: number;
-  detachedReminders: number;
 }
 
-/** DELETE /api/spaces/{id}/projects/{pid} — remove a project and all the
- *  content it owns; raw captures and reminders survive, detached. */
+/** DELETE /api/spaces/{id}/projects/{pid} — move a project and the content it
+ *  owns to the trash, restorable as one batch. */
 export async function deleteProject(
   spaceId: string,
   projectId: string

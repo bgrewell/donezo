@@ -81,147 +81,149 @@ func mustState(t *testing.T, s *SpaceStore) SpaceState {
 	return st
 }
 
-func TestDeleteProjectCascade(t *testing.T) {
+// Deleting a project now moves it and the content it owns to the trash as one
+// batch. These cover the three things that changes: what disappears from
+// reads, what is deliberately left alone, and that a restore brings back
+// exactly this delete and nothing else.
+func TestSoftDeleteProjectHidesOwnedContent(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name    string
-		id      string
-		want    ProjectCascadeResult
-		wantErr error
-		check   func(t *testing.T, s *SpaceStore)
-	}{
-		{
-			name: "cascade deletes owned content and detaches loose references",
-			id:   "loom",
-			want: ProjectCascadeResult{
-				Project: 1, Activities: 3, Tasks: 2, Notes: 1,
-				DetachedInbox: 1, DetachedReminders: 1,
-			},
-			check: func(t *testing.T, s *SpaceStore) {
-				t.Helper()
-				if _, err := s.GetProject(context.Background(), testSpace, "loom"); !errors.Is(err, ErrNotFound) {
-					t.Errorf("loom after cascade: err = %v, want ErrNotFound", err)
-				}
-				st := mustState(t, s)
-				if got := idsOf(st.Projects, func(p Project) string { return p.ID }); !reflect.DeepEqual(got, []string{"keep", "bare"}) {
-					t.Errorf("projects = %v, want [keep bare]", got)
-				}
-				if got := idsOf(st.Activities, func(a ActivityEntry) string { return a.ID }); !reflect.DeepEqual(got, []string{"act-k-1"}) {
-					t.Errorf("activities = %v, want [act-k-1]", got)
-				}
-				if got := idsOf(st.Tasks, func(tk TaskItem) string { return tk.ID }); !reflect.DeepEqual(got, []string{"tsk-k-1"}) {
-					t.Errorf("tasks = %v, want [tsk-k-1]", got)
-				}
-				if got := idsOf(st.Notes, func(n NoteItem) string { return n.ID }); !reflect.DeepEqual(got, []string{"note-k-1"}) {
-					t.Errorf("notes = %v, want [note-k-1]", got)
-				}
-				// Loose references survive with their project column nulled;
-				// the other projects' references stay attached.
-				for _, it := range st.Inbox {
-					switch it.ID {
-					case "inb-l-1":
-						if it.SuggestedProjectID != nil {
-							t.Errorf("inb-l-1 suggestedProjectId = %q, want nil", *it.SuggestedProjectID)
-						}
-					case "inb-k-1":
-						if it.SuggestedProjectID == nil || *it.SuggestedProjectID != "keep" {
-							t.Errorf("inb-k-1 suggestedProjectId = %v, want keep", it.SuggestedProjectID)
-						}
-					}
-				}
-				if got := idsOf(st.Inbox, func(it InboxItem) string { return it.ID }); !reflect.DeepEqual(got, []string{"inb-l-1", "inb-k-1", "inb-ghost"}) {
-					t.Errorf("inbox = %v, want all three captures kept", got)
-				}
-				for _, r := range st.Reminders {
-					switch r.ID {
-					case "rem-l-1":
-						if r.ProjectID != nil {
-							t.Errorf("rem-l-1 projectId = %q, want nil", *r.ProjectID)
-						}
-					case "rem-k-1":
-						if r.ProjectID == nil || *r.ProjectID != "keep" {
-							t.Errorf("rem-k-1 projectId = %v, want keep", r.ProjectID)
-						}
-					}
-				}
-				if got := idsOf(st.Reminders, func(r Reminder) string { return r.ID }); !reflect.DeepEqual(got, []string{"rem-l-1", "rem-k-1"}) {
-					t.Errorf("reminders = %v, want both kept", got)
-				}
-			},
-		},
-		{
-			name: "project with no references reports zero cascade counts",
-			id:   "bare",
-			want: ProjectCascadeResult{Project: 1},
-			check: func(t *testing.T, s *SpaceStore) {
-				t.Helper()
-				st := mustState(t, s)
-				if len(st.Activities) != 4 || len(st.Tasks) != 3 || len(st.Notes) != 2 {
-					t.Errorf("other projects' content disturbed: %d activities, %d tasks, %d notes",
-						len(st.Activities), len(st.Tasks), len(st.Notes))
-				}
-			},
-		},
-		{
-			name:    "unknown project is ErrNotFound and rolls the detaches back",
-			id:      "ghost",
-			wantErr: ErrNotFound,
-			check: func(t *testing.T, s *SpaceStore) {
-				t.Helper()
-				// inb-ghost suggests "ghost"; the failed cascade must leave
-				// that suggestion attached (the detach ran inside the
-				// rolled-back transaction).
-				it, err := s.GetInboxItem(context.Background(), testSpace, "inb-ghost")
-				if err != nil {
-					t.Fatalf("get inb-ghost: %v", err)
-				}
-				if it.SuggestedProjectID == nil || *it.SuggestedProjectID != "ghost" {
-					t.Errorf("inb-ghost suggestedProjectId = %v, want ghost (rollback)", it.SuggestedProjectID)
-				}
-				st := mustState(t, s)
-				if len(st.Projects) != 3 || len(st.Activities) != 4 || len(st.Tasks) != 3 {
-					t.Errorf("failed cascade disturbed content: %d projects, %d activities, %d tasks",
-						len(st.Projects), len(st.Activities), len(st.Tasks))
-				}
-			},
-		},
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+	ctx := context.Background()
+
+	got, err := s.SoftDeleteProject(ctx, testSpace, "loom")
+	if err != nil {
+		t.Fatalf("SoftDeleteProject: %v", err)
 	}
-	for _, tt := range tests {
-		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			s := newTestSpaceStore(t)
-			seedCascadeFixture(t, s)
-			got, err := s.DeleteProjectCascade(context.Background(), testSpace, tt.id)
-			if tt.wantErr != nil {
-				if !errors.Is(err, tt.wantErr) {
-					t.Fatalf("err = %v, want %v", err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Fatalf("DeleteProjectCascade: %v", err)
-			}
-			if err == nil && got != tt.want {
-				t.Errorf("counts = %+v, want %+v", got, tt.want)
-			}
-			if tt.check != nil {
-				tt.check(t, s)
-			}
-		})
+	if want := (ProjectCascadeResult{Project: 1, Activities: 3, Tasks: 2, Notes: 1}); got != want {
+		t.Errorf("counts = %+v, want %+v", got, want)
 	}
 
-	t.Run("blank id is rejected before SQL", func(t *testing.T) {
-		t.Parallel()
-		s := newTestSpaceStore(t)
-		if _, err := s.DeleteProjectCascade(context.Background(), testSpace, ""); err == nil {
-			t.Fatal("want error for blank project id, got nil")
-		}
-	})
+	if _, err := s.GetProject(ctx, testSpace, "loom"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("trashed project still readable: err = %v, want ErrNotFound", err)
+	}
+	st := mustState(t, s)
+	if ids := idsOf(st.Projects, func(p Project) string { return p.ID }); !reflect.DeepEqual(ids, []string{"keep", "bare"}) {
+		t.Errorf("projects = %v, want [keep bare]", ids)
+	}
+	if ids := idsOf(st.Activities, func(a ActivityEntry) string { return a.ID }); !reflect.DeepEqual(ids, []string{"act-k-1"}) {
+		t.Errorf("activities = %v, want only keep's", ids)
+	}
+	if ids := idsOf(st.Tasks, func(tk TaskItem) string { return tk.ID }); !reflect.DeepEqual(ids, []string{"tsk-k-1"}) {
+		t.Errorf("tasks = %v, want only keep's", ids)
+	}
+	if ids := idsOf(st.Notes, func(n NoteItem) string { return n.ID }); !reflect.DeepEqual(ids, []string{"note-k-1"}) {
+		t.Errorf("notes = %v, want only keep's", ids)
+	}
 
-	t.Run("invalid space id is rejected", func(t *testing.T) {
-		t.Parallel()
-		s := newTestSpaceStore(t)
-		if _, err := s.DeleteProjectCascade(context.Background(), "../escape", "loom"); err == nil {
-			t.Fatal("want error for invalid space id, got nil")
+	// The deliberate difference from the old hard cascade: loose references
+	// are NOT detached. The project row still exists for them to point at, so
+	// the link survives and comes back with a restore. They read as unfiled
+	// meanwhile only because the project is filtered out of reads.
+	for _, r := range st.Reminders {
+		if r.ID == "rem-l-1" {
+			if r.ProjectID == nil || *r.ProjectID != "loom" {
+				t.Errorf("rem-l-1 projectId = %v, want it kept — a soft delete detaches nothing", r.ProjectID)
+			}
 		}
-	})
+	}
+	for _, it := range st.Inbox {
+		if it.ID == "inb-l-1" {
+			if it.SuggestedProjectID == nil || *it.SuggestedProjectID != "loom" {
+				t.Errorf("inb-l-1 suggestedProjectId = %v, want it kept", it.SuggestedProjectID)
+			}
+		}
+	}
+	if ids := idsOf(st.Reminders, func(r Reminder) string { return r.ID }); !reflect.DeepEqual(ids, []string{"rem-l-1", "rem-k-1"}) {
+		t.Errorf("reminders = %v, want both still live", ids)
+	}
+}
+
+// Restore has to bring back exactly the batch — not a row the person had
+// deleted separately beforehand, which is the whole reason a batch exists.
+func TestRestoreProjectBringsBackOnlyItsOwnBatch(t *testing.T) {
+	t.Parallel()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+	ctx := context.Background()
+
+	// Deleted on its own, a week earlier as far as the batch is concerned.
+	if err := s.DeleteTask(ctx, testSpace, "tsk-l-1"); err != nil {
+		t.Fatalf("delete task first: %v", err)
+	}
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); err != nil {
+		t.Fatalf("SoftDeleteProject: %v", err)
+	}
+
+	if _, err := s.RestoreItem(ctx, testSpace, TrashProject, "loom"); err != nil {
+		t.Fatalf("RestoreItem: %v", err)
+	}
+	st := mustState(t, s)
+	if _, err := s.GetProject(ctx, testSpace, "loom"); err != nil {
+		t.Errorf("project not restored: %v", err)
+	}
+	ids := idsOf(st.Tasks, func(tk TaskItem) string { return tk.ID })
+	for _, id := range ids {
+		if id == "tsk-l-1" {
+			t.Error("restoring the project resurrected a task deleted separately beforehand")
+		}
+	}
+	// Everything the project delete took, though, is back.
+	if len(idsOf(st.Activities, func(a ActivityEntry) string { return a.ID })) != 4 {
+		t.Errorf("activities = %v, want all four back", st.Activities)
+	}
+	// And the loose references still point where they did.
+	for _, r := range st.Reminders {
+		if r.ID == "rem-l-1" && (r.ProjectID == nil || *r.ProjectID != "loom") {
+			t.Errorf("rem-l-1 lost its project across delete and restore: %v", r.ProjectID)
+		}
+	}
+}
+
+// Purge is the only thing that removes data — and the point at which the
+// detach the soft cascade skipped finally has to happen, or the foreign key
+// fails as the project row goes.
+func TestPurgeProjectDetachesThenRemoves(t *testing.T) {
+	t.Parallel()
+	s := newTestSpaceStore(t)
+	seedCascadeFixture(t, s)
+	ctx := context.Background()
+
+	if _, err := s.SoftDeleteProject(ctx, testSpace, "loom"); err != nil {
+		t.Fatalf("SoftDeleteProject: %v", err)
+	}
+	n, err := s.PurgeItem(ctx, testSpace, TrashProject, "loom")
+	if err != nil {
+		t.Fatalf("PurgeItem: %v", err)
+	}
+	if n != 7 { // project + 3 activities + 2 tasks + 1 note
+		t.Errorf("purged %d rows, want 7", n)
+	}
+
+	st := mustState(t, s)
+	// The loose references survive the purge, detached — a reminder's text
+	// stands on its own, which is the distinction the hard cascade drew too.
+	for _, r := range st.Reminders {
+		if r.ID == "rem-l-1" && r.ProjectID != nil {
+			t.Errorf("rem-l-1 projectId = %q after purge, want detached", *r.ProjectID)
+		}
+		if r.ID == "rem-k-1" && (r.ProjectID == nil || *r.ProjectID != "keep") {
+			t.Errorf("rem-k-1 was disturbed: %v", r.ProjectID)
+		}
+	}
+	for _, it := range st.Inbox {
+		if it.ID == "inb-l-1" && it.SuggestedProjectID != nil {
+			t.Errorf("inb-l-1 suggestedProjectId = %q after purge, want detached", *it.SuggestedProjectID)
+		}
+		if it.ID == "inb-k-1" && (it.SuggestedProjectID == nil || *it.SuggestedProjectID != "keep") {
+			t.Errorf("inb-k-1 was disturbed: %v", it.SuggestedProjectID)
+		}
+	}
+	if ids := idsOf(st.Reminders, func(r Reminder) string { return r.ID }); !reflect.DeepEqual(ids, []string{"rem-l-1", "rem-k-1"}) {
+		t.Errorf("reminders = %v, want both kept", ids)
+	}
+	// And it is really gone — restoring it is no longer possible.
+	if _, err := s.RestoreItem(ctx, testSpace, TrashProject, "loom"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("restore after purge: err = %v, want ErrNotFound", err)
+	}
 }

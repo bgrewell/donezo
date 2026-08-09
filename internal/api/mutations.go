@@ -82,18 +82,24 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// handleDeleteProject removes a project and everything it owns in one
-// transaction. Owned content (activities, tasks, notes) is deleted with
-// the project; loose references are detached instead — inbox suggestions
-// and reminders keep their rows with the project column nulled. The
-// response reports the per-table counts the frontend shows in its
-// confirmation aftermath.
+// handleDeleteProject moves a project and everything it owns to the trash
+// in one transaction, reporting the per-table counts the frontend shows in
+// its confirmation aftermath.
+//
+// Since #16 nothing is destroyed here: the project and its activities,
+// tasks and notes are marked with one delete batch, so restoring brings
+// back exactly this delete and not a task the person had removed
+// separately. Reminders and inbox items are left alone entirely — they
+// reference the project rather than belong to it, and a trashed project is
+// still there for the reference to point at, so they simply read as unfiled
+// until it is restored. The detach those rows used to get happens at purge,
+// which is the only point anything really goes.
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	sp, ok := s.ownedLiveSpace(w, r)
 	if !ok {
 		return
 	}
-	deleted, err := s.spaces.DeleteProjectCascade(r.Context(), sp.ID, r.PathValue("pid"))
+	deleted, err := s.spaces.SoftDeleteProject(r.Context(), sp.ID, r.PathValue("pid"))
 	if err != nil {
 		s.writeStoreError(w, "project", err)
 		return
