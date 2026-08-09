@@ -31,6 +31,8 @@ const (
 	EnvHideVersion = "DONEZOD_HIDE_VERSION"
 	// EnvTimezone overrides --timezone.
 	EnvTimezone = "DONEZOD_TIMEZONE"
+	// EnvTrashRetentionDays overrides --trash-retention-days.
+	EnvTrashRetentionDays = "DONEZOD_TRASH_RETENTION_DAYS"
 	// EnvDevAutoLogin overrides --dev-auto-login.
 	EnvDevAutoLogin = "DONEZOD_DEV_AUTO_LOGIN"
 	// EnvLLMProvider overrides --llm-provider.
@@ -81,6 +83,12 @@ type Config struct {
 	// somewhere else, as a container almost always does: a UTC container
 	// would otherwise put an evening's work on tomorrow.
 	Timezone string
+
+	// TrashRetentionDays is how long a deleted item stays restorable before
+	// it is purged for good. 0 disables the sweep, leaving the trash to be
+	// emptied by hand — the escape hatch for anyone who would rather nothing
+	// ever disappeared on a timer.
+	TrashRetentionDays int
 	// DevAutoLogin disables authentication and attributes every request
 	// to the seeded dev user. It exists purely for frontend development
 	// and tests; Validate refuses it unless DataDir is under /tmp or
@@ -129,6 +137,10 @@ func (c Config) Validate() error {
 	if _, err := c.Location(); err != nil {
 		return err
 	}
+	if c.TrashRetentionDays < 0 {
+		return fmt.Errorf("config: trash retention %d days is negative; use 0 to disable the sweep (%s)",
+			c.TrashRetentionDays, EnvTrashRetentionDays)
+	}
 	if err := c.validateLLM(); err != nil {
 		return err
 	}
@@ -156,6 +168,11 @@ func (c Config) Location() (*time.Location, error) {
 			c.Timezone, EnvTimezone)
 	}
 	return loc, nil
+}
+
+// TrashRetention is TrashRetentionDays as a duration. Zero disables the sweep.
+func (c Config) TrashRetention() time.Duration {
+	return time.Duration(c.TrashRetentionDays) * 24 * time.Hour
 }
 
 // validateLLM checks the optional model configuration. No provider is a

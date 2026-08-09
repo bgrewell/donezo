@@ -64,6 +64,7 @@ func main() {
 	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
 	root.Flags.Bool("hide-version", "", "Do not report the running version to the web UI (it is shown in the nav rail otherwise)", false).Env = config.EnvHideVersion
 	root.Flags.String("timezone", "", "IANA zone for calendar days when a user has no timezone of their own, e.g. America/Los_Angeles (default: the host's zone)", "").Env = config.EnvTimezone
+	root.Flags.Int("trash-retention-days", "", "Days a deleted item stays restorable before it is purged for good (0 disables the sweep)", 30).Env = config.EnvTrashRetentionDays
 	root.Flags.String("llm-provider", "", "Optional language-model provider: anthropic or openai-compatible (empty leaves model features off)", "").Env = config.EnvLLMProvider
 	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
 	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
@@ -86,16 +87,17 @@ func main() {
 // run is the root command: optionally seed, then serve until interrupted.
 func run(ctx *stencil.Context) error {
 	cfg := config.Config{
-		Port:         ctx.Flags.Int("port"),
-		DataDir:      ctx.Flags.String("data-dir"),
-		SeedPath:     ctx.Flags.String("seed"),
-		TrustProxy:   ctx.Flags.Bool("trust-proxy"),
-		HideVersion:  ctx.Flags.Bool("hide-version"),
-		Timezone:     ctx.Flags.String("timezone"),
-		DevAutoLogin: ctx.Flags.Bool("dev-auto-login"),
-		LLMProvider:  ctx.Flags.String("llm-provider"),
-		LLMBaseURL:   ctx.Flags.String("llm-base-url"),
-		LLMModel:     ctx.Flags.String("llm-model"),
+		Port:               ctx.Flags.Int("port"),
+		DataDir:            ctx.Flags.String("data-dir"),
+		SeedPath:           ctx.Flags.String("seed"),
+		TrustProxy:         ctx.Flags.Bool("trust-proxy"),
+		HideVersion:        ctx.Flags.Bool("hide-version"),
+		Timezone:           ctx.Flags.String("timezone"),
+		TrashRetentionDays: ctx.Flags.Int("trash-retention-days"),
+		DevAutoLogin:       ctx.Flags.Bool("dev-auto-login"),
+		LLMProvider:        ctx.Flags.String("llm-provider"),
+		LLMBaseURL:         ctx.Flags.String("llm-base-url"),
+		LLMModel:           ctx.Flags.String("llm-model"),
 		// Environment-only: a key passed as a flag would show up in the
 		// process list for every user on the host.
 		LLMAPIKey: os.Getenv(config.EnvLLMAPIKey),
@@ -188,6 +190,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithServerVersion(appVersion),
 		api.WithHideVersion(cfg.HideVersion),
 		api.WithLocation(location),
+		api.WithTrashRetention(cfg.TrashRetention()),
 	}
 	// The model connection is optional: an unconfigured donezo serves the
 	// same app with the model-backed affordances simply absent.
@@ -256,12 +259,19 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		defer close(sweepDone)
 		sweeper.Run(sweepCtx)
 	}()
+	// The trash retention sweep, on the same lifecycle for the same reason.
+	trashSweepDone := make(chan struct{})
+	go func() {
+		defer close(trashSweepDone)
+		server.RunTrashSweep(sweepCtx)
+	}()
 	// Cancel the sweeper AND wait for it to exit before serve returns:
 	// run()'s deferred store Close() calls fire right after, and an
 	// in-flight sweep must not race them.
 	defer func() {
 		stopSweep()
 		<-sweepDone
+		<-trashSweepDone
 	}()
 
 	httpServer := &http.Server{
