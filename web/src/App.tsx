@@ -9,6 +9,7 @@ import ProjectsView from "@/views/ProjectsView";
 import ReviewView from "@/views/ReviewView";
 import SearchView from "@/views/SearchView";
 import TrashView from "@/views/TrashView";
+import SettingsView from "@/views/SettingsView";
 
 const VIEWS: Record<ViewId, () => JSX.Element> = {
   focus: FocusView,
@@ -18,6 +19,7 @@ const VIEWS: Record<ViewId, () => JSX.Element> = {
   review: ReviewView,
   search: SearchView,
   trash: TrashView,
+  settings: SettingsView,
 };
 
 export default function App() {

@@ -1,11 +1,6 @@
-import * as React from "react";
 import { Bell, CircleHelp, Palette, Plus, Search } from "lucide-react";
 import { Avatar, Button, cn } from "@grewelltech/console";
 
-import { InvitesDialog } from "@/components/admin/InvitesDialog";
-import { McpTokensDialog } from "@/components/settings/McpTokensDialog";
-import { ReminderDeliveryDialog } from "@/components/settings/ReminderDeliveryDialog";
-import { PolishPromptDialog } from "@/components/settings/PolishPromptDialog";
 
 import type { ViewId } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -35,6 +30,7 @@ const VIEW_TITLES: Record<ViewId, string> = {
   review: "Review",
   search: "Search",
   trash: "Trash",
+  settings: "Settings",
 };
 
 /** Compact top bar: view title, global search, capture, reminders, theme, user. */
@@ -44,10 +40,6 @@ export function TopBar() {
   const { theme, setTheme, font, setFont, fontSize, setFontSize } = useTheme();
   const { startTour, openShortcuts, resetFirstRun } = useOnboarding();
   const { user, logout } = useSession();
-  const [invitesOpen, setInvitesOpen] = React.useState(false);
-  const [mcpOpen, setMcpOpen] = React.useState(false);
-  const [promptOpen, setPromptOpen] = React.useState(false);
-  const [deliveryOpen, setDeliveryOpen] = React.useState(false);
 
   const openReminders = state.reminders
     .filter((r) => !r.done)
@@ -243,35 +235,16 @@ export function TopBar() {
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {/* Members never see the invites entry point; the server enforces
-              the admin requirement on the endpoints regardless. */}
-          {user.role === "admin" && (
-            <DropdownMenuItem onSelect={() => setInvitesOpen(true)}>Invites…</DropdownMenuItem>
-          )}
-          {/* Every user can mint their own MCP tokens; the server scopes the
-              endpoints to the caller regardless. */}
-          <DropdownMenuItem onSelect={() => setMcpOpen(true)}>Connect your AI…</DropdownMenuItem>
-          {/* Destinations are per user and verified per user; whether the
-              instance can deliver at all is the operator's setup. */}
-          <DropdownMenuItem onSelect={() => setDeliveryOpen(true)}>
-            Where reminders reach you…
-          </DropdownMenuItem>
-          {/* How far the polish pass rewrites is a matter of taste, so the
-              wording is the user's to tune. The model connection itself stays
-              instance-wide and the operator's. */}
-          <DropdownMenuItem onSelect={() => setPromptOpen(true)}>
-            Tune the polish prompt…
+          {/* One entry where there used to be four dialogs. Which sections
+              appear inside is decided there, by role — and by the server,
+              which checks it on every admin endpoint regardless. */}
+          <DropdownMenuItem onSelect={() => dispatch({ type: "SET_VIEW", view: "settings" })}>
+            Settings…
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => logout()}>Log out</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {user.role === "admin" && (
-        <InvitesDialog open={invitesOpen} onClose={() => setInvitesOpen(false)} />
-      )}
-      <McpTokensDialog open={mcpOpen} onClose={() => setMcpOpen(false)} />
-      <ReminderDeliveryDialog open={deliveryOpen} onClose={() => setDeliveryOpen(false)} />
-      <PolishPromptDialog open={promptOpen} onClose={() => setPromptOpen(false)} />
       <ShortcutsSheet />
     </header>
   );

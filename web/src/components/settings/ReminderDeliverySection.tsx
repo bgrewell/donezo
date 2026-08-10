@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Dialog, Input, Select, cn } from "@grewelltech/console";
+import { Button, Input, Select, cn } from "@grewelltech/console";
 import { Check, Mail, MessageSquare } from "lucide-react";
 
 import {
@@ -56,7 +56,7 @@ function ChannelIcon({ channel }: { channel: NotifyChannel }) {
  * variables, not a settings screen), so an unconfigured channel says so
  * rather than letting somebody add a number that would never be texted.
  */
-export function ReminderDeliveryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ReminderDeliverySection() {
   const { sessionExpired } = useSession();
 
   const [status, setStatus] = React.useState<NotifyChannelStatus[] | null>(null);
@@ -96,25 +96,11 @@ export function ReminderDeliveryDialog({ open, onClose }: { open: boolean; onClo
     }
   }, [sessionExpired]);
 
-  // Fresh state per open, like every other settings dialog.
+  // The section is mounted only while it is the one on screen, so loading
+  // on mount is the whole lifecycle — there is no closed state to reset.
   React.useEffect(() => {
-    if (open) {
-      void refresh();
-      return;
-    }
-    setStatus(null);
-    setContacts(null);
-    setListError(null);
-    setAddress("");
-    setLabel("");
-    setAddError(null);
-    setNotice(null);
-    setCodes({});
-    setRowError({});
-    setBusyId(null);
-    setConfirmRemoveId(null);
-    setAdding(false);
-  }, [open, refresh]);
+    void refresh();
+  }, [refresh]);
 
   const configured = (c: NotifyChannel) => status?.find((s) => s.channel === c)?.configured ?? false;
   const anyConfigured = status?.some((s) => s.configured) ?? false;
@@ -286,18 +272,8 @@ export function ReminderDeliveryDialog({ open, onClose }: { open: boolean; onClo
   };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Where reminders reach you"
-      maxWidthClassName="max-w-xl"
-    >
+    <section className="space-y-4">
       <div className="space-y-4">
-        <p className="m-0 text-[0.85rem] text-gtc-muted">
-          Reminders show up in donezo. Add an address or number and they will find you when you
-          are not looking at it.
-        </p>
-
         {status !== null && !anyConfigured && (
           <p
             className="m-0 rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-2 text-[0.8rem] text-gtc-muted"
@@ -409,6 +385,6 @@ export function ReminderDeliveryDialog({ open, onClose }: { open: boolean; onClo
           )}
         </div>
       </div>
-    </Dialog>
+    </section>
   );
 }

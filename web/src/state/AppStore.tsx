@@ -46,6 +46,8 @@ export interface AppState {
   inbox: InboxItem[];
 
   view: ViewId;
+  /** Which settings section is open, from "#/settings/<section>". */
+  settingsSection: string | null;
   /** Project open in the project-detail view (within Projects). */
   selectedProjectId: string | null;
   /** Activity shown in the inspector; null = inspector closed. */
@@ -71,6 +73,7 @@ export type AppAction =
    *  send back. */
   | { type: "REPLACE_STATE"; data: SpaceData }
   | { type: "SET_VIEW"; view: ViewId }
+  | { type: "SET_SETTINGS_SECTION"; section: string }
   | { type: "OPEN_PROJECT"; projectId: string }
   | { type: "CLOSE_PROJECT" }
   | { type: "ADD_PROJECT"; project: Project }
@@ -158,6 +161,8 @@ function reducer(state: AppState, action: AppAction): AppState {
         selectedProjectId:
           action.view === "projects" ? null : state.selectedProjectId,
       };
+    case "SET_SETTINGS_SECTION":
+      return { ...state, view: "settings", settingsSection: action.section };
     case "OPEN_PROJECT":
       return {
         ...state,
@@ -353,6 +358,7 @@ function initialState(data: SpaceData): AppState {
     reminders: data.reminders,
     inbox: data.inbox,
     view: route?.view ?? "timeline",
+    settingsSection: route?.view === "settings" ? route.settingsSection ?? null : null,
     selectedProjectId:
       route?.view === "projects" && route.projectId ? route.projectId : null,
     selectedActivityId: null,

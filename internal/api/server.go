@@ -281,6 +281,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/instance", s.handleInstance)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
+	mux.HandleFunc("GET /api/admin/usage", s.handleUsageStats)
 	mux.HandleFunc("GET /api/notify/status", s.handleNotifyStatus)
 	mux.HandleFunc("GET /api/notify/contacts", s.handleListContacts)
 	mux.HandleFunc("POST /api/notify/contacts", s.handleCreateContact)

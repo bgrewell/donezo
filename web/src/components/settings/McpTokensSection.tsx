@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
-import { Button, Dialog, Input, Select, cn } from "@grewelltech/console";
+import { Button, Input, Select, cn } from "@grewelltech/console";
 
 import {
   ApiError,
@@ -73,7 +73,7 @@ function claudeCodeSnippet(token: string): string {
  * Every user manages their own tokens; the server scopes the endpoints to
  * the caller regardless of what the UI shows.
  */
-export function McpTokensDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function McpTokensSection() {
   const { sessionExpired } = useSession();
 
   const [tokens, setTokens] = React.useState<ApiToken[] | null>(null);
@@ -107,23 +107,11 @@ export function McpTokensDialog({ open, onClose }: { open: boolean; onClose: () 
     }
   }, [sessionExpired]);
 
-  // Fresh state per open: load the list, drop everything on close.
+  // The section is mounted only while it is the one on screen, so loading
+  // on mount is the whole lifecycle — there is no closed state to reset.
   React.useEffect(() => {
-    if (open) {
-      void refresh();
-      return;
-    }
-    setTokens(null);
-    setListError(null);
-    setName("");
-    setScope("read_write");
-    setGenerateError(null);
-    setMinted(null);
-    setCopied(null);
-    setConfirmRevokeId(null);
-    setRevokeError(null);
-    setGenerating(false);
-  }, [open, refresh]);
+    void refresh();
+  }, [refresh]);
 
   // "copied" tick reverts after a beat.
   React.useEffect(() => {
@@ -255,12 +243,8 @@ export function McpTokensDialog({ open, onClose }: { open: boolean; onClose: () 
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title="Connect your AI" maxWidthClassName="max-w-xl">
+    <section>
       <div className="space-y-4">
-        <p className="m-0 text-[0.85rem] text-gtc-muted">
-          Connect an LLM to donezo over MCP. Tokens act as you — treat them like passwords.
-        </p>
-
         <div className="flex flex-wrap items-center gap-2">
           <Input
             aria-label="Token name"
@@ -397,6 +381,6 @@ export function McpTokensDialog({ open, onClose }: { open: boolean; onClose: () 
           )}
         </div>
       </div>
-    </Dialog>
+    </section>
   );
 }
