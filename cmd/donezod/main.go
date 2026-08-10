@@ -69,11 +69,11 @@ func main() {
 	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
 	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
 	root.Flags.String("smtp-host", "", "SMTP relay for delivering reminders by email (empty leaves email delivery off)", "").Env = config.EnvSMTPHost
-	root.Flags.Int("smtp-port", "", "SMTP relay port", 587).Env = config.EnvSMTPPort
+	root.Flags.Int("smtp-port", "", "SMTP relay port", config.DefaultSMTPPort).Env = config.EnvSMTPPort
 	root.Flags.String("smtp-username", "", "SMTP username (leave empty for an unauthenticated relay; the password is "+config.EnvSMTPPassword+")", "").Env = config.EnvSMTPUsername
 	root.Flags.String("smtp-from", "", "Address reminders are sent from, e.g. donezo@example.com", "").Env = config.EnvSMTPFrom
-	root.Flags.String("smtp-from-name", "", "Display name shown beside the sending address", "donezo").Env = config.EnvSMTPFromName
-	root.Flags.String("smtp-security", "", "How to protect the relay connection: starttls (587), tls (465) or none (a local relay only)", "starttls").Env = config.EnvSMTPSecurity
+	root.Flags.String("smtp-from-name", "", "Display name shown beside the sending address", config.DefaultSMTPFromName).Env = config.EnvSMTPFromName
+	root.Flags.String("smtp-security", "", "How to protect the relay connection: starttls (587), tls (465) or none (a local relay only)", config.DefaultSMTPSecurity).Env = config.EnvSMTPSecurity
 	root.Flags.String("twilio-account-sid", "", "Twilio account SID for delivering reminders by SMS (empty leaves SMS delivery off; the token is "+config.EnvTwilioAuthToken+")", "").Env = config.EnvTwilioAccountSID
 	root.Flags.String("twilio-from", "", "Twilio sending number in E.164, or a messaging service SID", "").Env = config.EnvTwilioFrom
 	root.Flags.String("public-url", "", "Where this instance is reachable, for the link in a delivered reminder, e.g. https://donezo.example.com", "").Env = config.EnvPublicURL
