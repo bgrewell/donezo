@@ -180,6 +180,41 @@ type Config struct {
 // week is noise that arrives with no context.
 const DefaultReminderMaxLatenessHours = 24
 
+// The defaults the CLI fills in for flags that have one.
+//
+// They live here, rather than only in the flag definitions, so a test can
+// build the configuration a plain `donezod` run actually produces. Testing a
+// zero-valued Config instead is what let v0.9.0 ship refusing to start: with
+// no email configured, the CLI still passed a port, a security mode and a
+// from-name, and the "half-configured" check read those as configuration.
+const (
+	// DefaultSMTPPort is the submission port, which expects STARTTLS.
+	DefaultSMTPPort = 587
+	// DefaultSMTPSecurity upgrades the connection rather than assuming a
+	// relay that needs no protection.
+	DefaultSMTPSecurity = "starttls"
+	// DefaultSMTPFromName is the display name beside the sending address.
+	DefaultSMTPFromName = "donezo"
+)
+
+// CLIDefaults returns the configuration a plain `donezod` produces: the flag
+// defaults, and nothing an operator has to opt into.
+//
+// Its purpose is to be validated in a test. Anything added to the CLI with a
+// non-empty default belongs here too, or the test stops describing the
+// binary people actually run.
+func CLIDefaults(dataDir string) Config {
+	return Config{
+		Port:                     DefaultPort,
+		DataDir:                  dataDir,
+		TrashRetentionDays:       30,
+		SMTPPort:                 DefaultSMTPPort,
+		SMTPSecurity:             DefaultSMTPSecurity,
+		SMTPFromName:             DefaultSMTPFromName,
+		ReminderMaxLatenessHours: DefaultReminderMaxLatenessHours,
+	}
+}
+
 // DefaultDataDir returns the XDG data directory for donezo:
 // $XDG_DATA_HOME/donezo when set, otherwise ~/.local/share/donezo.
 func DefaultDataDir() (string, error) {
@@ -309,8 +344,12 @@ func (c Config) validateNotify() error {
 
 // validateSMTP refuses an email configuration that cannot deliver.
 func (c Config) validateSMTP() error {
-	set := c.SMTPPort != 0 || c.SMTPUsername != "" || c.SMTPPassword != "" ||
-		c.SMTPFrom != "" || c.SMTPFromName != "" || c.SMTPSecurity != ""
+	// Only the settings with NO default count as evidence that somebody was
+	// configuring email. Port, security and from-name all have defaults the
+	// CLI fills in for every run, so testing them here made an instance that
+	// had configured nothing at all look half-configured — and refuse to
+	// start. That shipped in v0.9.0.
+	set := c.SMTPUsername != "" || c.SMTPPassword != "" || c.SMTPFrom != ""
 	if c.SMTPHost == "" {
 		if set {
 			return fmt.Errorf("config: %s is required when any other DONEZOD_SMTP_* value is set", EnvSMTPHost)

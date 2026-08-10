@@ -181,3 +181,54 @@ func TestSecretsAreEnvironmentOnly(t *testing.T) {
 		}
 	}
 }
+
+// The regression guard for the v0.9.0 startup failure.
+//
+// A plain `donezod` with nothing configured refused to start, because the
+// CLI's own flag defaults — port 587, starttls, a from-name — looked to
+// validateSMTP like a half-configured email setup. Every existing test built
+// a zero-valued Config, which is not the configuration the binary produces,
+// so all of them passed while the shipped binary would not boot.
+func TestCLIDefaultsValidate(t *testing.T) {
+	if err := CLIDefaults("/tmp/donezo-test").Validate(); err != nil {
+		t.Fatalf("a plain donezod run does not validate: %v", err)
+	}
+}
+
+// And with nothing configured, no channel is built — email being off is the
+// default, not an error.
+func TestCLIDefaultsConfigureNoChannels(t *testing.T) {
+	reg, err := CLIDefaults("/tmp/donezo-test").Senders()
+	if err != nil {
+		t.Fatalf("Senders: %v", err)
+	}
+	if reg.Any() {
+		t.Fatal("a default run configured a delivery channel")
+	}
+}
+
+// The check still earns its place: a password with no host is the mistake it
+// was written for, and must still be refused.
+func TestSMTPHalfConfiguredIsStillRefused(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "password without host", mutate: func(c *Config) { c.SMTPPassword = "hunter2" }},
+		{name: "from without host", mutate: func(c *Config) { c.SMTPFrom = "donezo@example.com" }},
+		{name: "username without host", mutate: func(c *Config) { c.SMTPUsername = "ben" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := CLIDefaults("/tmp/donezo-test")
+			tt.mutate(&cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("half-configured email was accepted")
+			}
+			if !strings.Contains(err.Error(), EnvSMTPHost) {
+				t.Fatalf("Validate = %v, want it to name %s", err, EnvSMTPHost)
+			}
+		})
+	}
+}
