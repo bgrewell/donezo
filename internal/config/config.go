@@ -71,6 +71,11 @@ const (
 	// EnvTwilioFrom overrides --twilio-from.
 	EnvTwilioFrom = "DONEZOD_TWILIO_FROM"
 
+	// EnvOperatorName overrides --operator-name.
+	EnvOperatorName = "DONEZOD_OPERATOR_NAME"
+	// EnvSupportEmail overrides --support-email.
+	EnvSupportEmail = "DONEZOD_SUPPORT_EMAIL"
+
 	// EnvPublicURL overrides --public-url.
 	EnvPublicURL = "DONEZOD_PUBLIC_URL"
 	// EnvReminderMaxLatenessHours overrides --reminder-max-lateness-hours.
@@ -165,6 +170,19 @@ type Config struct {
 	// which is correct but less useful — a reminder that cannot be opened
 	// has to be re-found by hand.
 	PublicURL string
+
+	// OperatorName is who runs this instance — the party the privacy policy
+	// and terms are given by. Whoever hosts donezo, not whoever wrote it.
+	//
+	// Empty means the /privacy and /terms pages are not served at all. That
+	// is deliberate: a policy is a promise made by a named party, and
+	// publishing one that names somebody else — or nobody — is worse than
+	// publishing none.
+	OperatorName string
+	// SupportEmail is where a person can reach that operator. Required by
+	// carriers for an SMS program, and required here for the same reason:
+	// terms with no way to ask a question are not terms.
+	SupportEmail string
 
 	// ReminderMaxLatenessHours bounds how overdue a reminder may be and
 	// still be delivered. It matters after downtime: without it, an
@@ -332,6 +350,9 @@ func (c Config) validateNotify() error {
 		return fmt.Errorf("config: reminder max lateness %d hours is negative; use 0 to deliver however late (%s)",
 			c.ReminderMaxLatenessHours, EnvReminderMaxLatenessHours)
 	}
+	if err := c.validateLegal(); err != nil {
+		return err
+	}
 	if c.PublicURL != "" {
 		u, err := url.Parse(c.PublicURL)
 		if err != nil || u.Scheme == "" || u.Host == "" {
@@ -340,6 +361,32 @@ func (c Config) validateNotify() error {
 		}
 	}
 	return nil
+}
+
+// validateLegal checks the operator identity behind the published policy
+// pages. Neither value is required — an instance can run without publishing
+// them — but half of the pair cannot produce a usable page.
+func (c Config) validateLegal() error {
+	switch {
+	case c.OperatorName == "" && c.SupportEmail == "":
+		return nil
+	case c.OperatorName == "":
+		return fmt.Errorf("config: %s is required to publish the policy pages (%s is set)",
+			EnvOperatorName, EnvSupportEmail)
+	case c.SupportEmail == "":
+		return fmt.Errorf("config: %s is required to publish the policy pages (%s is set)",
+			EnvSupportEmail, EnvOperatorName)
+	}
+	if err := notify.ValidateAddress(notify.ChannelEmail, c.SupportEmail); err != nil {
+		return fmt.Errorf("config: %s: %w", EnvSupportEmail, err)
+	}
+	return nil
+}
+
+// PublishesPolicies reports whether this instance names an operator, and so
+// can serve /privacy and /terms.
+func (c Config) PublishesPolicies() bool {
+	return c.OperatorName != "" && c.SupportEmail != ""
 }
 
 // validateSMTP refuses an email configuration that cannot deliver.

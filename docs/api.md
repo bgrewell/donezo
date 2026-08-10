@@ -21,6 +21,7 @@ donezo frontend itself).
 | `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
 | `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
 | `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
+| `GET /privacy` / `GET /terms`                      | **Public, no account**: the privacy policy and terms, served only when `DONEZOD_OPERATOR_NAME` and `DONEZOD_SUPPORT_EMAIL` are set (404 otherwise). HTML, not JSON — a carrier reviewing an SMS program has no account |
 | `GET /api/admin/usage`                             | Admin: derived usage statistics for every account — counts, windows and distributions. Never item text, and never a project or space identifier (see below) |
 | `GET /api/notify/status`                           | Which channels this instance can deliver reminders on: `{channels:[{channel,configured,provider?}]}`. Any signed-in user; `provider` describes the relay and never carries a credential |
 | `GET /api/notify/contacts`                         | The caller's own delivery destinations                                 |

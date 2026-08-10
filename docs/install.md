@@ -79,6 +79,36 @@ a catcher on localhost while you are trying it out.
 | `DONEZOD_TWILIO_AUTH_TOKEN`  | unset   | Auth token. **Environment-only** — there is no flag.                              |
 | `DONEZOD_TWILIO_FROM`        | unset   | Sending number in E.164 (`+15551234567`), or a messaging service SID (`MG…`).      |
 
+### Who runs this instance
+
+Required before registering an SMS program with a carrier, and worth setting
+either way.
+
+| Variable                 | Default | Meaning                                                                                     |
+| ------------------------ | ------- | --------------------------------------------------------------------------------------------- |
+| `DONEZOD_OPERATOR_NAME`  | unset   | Who operates this instance, e.g. `Grewell Tech`. Named on the published policy pages.            |
+| `DONEZOD_SUPPORT_EMAIL`  | unset   | Where users can reach that operator. Carriers require a support contact for a messaging program. |
+
+With both set, donezod publishes two public pages:
+
+- `<public-url>/privacy` — the privacy policy
+- `<public-url>/terms` — the terms and conditions, including the messaging
+  program's name, frequency, rates, and **HELP** / **STOP** instructions
+
+With neither set they are not served at all, and donezod says so at startup.
+That is deliberate: a policy is a promise made by a named party, and
+publishing one that names the wrong party — or nobody — is worse than
+publishing none. Setting only one of the two is refused at startup.
+
+The privacy policy lists the third-party processors **this** instance is
+actually configured to use, so an instance with no delivery and no model says
+plainly that nothing leaves it.
+
+> A carrier's approval of an SMS program depends on the terms promising that
+> `STOP` and `HELP` work. donezo has no inbound webhook — those keywords are
+> handled by Twilio's Advanced Opt-Out, which is on by default for a Messaging
+> Service. Confirm it is enabled on yours before submitting the registration.
+
 ### Delivery behaviour
 
 | Variable                              | Default | Meaning                                                                                              |

@@ -52,11 +52,15 @@ type Server struct {
 	reminderMaxLateness time.Duration
 	// publicURL is where this instance is reachable, for the link in a
 	// delivered reminder. Empty leaves the link out.
-	publicURL  string
-	trustProxy bool
-	logger     *log.Logger
-	ui         fs.FS
-	version    string
+	publicURL string
+	// operatorName and supportEmail identify who runs this instance, for the
+	// published policy pages. Both empty leaves those pages unserved.
+	operatorName string
+	supportEmail string
+	trustProxy   bool
+	logger       *log.Logger
+	ui           fs.FS
+	version      string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -125,6 +129,17 @@ func WithReminderMaxLateness(d time.Duration) ServerOption {
 // hand.
 func WithPublicURL(u string) ServerOption {
 	return func(s *Server) { s.publicURL = u }
+}
+
+// WithOperator names who runs this instance and how to reach them, which is
+// what the published privacy policy and terms are given by. Without it,
+// /privacy and /terms are not served: whoever hosts donezo makes those
+// promises, not whoever wrote it.
+func WithOperator(name, supportEmail string) ServerOption {
+	return func(s *Server) {
+		s.operatorName = name
+		s.supportEmail = supportEmail
+	}
 }
 
 // WithLocation sets the instance's fallback zone for calendar days, used for
@@ -281,6 +296,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/instance", s.handleInstance)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
+	// Public by construction: a policy nobody can read without an account is
+	// not published, and the carrier reviewing it has no account.
+	mux.HandleFunc("GET /privacy", s.handlePrivacy)
+	mux.HandleFunc("GET /terms", s.handleTerms)
 	mux.HandleFunc("GET /api/admin/usage", s.handleUsageStats)
 	mux.HandleFunc("GET /api/notify/status", s.handleNotifyStatus)
 	mux.HandleFunc("GET /api/notify/contacts", s.handleListContacts)
