@@ -68,6 +68,16 @@ func main() {
 	root.Flags.String("llm-provider", "", "Optional language-model provider: anthropic or openai-compatible (empty leaves model features off)", "").Env = config.EnvLLMProvider
 	root.Flags.String("llm-base-url", "", "Language-model endpoint (required for openai-compatible, e.g. http://localhost:11434/v1)", "").Env = config.EnvLLMBaseURL
 	root.Flags.String("llm-model", "", "Language model to call", "").Env = config.EnvLLMModel
+	root.Flags.String("smtp-host", "", "SMTP relay for delivering reminders by email (empty leaves email delivery off)", "").Env = config.EnvSMTPHost
+	root.Flags.Int("smtp-port", "", "SMTP relay port", 587).Env = config.EnvSMTPPort
+	root.Flags.String("smtp-username", "", "SMTP username (leave empty for an unauthenticated relay; the password is "+config.EnvSMTPPassword+")", "").Env = config.EnvSMTPUsername
+	root.Flags.String("smtp-from", "", "Address reminders are sent from, e.g. donezo@example.com", "").Env = config.EnvSMTPFrom
+	root.Flags.String("smtp-from-name", "", "Display name shown beside the sending address", "donezo").Env = config.EnvSMTPFromName
+	root.Flags.String("smtp-security", "", "How to protect the relay connection: starttls (587), tls (465) or none (a local relay only)", "starttls").Env = config.EnvSMTPSecurity
+	root.Flags.String("twilio-account-sid", "", "Twilio account SID for delivering reminders by SMS (empty leaves SMS delivery off; the token is "+config.EnvTwilioAuthToken+")", "").Env = config.EnvTwilioAccountSID
+	root.Flags.String("twilio-from", "", "Twilio sending number in E.164, or a messaging service SID", "").Env = config.EnvTwilioFrom
+	root.Flags.String("public-url", "", "Where this instance is reachable, for the link in a delivered reminder, e.g. https://donezo.example.com", "").Env = config.EnvPublicURL
+	root.Flags.Int("reminder-max-lateness-hours", "", "How overdue a reminder may be and still be delivered after downtime (0 delivers however late)", config.DefaultReminderMaxLatenessHours).Env = config.EnvReminderMaxLatenessHours
 	root.Flags.Bool("dev-auto-login", "", "DANGEROUS: disable authentication and act as the seeded dev user (frontend dev only; requires a /tmp data dir or "+config.EnvDevAutoLoginConsent+"=1)", false).Env = config.EnvDevAutoLogin
 
 	app := stencil.NewApp(
@@ -101,6 +111,23 @@ func run(ctx *stencil.Context) error {
 		// Environment-only: a key passed as a flag would show up in the
 		// process list for every user on the host.
 		LLMAPIKey: os.Getenv(config.EnvLLMAPIKey),
+
+		SMTPHost:     ctx.Flags.String("smtp-host"),
+		SMTPPort:     ctx.Flags.Int("smtp-port"),
+		SMTPUsername: ctx.Flags.String("smtp-username"),
+		// Environment-only, for the same reason as the model key.
+		SMTPPassword: os.Getenv(config.EnvSMTPPassword),
+		SMTPFrom:     ctx.Flags.String("smtp-from"),
+		SMTPFromName: ctx.Flags.String("smtp-from-name"),
+		SMTPSecurity: ctx.Flags.String("smtp-security"),
+
+		TwilioAccountSID: ctx.Flags.String("twilio-account-sid"),
+		// Environment-only.
+		TwilioAuthToken: os.Getenv(config.EnvTwilioAuthToken),
+		TwilioFrom:      ctx.Flags.String("twilio-from"),
+
+		PublicURL:                ctx.Flags.String("public-url"),
+		ReminderMaxLatenessHours: ctx.Flags.Int("reminder-max-lateness-hours"),
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -191,7 +218,17 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithHideVersion(cfg.HideVersion),
 		api.WithLocation(location),
 		api.WithTrashRetention(cfg.TrashRetention()),
+		api.WithReminderMaxLateness(cfg.ReminderMaxLateness()),
+		api.WithPublicURL(cfg.PublicURL),
 	}
+	// Reminder delivery is optional in exactly the way the model is: with
+	// nothing configured, reminders keep working inside the app and simply
+	// go no further.
+	notifiers, err := cfg.Senders()
+	if err != nil {
+		return err
+	}
+	opts = append(opts, api.WithNotifiers(notifiers))
 	// The model connection is optional: an unconfigured donezo serves the
 	// same app with the model-backed affordances simply absent.
 	llmClient, err := llm.New(llm.Config{
@@ -265,6 +302,13 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		defer close(trashSweepDone)
 		server.RunTrashSweep(sweepCtx)
 	}()
+	// Reminder delivery, likewise: it writes notified_at back into space
+	// databases, so it must be stopped and waited for before they close.
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		server.RunReminderDispatch(sweepCtx)
+	}()
 	// Cancel the sweeper AND wait for it to exit before serve returns:
 	// run()'s deferred store Close() calls fire right after, and an
 	// in-flight sweep must not race them.
@@ -272,6 +316,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		stopSweep()
 		<-sweepDone
 		<-trashSweepDone
+		<-dispatchDone
 	}()
 
 	httpServer := &http.Server{

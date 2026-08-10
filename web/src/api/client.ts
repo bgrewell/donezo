@@ -223,6 +223,86 @@ export function revokeApiToken(id: string): Promise<void> {
   return api.del(`/api/tokens/${encodeURIComponent(id)}`);
 }
 
+/** A channel reminders can be delivered on. */
+export type NotifyChannel = "email" | "sms";
+
+/** What one channel can do on this instance. Configuring channels is the
+ *  operator's job (environment variables, not a settings screen), so the UI
+ *  reads this to explain why a channel is unavailable instead of accepting a
+ *  destination that would never be delivered to. */
+export interface NotifyChannelStatus {
+  channel: NotifyChannel;
+  configured: boolean;
+  /** Describes the provider for the operator; never a credential. */
+  provider?: string;
+}
+
+/** One destination the current user's reminders can be delivered to.
+ *
+ *  `verifiedAt` is the only thing that makes it deliverable: until its owner
+ *  has entered the code sent to it, nothing is ever sent there. */
+export interface NotifyContact {
+  id: string;
+  channel: NotifyChannel;
+  address: string;
+  label: string;
+  verifiedAt?: string;
+  createdAt: string;
+  /** A verification code is outstanding (the code itself is never returned). */
+  pendingCode: boolean;
+}
+
+/** What POST /api/notify/contacts answers: the row, plus a warning when it
+ *  was stored but the code could not be sent. */
+export interface CreatedNotifyContact {
+  contact: NotifyContact;
+  warning?: string;
+}
+
+/** Which channels this instance can deliver on. */
+export async function fetchNotifyStatus(): Promise<NotifyChannelStatus[]> {
+  return (await api.get<{ channels: NotifyChannelStatus[] }>("/api/notify/status")).channels;
+}
+
+/** The current user's delivery destinations. Each user sees only their own. */
+export async function fetchNotifyContacts(): Promise<NotifyContact[]> {
+  return (await api.get<{ contacts: NotifyContact[] }>("/api/notify/contacts")).contacts;
+}
+
+/** Add a destination. The server sends it a verification code as part of
+ *  this call — the two are one action to the person doing it. */
+export function createNotifyContact(
+  channel: NotifyChannel,
+  address: string,
+  label: string
+): Promise<CreatedNotifyContact> {
+  return api.post<CreatedNotifyContact>("/api/notify/contacts", { channel, address, label });
+}
+
+/** Send a fresh verification code (throttled server-side to once a minute). */
+export function sendNotifyContactCode(id: string): Promise<{ contact: NotifyContact }> {
+  return api.post<{ contact: NotifyContact }>(
+    `/api/notify/contacts/${encodeURIComponent(id)}/code`,
+    {}
+  );
+}
+
+/** Confirm a destination with the code that was sent to it. */
+export function verifyNotifyContact(
+  id: string,
+  code: string
+): Promise<{ contact: NotifyContact }> {
+  return api.post<{ contact: NotifyContact }>(
+    `/api/notify/contacts/${encodeURIComponent(id)}/verify`,
+    { code }
+  );
+}
+
+/** Remove a destination. */
+export function deleteNotifyContact(id: string): Promise<void> {
+  return api.del(`/api/notify/contacts/${encodeURIComponent(id)}`);
+}
+
 /** Counts returned by DELETE project: the rows moved to the trash.
  *
  *  No detached counts since the trash landed: reminders and inbox items keep
