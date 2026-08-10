@@ -76,6 +76,8 @@ func main() {
 	root.Flags.String("smtp-security", "", "How to protect the relay connection: starttls (587), tls (465) or none (a local relay only)", config.DefaultSMTPSecurity).Env = config.EnvSMTPSecurity
 	root.Flags.String("twilio-account-sid", "", "Twilio account SID for delivering reminders by SMS (empty leaves SMS delivery off; the token is "+config.EnvTwilioAuthToken+")", "").Env = config.EnvTwilioAccountSID
 	root.Flags.String("twilio-from", "", "Twilio sending number in E.164, or a messaging service SID", "").Env = config.EnvTwilioFrom
+	root.Flags.String("operator-name", "", "Who runs this instance, named on the published privacy policy and terms, e.g. \"Grewell Tech\" (empty leaves those pages unpublished)", "").Env = config.EnvOperatorName
+	root.Flags.String("support-email", "", "Support address shown on the published terms; required by carriers for an SMS program", "").Env = config.EnvSupportEmail
 	root.Flags.String("public-url", "", "Where this instance is reachable, for the link in a delivered reminder, e.g. https://donezo.example.com", "").Env = config.EnvPublicURL
 	root.Flags.Int("reminder-max-lateness-hours", "", "How overdue a reminder may be and still be delivered after downtime (0 delivers however late)", config.DefaultReminderMaxLatenessHours).Env = config.EnvReminderMaxLatenessHours
 	root.Flags.Bool("dev-auto-login", "", "DANGEROUS: disable authentication and act as the seeded dev user (frontend dev only; requires a /tmp data dir or "+config.EnvDevAutoLoginConsent+"=1)", false).Env = config.EnvDevAutoLogin
@@ -126,6 +128,8 @@ func run(ctx *stencil.Context) error {
 		TwilioAuthToken: os.Getenv(config.EnvTwilioAuthToken),
 		TwilioFrom:      ctx.Flags.String("twilio-from"),
 
+		OperatorName:             ctx.Flags.String("operator-name"),
+		SupportEmail:             ctx.Flags.String("support-email"),
 		PublicURL:                ctx.Flags.String("public-url"),
 		ReminderMaxLatenessHours: ctx.Flags.Int("reminder-max-lateness-hours"),
 	}
@@ -220,6 +224,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithTrashRetention(cfg.TrashRetention()),
 		api.WithReminderMaxLateness(cfg.ReminderMaxLateness()),
 		api.WithPublicURL(cfg.PublicURL),
+		api.WithOperator(cfg.OperatorName, cfg.SupportEmail),
 	}
 	// Reminder delivery is optional in exactly the way the model is: with
 	// nothing configured, reminders keep working inside the app and simply
@@ -263,6 +268,12 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 	}
 	opts = append(opts, api.WithPrompts(prompts))
 
+	if cfg.PublishesPolicies() {
+		fmt.Fprintf(os.Stderr, "donezod: publishing /privacy and /terms for %s\n", cfg.OperatorName)
+	} else {
+		fmt.Fprintf(os.Stderr, "donezod: /privacy and /terms are not published (set %s and %s)\n",
+			config.EnvOperatorName, config.EnvSupportEmail)
+	}
 	if webui.Available() {
 		fmt.Fprintln(os.Stderr, "donezod: serving embedded web UI")
 		opts = append(opts, api.WithWebUI(webui.FS()))

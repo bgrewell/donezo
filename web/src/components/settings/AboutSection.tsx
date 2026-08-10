@@ -44,6 +44,9 @@ export function AboutSection() {
   const [version, setVersion] = React.useState<string | null | undefined>(undefined);
   const [channels, setChannels] = React.useState<NotifyChannelStatus[] | null>(null);
   const [model, setModel] = React.useState<{ enabled: boolean; label?: string } | null>(null);
+  // Whether this instance publishes policy pages at all. Probed rather than
+  // assumed: they are served only when an operator has been named.
+  const [policies, setPolicies] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -64,6 +67,9 @@ export function AboutSection() {
         });
       })
       .catch(() => !cancelled && setModel({ enabled: false }));
+    void fetch("/privacy", { method: "HEAD" })
+      .then((res) => !cancelled && setPolicies(res.ok))
+      .catch(() => !cancelled && setPolicies(false));
     return () => {
       cancelled = true;
     };
@@ -121,6 +127,30 @@ export function AboutSection() {
         A donezo with none of these configured is a fully supported donezo — every feature that
         does not need them works the same either way.
       </p>
+
+      {/* Only rendered when this instance publishes them: the pages 404
+          otherwise, and a dead link on a policy is worse than no link. */}
+      {policies && (
+        <p className="m-0 pt-2 text-[0.78rem] text-gtc-muted">
+          <a
+            href="/privacy"
+            target="_blank"
+            rel="noreferrer"
+            className="text-gtc-accent underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            Privacy policy
+          </a>
+          {" · "}
+          <a
+            href="/terms"
+            target="_blank"
+            rel="noreferrer"
+            className="text-gtc-accent underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            Terms and conditions
+          </a>
+        </p>
+      )}
     </section>
   );
 }
