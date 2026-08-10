@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
-import { Button, Dialog, Select, cn } from "@grewelltech/console";
+import { Button, Select, cn } from "@grewelltech/console";
 
 import {
   ApiError,
@@ -63,7 +63,7 @@ function legacyCopy(text: string) {
  * The caller hides the entry point from members; the server enforces
  * the admin requirement regardless.
  */
-export function InvitesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function InvitesSection() {
   const { sessionExpired } = useSession();
 
   const [invites, setInvites] = React.useState<Invite[] | null>(null);
@@ -96,21 +96,11 @@ export function InvitesDialog({ open, onClose }: { open: boolean; onClose: () =>
     }
   }, [sessionExpired]);
 
-  // Fresh state per open: load the list, drop everything on close.
+  // The section is mounted only while it is the one on screen, so loading
+  // on mount is the whole lifecycle — there is no closed state to reset.
   React.useEffect(() => {
-    if (open) {
-      void refresh();
-      return;
-    }
-    setInvites(null);
-    setListError(null);
-    setGenerateError(null);
-    setMinted(null);
-    setCopied(false);
-    setConfirmRevokeId(null);
-    setRevokeError(null);
-    setGenerating(false);
-  }, [open, refresh]);
+    void refresh();
+  }, [refresh]);
 
   // "copied" tick reverts after a beat.
   React.useEffect(() => {
@@ -220,7 +210,7 @@ export function InvitesDialog({ open, onClose }: { open: boolean; onClose: () =>
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title="Invites" maxWidthClassName="max-w-xl">
+    <section>
       <div className="space-y-4">
         <p className="m-0 text-[0.85rem] text-gtc-muted">
           Invite codes let someone create their own account, with their own spaces.
@@ -299,6 +289,6 @@ export function InvitesDialog({ open, onClose }: { open: boolean; onClose: () =>
           )}
         </div>
       </div>
-    </Dialog>
+    </section>
   );
 }

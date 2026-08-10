@@ -20,7 +20,8 @@ import { HintChip } from "@/components/onboarding/HintChip";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const { view, selectedProjectId, selectedActivityId, quickCaptureOpen } = state;
+  const { view, selectedProjectId, selectedActivityId, quickCaptureOpen, settingsSection } =
+    state;
   // Appearance preferences follow the user between machines. Mounted here
   // rather than in ThemeProvider because the provider sits above the auth
   // gate, and an anonymous request has no settings to read.
@@ -42,6 +43,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (!parsed) return;
       if (parsed.view === "projects" && parsed.projectId) {
         dispatch({ type: "OPEN_PROJECT", projectId: parsed.projectId });
+      } else if (parsed.view === "settings" && parsed.settingsSection) {
+        dispatch({ type: "SET_SETTINGS_SECTION", section: parsed.settingsSection });
       } else {
         dispatch({ type: "SET_VIEW", view: parsed.view });
       }
@@ -55,11 +58,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const desired =
       view === "projects" && selectedProjectId
         ? `#/projects/${selectedProjectId}`
-        : `#/${view}`;
+        : view === "settings" && settingsSection
+          ? `#/settings/${settingsSection}`
+          : `#/${view}`;
     if (window.location.hash !== desired) {
       window.history.replaceState(null, "", desired);
     }
-  }, [view, selectedProjectId]);
+  }, [view, selectedProjectId, settingsSection]);
 
   // Global shortcuts: Cmd/Ctrl+K quick capture, Escape closes the inspector.
   React.useEffect(() => {

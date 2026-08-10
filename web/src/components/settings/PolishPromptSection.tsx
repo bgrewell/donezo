@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Dialog, cn } from "@grewelltech/console";
+import { Button, cn } from "@grewelltech/console";
 
 import {
   ApiError,
@@ -27,13 +27,7 @@ const MAX_PROMPT_CHARS = 4000;
  * wording. Everything is per-user; the model connection itself is
  * instance-wide and configured by the operator.
  */
-export function PolishPromptDialog({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function PolishPromptSection() {
   const { sessionExpired } = useSession();
 
   const [prompts, setPrompts] = React.useState<LLMPrompt[] | null>(null);
@@ -56,16 +50,8 @@ export function PolishPromptDialog({
     return err instanceof Error ? err.message : String(err);
   };
 
+  // Mounted only while on screen, so this is the whole lifecycle.
   React.useEffect(() => {
-    if (!open) {
-      setPrompts(null);
-      setDraft("");
-      setLoadError(null);
-      setSaveError(null);
-      setSaved(false);
-      setSaving(false);
-      return;
-    }
     let cancelled = false;
     fetchLLMStatus()
       .then((status) => {
@@ -83,7 +69,7 @@ export function PolishPromptDialog({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, []);
 
   // The "saved" tick reverts after a beat.
   React.useEffect(() => {
@@ -119,7 +105,7 @@ export function PolishPromptDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title="Tune the polish prompt">
+    <section>
       <div className="space-y-4">
         <p className="font-sans text-[0.85rem] leading-relaxed text-gtc-text">
           This is the instruction sent with a capture when you ask the model to
@@ -226,6 +212,6 @@ export function PolishPromptDialog({
           </>
         )}
       </div>
-    </Dialog>
+    </section>
   );
 }

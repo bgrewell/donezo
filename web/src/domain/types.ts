@@ -7,7 +7,18 @@
  */
 
 /** Primary navigation destinations. */
-export type ViewId = "focus" | "timeline" | "inbox" | "projects" | "review" | "search" | "trash";
+export type ViewId =
+  | "focus"
+  | "timeline"
+  | "inbox"
+  | "projects"
+  | "review"
+  | "search"
+  | "trash"
+  // Settings is a real view with a route, but deliberately not in the nav
+  // rail: it is somewhere you visit from your account, not somewhere you
+  // work. Being a route is what lets a section be linked to directly.
+  | "settings";
 
 /** Keys into the --dz-pj-* project color ramp (see styles/app.css). */
 export type ProjectColor =

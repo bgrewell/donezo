@@ -21,6 +21,7 @@ donezo frontend itself).
 | `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
 | `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
 | `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
+| `GET /api/admin/usage`                             | Admin: derived usage statistics for every account — counts, windows and distributions. Never item text, and never a project or space identifier (see below) |
 | `GET /api/notify/status`                           | Which channels this instance can deliver reminders on: `{channels:[{channel,configured,provider?}]}`. Any signed-in user; `provider` describes the relay and never carries a credential |
 | `GET /api/notify/contacts`                         | The caller's own delivery destinations                                 |
 | `POST /api/notify/contacts`                        | `{channel, address, label?}` → `201 {contact}`; sends a verification code to the address as part of the call. `409` when the channel is not configured on this instance, or the destination is already listed |
@@ -182,6 +183,27 @@ one user's document.
   without `--seed`). It exists solely for frontend dev/tests and is
   refused unless the data dir is under `/tmp` or
   `DONEZOD_I_KNOW_WHAT_IM_DOING=1` is set. Never expose such an instance.
+
+### Usage statistics
+
+`GET /api/admin/usage` answers the settings panel: how much of each entity
+exists, how much of it is recent, which optional fields actually get filled
+in, and how tasks, projects and captures are distributed across their
+statuses. Everything is derived from stored rows on demand — there is no
+event log and no rollup table.
+
+Two properties are deliberate and load-bearing:
+
+- **No content, and no identifiers.** A project's id in donezo is its name
+  slugified (`home-infra`), and a space id is its name plus a suffix.
+  Reporting per-project figures would therefore publish the contents of
+  somebody's private space to an admin under the heading of usage
+  statistics. The response carries counts and distributions only; usernames
+  appear because an account is not content.
+- **`notDerivable` is part of the answer.** Which views get opened, web
+  versus MCP writes, inbox triage latency, and whether a model rewrite was
+  accepted cannot be computed from stored rows. They are listed explicitly
+  so that a missing figure does not read as "nobody does this".
 
 ### Reminder delivery
 

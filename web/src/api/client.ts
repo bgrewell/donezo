@@ -568,3 +568,68 @@ export async function rewriteWithLLM(promptId: string, text: string): Promise<st
     window.clearTimeout(timer);
   }
 }
+
+/** How much of one entity exists, and how much of it is recent. */
+export interface EntityUsage {
+  total: number;
+  last7: number;
+  last30: number;
+  last90: number;
+}
+
+/** How many rows have an optional field filled in. The ratio is the point:
+ *  a field nobody fills is a feature nobody uses. */
+export interface FieldAdoption {
+  total: number;
+  set: number;
+}
+
+/** One person's use of donezo, in counts.
+ *
+ *  Counts only, by design — see the server's store.UsageStats. There are no
+ *  project or space identifiers here, because a project's id is its name
+ *  slugified, which would make "usage statistics" a way to read the contents
+ *  of somebody's private space. */
+export interface UserUsage {
+  username: string;
+  displayName: string;
+  role: string;
+  createdAt: string;
+  spaces: number;
+  archivedSpaces: number;
+  projects: EntityUsage;
+  activities: EntityUsage;
+  tasks: EntityUsage;
+  notes: EntityUsage;
+  reminders: EntityUsage;
+  inbox: EntityUsage;
+  fields: Record<string, FieldAdoption>;
+  activityTypes: Record<string, number>;
+  projectStatuses: Record<string, number>;
+  inboxStatuses: Record<string, number>;
+  tasksOpen: number;
+  tasksDone: number;
+  tasksOverdue: number;
+  altNextActionsUsed: number;
+  distinctTags: number;
+  apiTokens: number;
+  apiTokensUsed: number;
+  notifyContacts: number;
+  notifyContactsVerified: number;
+  lastWriteAt?: string;
+}
+
+/** The whole instance: every user, the totals, and an honest list of what
+ *  the stored data cannot answer. */
+export interface InstanceUsage {
+  generatedAt: string;
+  users: UserUsage[];
+  totals: UserUsage;
+  activeLast30: number;
+  notDerivable: string[];
+}
+
+/** GET /api/admin/usage — admin only; the server enforces that, not the UI. */
+export function fetchUsageStats(): Promise<InstanceUsage> {
+  return api.get<InstanceUsage>("/api/admin/usage");
+}

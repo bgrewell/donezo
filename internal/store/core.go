@@ -382,3 +382,30 @@ func (s *CoreStore) ListSpaces(ctx context.Context) ([]Space, error) {
 	}
 	return spaces, nil
 }
+
+// ListUsers returns every account, oldest first.
+//
+// Identity only — never the password hash, which has no caller outside
+// authentication and would be one careless handler away from a response
+// body. It backs the admin views (#9, #45), where the question is who has
+// an account rather than what is in it.
+func (s *CoreStore) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, username, display_name, role, created_at FROM users ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list users: %w", err)
+	}
+	defer closeQuietly(rows)
+	users := []User{}
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: list users: %w", err)
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list users: %w", err)
+	}
+	return users, nil
+}
