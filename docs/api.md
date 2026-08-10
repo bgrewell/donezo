@@ -21,6 +21,12 @@ donezo frontend itself).
 | `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
 | `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
 | `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
+| `GET /api/notify/status`                           | Which channels this instance can deliver reminders on: `{channels:[{channel,configured,provider?}]}`. Any signed-in user; `provider` describes the relay and never carries a credential |
+| `GET /api/notify/contacts`                         | The caller's own delivery destinations                                 |
+| `POST /api/notify/contacts`                        | `{channel, address, label?}` → `201 {contact}`; sends a verification code to the address as part of the call. `409` when the channel is not configured on this instance, or the destination is already listed |
+| `POST /api/notify/contacts/{id}/code`              | Send a fresh code (`429` inside the one-minute resend interval)         |
+| `POST /api/notify/contacts/{id}/verify`            | `{code}` → `{contact}` with `verifiedAt` set. `400` for a wrong or expired code, `429` once five attempts are spent |
+| `DELETE /api/notify/contacts/{id}`                 | Remove a destination → `204`                                            |
 | `POST /api/tokens`                                 | Any user: `{name, scope}` (`read_only`/`read_write`) → `201 {id, token, tokenPrefix, scope, name, createdAt}` — the MCP bearer token, plaintext **only here** |
 | `GET /api/tokens`                                  | Any user: own tokens with `tokenPrefix`, `scope`, `createdAt`, `lastUsedAt`, `revokedAt`; never the token or its hash |
 | `DELETE /api/tokens/{id}`                          | Any user: revoke own token → `204` (idempotent); another user's id is `404` |
@@ -176,6 +182,39 @@ one user's document.
   without `--seed`). It exists solely for frontend dev/tests and is
   refused unless the data dir is under `/tmp` or
   `DONEZOD_I_KNOW_WHAT_IM_DOING=1` is set. Never expose such an instance.
+
+### Reminder delivery
+
+Reminders are delivered by email or SMS at the time they are set for, if the
+operator has configured a channel (see
+[docs/install.md](install.md#reminder-delivery)). Nothing here changes how
+reminders are created or read.
+
+Two rules hold whatever the request looks like:
+
+- **A destination is unverified until proved.** `POST /api/notify/contacts`
+  stores the address and sends it a six-digit code; only
+  `/verify` with that code sets `verifiedAt`, and only a destination with
+  `verifiedAt` is ever delivered to. Without this, any signed-in user could
+  aim the instance at a stranger's phone. The code is stored hashed, expires
+  in 15 minutes, survives five wrong guesses, and can be re-sent at most once
+  a minute.
+- **Every endpoint is scoped to the caller.** A contact id belonging to
+  another user answers `404`, not `403` — ids are not probeable across
+  accounts.
+
+The dispatcher runs once a minute over every live space. A reminder is
+delivered at most once (`notified_at` on the row is the mark), and only when
+it is due **in its owner's timezone** — `remindAt` is a naive local wall
+clock, so it is resolved with the owner's IANA zone, DST included. Archived
+spaces are skipped, since delivering would mean writing to a space that is
+meant to be frozen.
+
+Two things stop the loop being noisy: reminders more than
+`DONEZOD_REMINDER_MAX_LATENESS_HOURS` overdue are marked without being sent
+(the burst that would otherwise follow downtime), and a destination that
+fails five passes is given up on. In both cases the reminder itself is
+untouched and still in the app.
 
 ## Language model (optional)
 

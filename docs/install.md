@@ -37,6 +37,70 @@ passed through `sudo`).
 | `DONEZO_NO_CADDY`   | unset                | `1` = skip all reverse-proxy setup; donezod serves plain HTTP on its port.                                                                             |
 | `DONEZO_LOCAL_ASSET`| unset                | Path to a local release tarball; skips download and checksum verification. Intended for testing.                                                       |
 
+## Reminder delivery
+
+Reminders live in donezo, which means they arrive when you are already
+looking at donezo. Configure a channel here and they will also reach you by
+email or text at the time they are set for.
+
+This is the operator's setup, and it is instance-wide. **Where** an
+individual person's reminders go is theirs: each user adds their own address
+or number under *Account → Where reminders reach you…*, and confirms it with
+a code donezo sends there. Nothing is ever delivered to an unconfirmed
+destination, so this cannot be pointed at somebody else's phone.
+
+With nothing configured below, donezo works exactly as it did before:
+reminders appear in the app and go no further.
+
+**Credentials are environment-only.** Every other setting has a flag; the
+password and the auth token do not, because an argument is visible in the
+process list to every user on the host.
+
+### Email (SMTP)
+
+| Variable                 | Default    | Meaning                                                                                          |
+| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------ |
+| `DONEZOD_SMTP_HOST`      | unset      | Relay hostname. Unset leaves email delivery off.                                                   |
+| `DONEZOD_SMTP_PORT`      | `587`      | Relay port. 587 for STARTTLS, 465 for implicit TLS.                                                |
+| `DONEZOD_SMTP_SECURITY`  | `starttls` | `starttls`, `tls` (from the first byte, port 465), or `none` (a relay on localhost only).           |
+| `DONEZOD_SMTP_USERNAME`  | unset      | Relay username. Leave unset for an unauthenticated local relay.                                     |
+| `DONEZOD_SMTP_PASSWORD`  | unset      | Relay password. **Environment-only** — there is no flag.                                            |
+| `DONEZOD_SMTP_FROM`      | unset      | The address reminders are sent from. Required once a host is set.                                   |
+| `DONEZOD_SMTP_FROM_NAME` | `donezo`   | Display name shown beside it.                                                                       |
+
+Any relay works — your own mail server, a hosted provider's SMTP endpoint, or
+a catcher on localhost while you are trying it out.
+
+### Text messages (Twilio)
+
+| Variable                     | Default | Meaning                                                                        |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------- |
+| `DONEZOD_TWILIO_ACCOUNT_SID` | unset   | Account SID (`AC…`). Unset leaves SMS delivery off.                               |
+| `DONEZOD_TWILIO_AUTH_TOKEN`  | unset   | Auth token. **Environment-only** — there is no flag.                              |
+| `DONEZOD_TWILIO_FROM`        | unset   | Sending number in E.164 (`+15551234567`), or a messaging service SID (`MG…`).      |
+
+### Delivery behaviour
+
+| Variable                              | Default | Meaning                                                                                              |
+| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `DONEZOD_PUBLIC_URL`                  | unset   | Where this instance is reachable, e.g. `https://donezo.example.com`. Adds a link back to a delivered reminder. |
+| `DONEZOD_REMINDER_MAX_LATENESS_HOURS` | `24`    | How overdue a reminder may be and still be sent. `0` delivers however late.                              |
+
+The lateness bound is about downtime. Without it, an instance that was off
+for a week comes back and sends every reminder it missed at once, at whatever
+hour it happened to start — they arrive with no context and bury anything
+current. Reminders past the bound stay in the app; only the delivery is
+skipped.
+
+Due reminders are looked for once a minute, and each is delivered at most
+once. A reminder that is ticked off before its time is never delivered at
+all.
+
+**Timezone matters here.** A reminder's time is a wall clock — "Saturday at
+2pm" — and is resolved in the owner's own timezone, which the web app reports
+from the browser. For an account that has only ever connected over MCP, set
+`DONEZOD_TIMEZONE` so that 2pm means 2pm where they are rather than in UTC.
+
 ## What the installer does
 
 Each step is idempotent — re-running the script with the same settings is

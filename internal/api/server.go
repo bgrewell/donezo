@@ -14,6 +14,7 @@ import (
 	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/llm"
 	"github.com/bgrewell/donezo/internal/mcp"
+	"github.com/bgrewell/donezo/internal/notify"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -42,10 +43,20 @@ type Server struct {
 	// trashRetention is how long a deleted item stays restorable before the
 	// sweep purges it. Zero or less disables the sweep.
 	trashRetention time.Duration
-	trustProxy     bool
-	logger         *log.Logger
-	ui             fs.FS
-	version        string
+	// notifiers are the configured delivery channels for reminders. Empty
+	// is normal: it means nothing was configured and reminders stay in the
+	// app, which is how donezo worked until #52.
+	notifiers *notify.Registry
+	// reminderMaxLateness bounds how overdue a reminder may be and still be
+	// delivered. Zero or less delivers however late.
+	reminderMaxLateness time.Duration
+	// publicURL is where this instance is reachable, for the link in a
+	// delivered reminder. Empty leaves the link out.
+	publicURL  string
+	trustProxy bool
+	logger     *log.Logger
+	ui         fs.FS
+	version    string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -92,6 +103,28 @@ func WithLLM(c llm.Client) ServerOption {
 // trash to be emptied by hand. Defaults to DefaultTrashRetention.
 func WithTrashRetention(d time.Duration) ServerOption {
 	return func(s *Server) { s.trashRetention = d }
+}
+
+// WithNotifiers installs the configured reminder delivery channels. Without
+// it nothing is delivered outside the app, which is the default and a fully
+// supported state — every other feature works the same either way.
+func WithNotifiers(r *notify.Registry) ServerOption {
+	return func(s *Server) { s.notifiers = r }
+}
+
+// WithReminderMaxLateness bounds how overdue a reminder may be and still be
+// delivered. It is what stops an instance that was down for a week coming
+// back and sending every missed reminder at once. Zero or less delivers
+// however late. Defaults to config.DefaultReminderMaxLatenessHours.
+func WithReminderMaxLateness(d time.Duration) ServerOption {
+	return func(s *Server) { s.reminderMaxLateness = d }
+}
+
+// WithPublicURL sets the address a delivered reminder links back to. Empty
+// leaves the link out, which is correct but means re-finding the thing by
+// hand.
+func WithPublicURL(u string) ServerOption {
+	return func(s *Server) { s.publicURL = u }
 }
 
 // WithLocation sets the instance's fallback zone for calendar days, used for
@@ -187,9 +220,16 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 		location:       time.Local,
 		trashRetention: DefaultTrashRetention,
 		logger:         defaultLogger(),
+		// Nothing configured is the default: reminders stay in the app
+		// unless an operator opts in.
+		notifiers:           notify.NewRegistry(),
+		reminderMaxLateness: DefaultReminderMaxLateness,
 	}
 	for _, opt := range opts {
 		opt(s)
+	}
+	if s.notifiers == nil {
+		s.notifiers = notify.NewRegistry()
 	}
 	if s.auth == nil {
 		s.auth = auth.NewSessionAuthenticator(core, auth.WithSessionClock(s.clock))
@@ -241,6 +281,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/instance", s.handleInstance)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
+	mux.HandleFunc("GET /api/notify/status", s.handleNotifyStatus)
+	mux.HandleFunc("GET /api/notify/contacts", s.handleListContacts)
+	mux.HandleFunc("POST /api/notify/contacts", s.handleCreateContact)
+	mux.HandleFunc("DELETE /api/notify/contacts/{id}", s.handleDeleteContact)
+	mux.HandleFunc("POST /api/notify/contacts/{id}/code", s.handleSendContactCode)
+	mux.HandleFunc("POST /api/notify/contacts/{id}/verify", s.handleVerifyContact)
 	mux.HandleFunc("GET /api/tokens", s.handleListTokens)
 	mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/tokens/{id}", s.handleDeleteToken)
@@ -279,29 +325,34 @@ func (s *Server) Handler() http.Handler {
 	// explicit JSON 405 for other methods (method patterns win when they
 	// match). Values are the Allow header for each path.
 	allowed := map[string]string{
-		"/api/healthz":                          http.MethodGet,
-		"/api/auth/status":                      http.MethodGet,
-		"/api/auth/setup":                       http.MethodPost,
-		"/api/auth/login":                       http.MethodPost,
-		"/api/auth/logout":                      http.MethodPost,
-		"/api/auth/register":                    http.MethodPost,
-		"/api/auth/me":                          http.MethodGet,
-		"/api/invites":                          "GET, POST",
-		"/api/invites/{id}":                     http.MethodDelete,
-		"/api/llm":                              http.MethodGet,
-		"/api/llm/rewrite":                      http.MethodPost,
-		"/api/instance":                         http.MethodGet,
-		"/api/settings":                         "GET, PATCH",
-		"/api/tokens":                           "GET, POST",
-		"/api/tokens/{id}":                      http.MethodDelete,
-		"/api/spaces":                           "GET, POST",
-		"/api/spaces/{id}":                      http.MethodPatch,
-		"/api/spaces/{id}/archive":              http.MethodPost,
-		"/api/spaces/{id}/unarchive":            http.MethodPost,
-		"/api/spaces/{id}/state":                http.MethodGet,
-		"/api/spaces/{id}/trash":                http.MethodGet,
-		"/api/spaces/{id}/trash/empty":          http.MethodPost,
-		"/api/spaces/{id}/trash/{entity}/{tid}": http.MethodDelete,
+		"/api/healthz":                                  http.MethodGet,
+		"/api/auth/status":                              http.MethodGet,
+		"/api/auth/setup":                               http.MethodPost,
+		"/api/auth/login":                               http.MethodPost,
+		"/api/auth/logout":                              http.MethodPost,
+		"/api/auth/register":                            http.MethodPost,
+		"/api/auth/me":                                  http.MethodGet,
+		"/api/invites":                                  "GET, POST",
+		"/api/invites/{id}":                             http.MethodDelete,
+		"/api/llm":                                      http.MethodGet,
+		"/api/llm/rewrite":                              http.MethodPost,
+		"/api/instance":                                 http.MethodGet,
+		"/api/settings":                                 "GET, PATCH",
+		"/api/notify/status":                            http.MethodGet,
+		"/api/notify/contacts":                          "GET, POST",
+		"/api/notify/contacts/{id}":                     http.MethodDelete,
+		"/api/notify/contacts/{id}/code":                http.MethodPost,
+		"/api/notify/contacts/{id}/verify":              http.MethodPost,
+		"/api/tokens":                                   "GET, POST",
+		"/api/tokens/{id}":                              http.MethodDelete,
+		"/api/spaces":                                   "GET, POST",
+		"/api/spaces/{id}":                              http.MethodPatch,
+		"/api/spaces/{id}/archive":                      http.MethodPost,
+		"/api/spaces/{id}/unarchive":                    http.MethodPost,
+		"/api/spaces/{id}/state":                        http.MethodGet,
+		"/api/spaces/{id}/trash":                        http.MethodGet,
+		"/api/spaces/{id}/trash/empty":                  http.MethodPost,
+		"/api/spaces/{id}/trash/{entity}/{tid}":         http.MethodDelete,
 		"/api/spaces/{id}/trash/{entity}/{tid}/restore": http.MethodPost,
 		"/api/spaces/{id}/revision":                     http.MethodGet,
 		"/api/spaces/{id}/projects":                     http.MethodPost,
