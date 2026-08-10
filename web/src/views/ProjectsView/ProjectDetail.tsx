@@ -271,6 +271,80 @@ function ColorEdit({ project }: { project: Project }) {
   );
 }
 
+/** The project title as a click-to-edit rename. Enter saves, Escape
+ *  cancels; a blank name is not a name, so it cancels too rather than
+ *  leaving the project with nothing to be called. */
+function NameEditable({ project }: { project: Project }) {
+  const dispatch = useAppDispatch();
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(project.name);
+  // Escape unmounts the input while it still has focus, and removing a
+  // focused node does dispatch focusout, delegated listeners included.
+  // React happens not to deliver that to a deleted fiber's onBlur today,
+  // so save() is not reached — but nothing here should depend on that,
+  // since the failure would be a silent rename the person cancelled. The
+  // ref marks the edit abandoned somewhere a stale closure cannot miss.
+  const cancelled = React.useRef(false);
+
+  const start = () => {
+    cancelled.current = false;
+    setDraft(project.name);
+    setEditing(true);
+  };
+  const cancel = () => {
+    cancelled.current = true;
+    setEditing(false);
+  };
+  const save = () => {
+    if (cancelled.current) return;
+    const name = draft.trim();
+    if (name && name !== project.name) {
+      dispatch({ type: "UPDATE_PROJECT", id: project.id, patch: { name } });
+    }
+    setEditing(false);
+  };
+
+  return (
+    <h2 className="font-sans text-[1.15rem] font-semibold leading-none text-gtc-text">
+      {editing ? (
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-label="Project name"
+          placeholder={project.name}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              save();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              cancel();
+            }
+          }}
+          className="w-[280px] !py-1 !font-sans !text-[1.15rem] !font-semibold normal-case"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={start}
+          title="Rename project"
+          className="group flex items-center gap-1.5 rounded-gtc text-left outline-none focus-visible:shadow-gtc-focus"
+        >
+          {project.name}
+          {/* The heading takes its accessible name from this button, so the
+              name has to lead and the affordance follow — an aria-label
+              here would announce the action where the project should be. */}
+          <span className="sr-only"> — rename</span>
+          <HoverPencil />
+        </button>
+      )}
+    </h2>
+  );
+}
+
 /** WAITING ON inline field, shown while status is waiting/blocked. */
 function WaitingOnInput({ project }: { project: Project }) {
   const dispatch = useAppDispatch();
@@ -644,9 +718,7 @@ export function ProjectDetail({ project }: { project: Project }) {
         </Button>
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
           <ColorEdit project={project} />
-          <h2 className="font-sans text-[1.15rem] font-semibold leading-none text-gtc-text">
-            {project.name}
-          </h2>
+          <NameEditable key={project.id} project={project} />
           <span className="w-[130px]">
             <Select
               value={project.status}
