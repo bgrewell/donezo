@@ -33,7 +33,7 @@ import (
 // A constant rather than time.Now: a policy whose "last updated" moves every
 // time somebody loads it tells the reader nothing, and a reviewer reads that
 // date as the date the terms were set.
-const policyRevision = "10 August 2026"
+const policyRevision = "11 August 2026"
 
 // programName is the messaging program as registered with the carrier. It
 // must match what the operator files, so it is not configurable per instance.
@@ -207,10 +207,11 @@ in, and — if you set one up — to deliver a reminder you scheduled. It is not
 used to build a profile, and it is not used for advertising.</p>
 
 <div class="box">
-  <p><strong>Your information is not sold, rented, or traded. No mobile
-  information is shared with third parties or affiliates for marketing or
-  promotional purposes.</strong> Text messaging originator opt-in data and
-  consent are never shared with any third party for any purpose.</p>
+  <p><strong>Mobile information and messaging consent are not shared with third
+  parties or affiliates for marketing or promotional purposes.</strong> All
+  other categories exclude text messaging originator opt-in data and consent;
+  this information is not shared with any third parties. Your information is
+  never sold, rented, or traded.</p>
 </div>
 
 <h2>Who else processes it</h2>
@@ -228,6 +229,32 @@ shared with them for marketing, and nothing else is shared with anyone.</p>
 <p>This instance sends your data to no third-party service at all. It is
 stored on the server that runs it and goes nowhere else.</p>
 {{end}}
+
+<h2>Text messaging</h2>
+<p>{{.OperatorName}} operates one messaging program, <strong>{{.ProgramName}}</strong>.
+It sends only the reminders you scheduled for yourself inside donezo, plus a
+one-time verification code when you first add a mobile number. It is never
+used for marketing, promotions, or anything you did not schedule.</p>
+<ul>
+  <li><strong>Consent:</strong> you enter your own mobile number in
+  <em>Settings → Reminders</em> and confirm it with the code sent to it. That
+  confirmation is your opt-in, and nothing is sent to an unconfirmed number.
+  Consent is never bought, sold, or shared.</li>
+  <li><strong>Message frequency:</strong> varies — a message is sent only when
+  a reminder you created comes due, so the number is determined entirely by
+  you, and may be none in a given week.</li>
+  <li><strong>Cost:</strong> <strong>Message and data rates may apply</strong>
+  from your mobile carrier. {{.OperatorName}} charges nothing for messages.</li>
+  <li><strong>Opting out:</strong> reply <strong>STOP</strong> to any message to
+  cancel, or remove the number in <em>Settings → Reminders</em>. Reply
+  <strong>HELP</strong> for help, or email
+  <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.</li>
+  <li><strong>What is collected for it:</strong> your mobile number, the record
+  that you confirmed it, and the text of the reminder you wrote — used solely
+  to deliver that reminder to you.</li>
+</ul>
+<p>Full details are in the
+<a href="{{.OtherPolicyPath}}">Terms and Conditions</a>.</p>
 
 <h2>How long it is kept</h2>
 <p>Your data stays until you delete it. Deleting moves an item to the trash,
