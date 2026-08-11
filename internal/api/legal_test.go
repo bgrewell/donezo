@@ -102,14 +102,47 @@ func TestPrivacyCarriesTheNoSharingLanguage(t *testing.T) {
 	s := operatorServer(t)
 	body := doJSON(t, s.Handler(), http.MethodGet, "/privacy", "").Body.String()
 
+	// The phrasing Twilio quotes back in error 30908, close to verbatim.
 	for _, want := range []string{
-		"No mobile\n  information is shared with third parties or affiliates for marketing or\n  promotional purposes",
-		"not sold, rented, or traded",
-		"opt-in data and\n  consent are never shared",
+		"Mobile information and messaging consent are not shared with third parties or affiliates for marketing or promotional purposes",
+		"All other categories exclude text messaging originator opt-in data and consent; this information is not shared with any third parties",
+		"never sold, rented, or traded",
 	} {
 		normalized := strings.Join(strings.Fields(want), " ")
 		if !strings.Contains(strings.Join(strings.Fields(body), " "), normalized) {
 			t.Fatalf("privacy policy is missing the required wording: %q", normalized)
+		}
+	}
+}
+
+// Twilio rejects a campaign (error 30908) when the PRIVACY POLICY itself does
+// not carry the messaging-program disclosures — carrying them only in the
+// terms is what got the first submission rejected.
+func TestPrivacyCarriesTheMessagingDisclosures(t *testing.T) {
+	s := operatorServer(t)
+	body := doJSON(t, s.Handler(), http.MethodGet, "/privacy", "").Body.String()
+	flat := strings.Join(strings.Fields(body), " ")
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "program name", want: "donezo Reminders"},
+		{name: "message frequency", want: "Message frequency:"},
+		{name: "message and data rates", want: "Message and data rates may apply"},
+		{name: "how consent is captured", want: "That confirmation is your opt-in"},
+		{name: "consent is not traded", want: "Consent is never bought, sold, or shared"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !strings.Contains(flat, tt.want) {
+				t.Fatalf("privacy policy is missing %s (%q)", tt.name, tt.want)
+			}
+		})
+	}
+	for _, keyword := range []string{"STOP", "HELP"} {
+		if !strings.Contains(body, "<strong>"+keyword+"</strong>") {
+			t.Fatalf("privacy policy does not carry %s in bold", keyword)
 		}
 	}
 }
