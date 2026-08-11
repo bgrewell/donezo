@@ -33,7 +33,7 @@ import (
 // A constant rather than time.Now: a policy whose "last updated" moves every
 // time somebody loads it tells the reader nothing, and a reviewer reads that
 // date as the date the terms were set.
-const policyRevision = "11 August 2026"
+const policyRevision = "11 August 2026 (rev. 2)"
 
 // programName is the messaging program as registered with the carrier. It
 // must match what the operator files, so it is not configurable per instance.
@@ -207,11 +207,16 @@ in, and — if you set one up — to deliver a reminder you scheduled. It is not
 used to build a profile, and it is not used for advertising.</p>
 
 <div class="box">
-  <p><strong>Mobile information and messaging consent are not shared with third
-  parties or affiliates for marketing or promotional purposes.</strong> All
-  other categories exclude text messaging originator opt-in data and consent;
-  this information is not shared with any third parties. Your information is
-  never sold, rented, or traded.</p>
+  <p>We only use the mobile information you provide through this service to
+  deliver the messages you request. This includes sharing your mobile phone
+  number with platform providers, phone companies, and other vendors who assist
+  us in the delivery of mobile messages, solely for that purpose.</p>
+  <!-- The next three sentences are load-bearing for A2P vetting and are kept
+       on single unbroken lines so an automated crawler matches them in the
+       raw HTML, not only after whitespace normalization. Do not rewrap. -->
+  <p><strong>No mobile information will be shared with third parties or affiliates for marketing or promotional purposes. We do not share, sell, or provide your mobile phone number or messaging consent data to third parties or affiliates for marketing or promotional purposes.</strong></p>
+  <p>Text messaging originator opt-in data and consent will not be shared with any third parties, excluding aggregators and providers of the Text Message services.</p>
+  <p>Mobile information and messaging consent are not shared with third parties or affiliates for marketing or promotional purposes. Your information is never sold, rented, or traded.</p>
 </div>
 
 <h2>Who else processes it</h2>

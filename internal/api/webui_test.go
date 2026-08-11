@@ -18,7 +18,7 @@ func newUIFixture(t *testing.T) fs.FS {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
-		"index.html":              "<!doctype html><title>donezo</title><div id=\"root\">donezo fixture index</div>",
+		"index.html":              "<!doctype html><title>donezo</title><body><div id=\"root\">donezo fixture index</div></body></html>",
 		"favicon.svg":             "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
 		"assets/app-abc123.js":    "console.log(\"donezo fixture js\");",
 		"assets/style-def456.css": ":root{--donezo:1}",
@@ -153,4 +153,38 @@ func TestWebUIServing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The crawlable-root fix for A2P vetting: a non-JS verifier fetching "/"
+// must find plain-HTML links to the policy pages, because the app renders
+// them with React and a crawler that does not run JS would otherwise see
+// none. Injected only when the instance publishes the pages.
+func TestCrawlableRootLinks(t *testing.T) {
+	t.Run("with an operator, root carries plain links", func(t *testing.T) {
+		srv := newTestServer(t, WithWebUI(newUIFixture(t)),
+			WithOperator("Grewell Tech", "ben@grewelltech.com"))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		body := rec.Body.String()
+		for _, want := range []string{
+			`href="/privacy"`, `href="/terms"`, "Grewell Tech", "donezo Reminders",
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("root HTML missing %q — a non-JS crawler cannot find the policy:\n%s", want, body)
+			}
+		}
+		// The SPA mount point must survive, injected before it.
+		if !strings.Contains(body, `id="root"`) {
+			t.Fatal("the SPA root div was lost")
+		}
+	})
+
+	t.Run("without an operator, root is untouched", func(t *testing.T) {
+		srv := newTestServer(t, WithWebUI(newUIFixture(t)))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if strings.Contains(rec.Body.String(), `href="/privacy"`) {
+			t.Fatal("policy links injected on an instance that does not publish them")
+		}
+	})
 }

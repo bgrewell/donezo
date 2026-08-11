@@ -102,15 +102,44 @@ func TestPrivacyCarriesTheNoSharingLanguage(t *testing.T) {
 	s := operatorServer(t)
 	body := doJSON(t, s.Handler(), http.MethodGet, "/privacy", "").Body.String()
 
-	// The phrasing Twilio quotes back in error 30908, close to verbatim.
+	// These must appear VERBATIM — three rejections came from paraphrases.
+	// The first is Twilio's own "would pass review" example from the 30908
+	// error page; the second is the exact phrase Twilio's rejection quotes;
+	// the third is the carrier no-sharing sentence; the fourth is the opt-in
+	// data carve-out with the aggregator exception. A change here means a
+	// change to what Twilio's automated crawler reads, so the test pins the
+	// exact strings rather than their spirit.
 	for _, want := range []string{
+		"We do not share, sell, or provide your mobile phone number or messaging consent data to third parties or affiliates for marketing or promotional purposes",
+		"No mobile information will be shared with third parties or affiliates for marketing or promotional purposes",
 		"Mobile information and messaging consent are not shared with third parties or affiliates for marketing or promotional purposes",
-		"All other categories exclude text messaging originator opt-in data and consent; this information is not shared with any third parties",
+		"Text messaging originator opt-in data and consent will not be shared with any third parties, excluding aggregators and providers of the Text Message services",
 		"never sold, rented, or traded",
 	} {
 		normalized := strings.Join(strings.Fields(want), " ")
 		if !strings.Contains(strings.Join(strings.Fields(body), " "), normalized) {
-			t.Fatalf("privacy policy is missing the required wording: %q", normalized)
+			t.Fatalf("privacy policy is missing the required verbatim wording: %q", normalized)
+		}
+	}
+
+	// The old dangling "All other categories exclude..." sentence read as
+	// conflicting content to the crawler and was removed; it must not creep
+	// back.
+	if strings.Contains(body, "All other categories exclude") {
+		t.Fatal("the conflicting 'All other categories exclude' sentence is back")
+	}
+
+	// The two most load-bearing sentences must appear in the RAW HTML on a
+	// single unbroken run — not only after whitespace normalization — because
+	// a naive crawler greps the bytes. Three rejections make this worth
+	// pinning: rewrapping the template across lines would reintroduce the
+	// break that hid the phrase from a literal match.
+	for _, raw := range []string{
+		"We do not share, sell, or provide your mobile phone number or messaging consent data to third parties or affiliates for marketing or promotional purposes.",
+		"No mobile information will be shared with third parties or affiliates for marketing or promotional purposes.",
+	} {
+		if !strings.Contains(body, raw) {
+			t.Fatalf("required sentence is broken across lines in the raw HTML: %q", raw)
 		}
 	}
 }
