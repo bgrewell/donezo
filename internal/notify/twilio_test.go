@@ -163,14 +163,48 @@ func TestTwilioSendValidatesRecipient(t *testing.T) {
 func TestSMSTextTruncates(t *testing.T) {
 	long := strings.Repeat("a", smsMaxRunes*2)
 	got := smsText(Message{Subject: "Reminder", Body: long})
-	if n := len([]rune(got)); n != smsMaxRunes {
-		t.Fatalf("smsText length = %d runes, want %d", n, smsMaxRunes)
+	if n := len([]rune(got)); n > smsMaxRunes {
+		t.Fatalf("smsText length = %d runes, want at most %d", n, smsMaxRunes)
 	}
 	if !strings.HasPrefix(got, "Reminder") {
 		t.Fatalf("smsText = %q, want the subject kept when the body is truncated", got[:32])
 	}
-	if !strings.HasSuffix(got, "…") {
-		t.Fatalf("smsText = %q, want a truncation marker", got[len(got)-8:])
+	if !strings.Contains(got, "…") {
+		t.Fatalf("smsText = %q, want a truncation marker", got)
+	}
+}
+
+// Carriers expect the recipient to be able to stop messages from the message
+// itself, and the campaign's registered samples must match what is sent.
+func TestSMSTextCarriesTheOptOut(t *testing.T) {
+	got := smsText(Message{Subject: "Clean up the deck", Body: "Green bin only."})
+	if !strings.HasSuffix(got, smsOptOut) {
+		t.Fatalf("smsText = %q, want it to end with the opt-out line", got)
+	}
+	for _, keyword := range []string{"STOP", "HELP"} {
+		if !strings.Contains(got, keyword) {
+			t.Fatalf("smsText = %q, missing %s", got, keyword)
+		}
+	}
+}
+
+// Truncation must never eat the way out — the reminder text loses characters
+// instead.
+func TestSMSOptOutSurvivesTruncation(t *testing.T) {
+	got := smsText(Message{Subject: strings.Repeat("x", smsMaxRunes*3)})
+	if !strings.HasSuffix(got, smsOptOut) {
+		t.Fatalf("a truncated message lost its opt-out line: %q", got[len(got)-60:])
+	}
+	if n := len([]rune(got)); n > smsMaxRunes {
+		t.Fatalf("smsText length = %d runes, want at most %d", n, smsMaxRunes)
+	}
+}
+
+// An empty message stays empty rather than becoming a bare opt-out line sent
+// to somebody for no reason.
+func TestSMSTextEmptyStaysEmpty(t *testing.T) {
+	if got := smsText(Message{}); got != "" {
+		t.Fatalf("smsText(empty) = %q, want empty", got)
 	}
 }
 
@@ -181,8 +215,8 @@ func TestSMSTextTruncatesOnRuneBoundary(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Fatalf("smsText produced invalid UTF-8: %q", got)
 	}
-	if n := len([]rune(got)); n != smsMaxRunes {
-		t.Fatalf("smsText length = %d runes, want %d", n, smsMaxRunes)
+	if n := len([]rune(got)); n > smsMaxRunes {
+		t.Fatalf("smsText length = %d runes, want at most %d", n, smsMaxRunes)
 	}
 }
 

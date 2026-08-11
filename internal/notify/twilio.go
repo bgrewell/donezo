@@ -138,8 +138,20 @@ func (s *TwilioSender) Send(ctx context.Context, to string, msg Message) error {
 	return nil
 }
 
+// smsOptOut is appended to every text message.
+//
+// Carriers expect a recipient to be able to stop messages from the message
+// itself, and a campaign's registered sample messages have to match what is
+// actually sent — so this rides on all of them rather than only the first.
+// It is short on purpose: it is paid for in every segment.
+const smsOptOut = "Reply STOP to cancel, HELP for help."
+
 // smsText renders a message as one piece of text, truncated to something
 // that will not be split into a dozen billed segments.
+//
+// The opt-out line is appended after truncation, never inside it: a
+// recipient who cannot stop the messages is the one failure this must not
+// have, so it is the reminder text that loses characters, not the way out.
 func smsText(msg Message) string {
 	text := strings.TrimSpace(msg.Subject)
 	if body := strings.TrimSpace(msg.Body); body != "" {
@@ -148,10 +160,14 @@ func smsText(msg Message) string {
 		}
 		text += body
 	}
-	if utf8.RuneCountInString(text) <= smsMaxRunes {
-		return text
+	if text == "" {
+		return ""
 	}
-	return firstRunes(text, smsMaxRunes-1) + "…"
+	budget := smsMaxRunes - utf8.RuneCountInString(smsOptOut) - 1 // the joining newline
+	if utf8.RuneCountInString(text) > budget {
+		text = firstRunes(text, budget-1) + "…"
+	}
+	return text + "\n" + smsOptOut
 }
 
 // twilioError pulls the human half out of Twilio's JSON error, falling back
