@@ -16,6 +16,7 @@ import {
 } from "@/api/client";
 import { useSession } from "@/components/auth/session";
 import { relativeFromInstant } from "@/lib/time";
+import { SMS_OPT_IN_DISCLOSURE } from "@/lib/optInDisclosure";
 
 /** How each channel introduces itself in the form. */
 const CHANNELS: {
@@ -351,6 +352,15 @@ export function ReminderDeliverySection() {
               </Button>
             </div>
             <p className="m-0 text-[0.72rem] text-gtc-muted">{current.hint}</p>
+            {/* Shown at the point of number entry because a carrier requires
+                the consent language to appear where the person opts in — and
+                the public /sms-opt-in page quotes this same sentence for
+                A2P vetting. Keep it verbatim with SMS_OPT_IN_DISCLOSURE. */}
+            {channel === "sms" && (
+              <p className="m-0 rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-2 text-[0.72rem] text-gtc-muted">
+                {SMS_OPT_IN_DISCLOSURE}
+              </p>
+            )}
             {addError && (
               <p className="m-0 font-mono text-[0.66rem] text-gtc-danger" role="alert">
                 ▸ {addError}

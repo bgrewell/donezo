@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"html/template"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -42,8 +43,42 @@ func (s *Server) webUIHandler() http.Handler {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
-		serveUIFile(w, r, "index.html", data)
+		serveUIFile(w, r, "index.html", s.crawlableIndex(data))
 	})
+}
+
+// crawlableIndex injects a plain-HTML block naming the brand and linking the
+// policy pages into the SPA shell, so a crawler that does not run JavaScript
+// can find them from the site root.
+//
+// This is a carrier-vetting requirement, learned the hard way: the app renders
+// its policy links with React, so the raw HTML a non-JS A2P verifier fetches
+// from "/" contained no link to the policy at all — a stated cause of the
+// privacy-policy-not-found rejection. The block is inside <noscript>, so it is
+// present in the served HTML (and rendered by a non-JS client) without showing
+// under the real app. It is added only when this instance publishes the pages;
+// otherwise the shell is served untouched.
+func (s *Server) crawlableIndex(data []byte) []byte {
+	if s.operatorName == "" || s.supportEmail == "" {
+		return data
+	}
+	block := `<noscript><footer>` +
+		`<p>` + template.HTMLEscapeString(s.operatorName) +
+		` operates ` + template.HTMLEscapeString(programName) +
+		`, an SMS reminder service.</p>` +
+		`<p><a href="/privacy">Privacy Policy</a> · ` +
+		`<a href="/terms">Terms of Service</a></p>` +
+		`</footer></noscript>`
+	if idx := bytes.LastIndex(data, []byte("</body>")); idx >= 0 {
+		out := make([]byte, 0, len(data)+len(block))
+		out = append(out, data[:idx]...)
+		out = append(out, block...)
+		out = append(out, data[idx:]...)
+		return out
+	}
+	// No </body> to anchor on (a shell we do not recognise): append rather
+	// than drop the block, since a crawler reads the whole response.
+	return append(data, block...)
 }
 
 // serveUIFile writes one bundle file with caching fit for a Vite build:
