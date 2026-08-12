@@ -300,6 +300,7 @@ func (s *Server) Handler() http.Handler {
 	// not published, and the carrier reviewing it has no account.
 	mux.HandleFunc("GET /privacy", s.handlePrivacy)
 	mux.HandleFunc("GET /terms", s.handleTerms)
+	mux.HandleFunc("GET /sms-opt-in", s.handleSMSOptIn)
 	mux.HandleFunc("GET /api/admin/usage", s.handleUsageStats)
 	mux.HandleFunc("GET /api/notify/status", s.handleNotifyStatus)
 	mux.HandleFunc("GET /api/notify/contacts", s.handleListContacts)

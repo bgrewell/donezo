@@ -39,6 +39,19 @@ const policyRevision = "11 August 2026 (rev. 2)"
 // must match what the operator files, so it is not configurable per instance.
 const programName = "donezo Reminders"
 
+// optInDisclosure is the consent sentence shown in the app at the moment a
+// person types their number, quoted on the public /sms-opt-in page. It must
+// stay verbatim identical to SMS_OPT_IN_DISCLOSURE in
+// web/src/lib/optInDisclosure.ts — the reviewer sees the same text on the
+// form screenshot and on this page, and a mismatch reads as an unverifiable
+// flow.
+const optInDisclosure = "By entering your number you agree to receive a " +
+	"one-time verification code and the reminder texts you schedule from " +
+	"donezo Reminders. Message frequency varies. Message and data rates may " +
+	"apply. Reply STOP to cancel, HELP for help. We do not share, sell, or " +
+	"provide your mobile phone number or messaging consent data to third " +
+	"parties or affiliates for marketing or promotional purposes."
+
 // legalPage is everything the templates need.
 type legalPage struct {
 	Title        string
@@ -55,6 +68,12 @@ type legalPage struct {
 	// OtherPolicyPath links the two documents to each other.
 	OtherPolicyPath  string
 	OtherPolicyTitle string
+	// OptInDisclosure is the verbatim consent sentence the app shows at the
+	// point of number entry, quoted on the opt-in evidence page.
+	OptInDisclosure string
+	// Screenshot is a data: URI of the number-collection form, embedded so
+	// the evidence page is self-contained. Empty omits the image.
+	Screenshot template.URL
 }
 
 // integration is one third-party processor, named with what reaches it.
@@ -103,6 +122,24 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 		Title:            "Terms and Conditions",
 		OtherPolicyPath:  "/privacy",
 		OtherPolicyTitle: "Privacy Policy",
+	})
+}
+
+// handleSMSOptIn serves the public opt-in evidence page.
+//
+// A carrier reviewer explicitly required this: "Provide a direct public URL
+// or a hosted screenshot link showing your exact phone number collection form
+// and its compliance disclosures." The real form is inside the app behind the
+// login, so this page shows a screenshot of it — the number field with the
+// consent disclosure directly beneath — plus the program's frequency, rates,
+// opt-out and policy links. The campaign's message_flow field points here.
+func (s *Server) handleSMSOptIn(w http.ResponseWriter, r *http.Request) {
+	s.renderPolicy(w, optInTemplate, legalPage{
+		Title:            "SMS Opt-In",
+		OtherPolicyPath:  "/privacy",
+		OtherPolicyTitle: "Privacy Policy",
+		OptInDisclosure:  optInDisclosure,
+		Screenshot:       template.URL(optInScreenshotDataURI),
 	})
 }
 
@@ -359,4 +396,56 @@ emailing <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.
 
 <h2>Changes</h2>
 <p>If these terms change, the date at the top changes with them.</p>
+` + policyFooter))
+
+var optInTemplate = template.Must(template.New("optin").Parse(policyHeader + `
+<p>This page is the opt-in evidence for <strong>{{.ProgramName}}</strong>, the
+SMS reminder program operated by {{.OperatorName}}. It shows the exact phone
+number collection form used inside the donezo app and the compliance
+disclosures presented on it. The form is inside the user's own account, so it
+is reproduced here for review.</p>
+
+<h2>The phone number collection form</h2>
+<p>In the donezo app, under <em>Settings &rarr; Reminders</em>, the user selects
+"Text message", enters <strong>their own</strong> mobile number, and clicks
+"Add". The consent disclosure below is shown directly beneath the number field
+at that moment:</p>
+
+{{if .Screenshot}}
+<p><img src="{{.Screenshot}}"
+  alt="donezo Settings screen: the Text message channel selected, a mobile number field, and the SMS consent disclosure shown directly beneath it"
+  style="max-width:100%;border:1px solid rgba(128,140,155,.35);border-radius:6px"></p>
+{{end}}
+
+<h2>The compliance disclosure shown on the form</h2>
+<div class="box">
+  <p>{{.OptInDisclosure}}</p>
+  <p>See our <a href="/privacy">Privacy Policy</a> and
+  <a href="/terms">Terms and Conditions</a>.</p>
+</div>
+
+<h2>How consent works</h2>
+<ul>
+  <li><strong>Active consent, nothing pre-checked.</strong> There is no
+  pre-ticked box. The user must type their own number and press Add; consent is
+  the deliberate act of doing so.</li>
+  <li><strong>Confirmed by a code.</strong> {{.OperatorName}} then sends a
+  one-time verification code to that number, and the user must enter it in the
+  app to confirm. No other message is sent before the number is confirmed, and
+  no third party can add a number or trigger a message.</li>
+</ul>
+
+<h2>What is sent</h2>
+<p>Only two kinds of message: the one-time verification code, and the reminder
+texts the user scheduled for themselves in the app. There is no marketing or
+promotional content. <strong>Message frequency varies.</strong>
+<strong>Message and data rates may apply.</strong> Reply <strong>STOP</strong>
+to cancel at any time; reply <strong>HELP</strong> for help, or email
+<a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.</p>
+
+<h2>Data and consent</h2>
+<p>No mobile information will be shared with third parties or affiliates for
+marketing or promotional purposes. Mobile information and messaging consent are
+not shared with third parties or affiliates for marketing or promotional
+purposes.</p>
 ` + policyFooter))

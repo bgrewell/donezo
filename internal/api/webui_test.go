@@ -167,7 +167,7 @@ func TestCrawlableRootLinks(t *testing.T) {
 		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 		body := rec.Body.String()
 		for _, want := range []string{
-			`href="/privacy"`, `href="/terms"`, "Grewell Tech", "donezo Reminders",
+			`href="/privacy"`, `href="/terms"`, `href="/sms-opt-in"`, "Grewell Tech", "donezo Reminders",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("root HTML missing %q — a non-JS crawler cannot find the policy:\n%s", want, body)
