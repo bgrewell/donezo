@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -227,5 +228,79 @@ func TestPolicyRevisionIsStable(t *testing.T) {
 	}
 	if !strings.Contains(first, policyRevision) {
 		t.Fatalf("terms do not carry the revision date %q", policyRevision)
+	}
+}
+
+// The opt-in evidence page a carrier reviewer explicitly required: a public
+// URL showing the phone number collection form and its compliance
+// disclosures.
+func TestSMSOptInPage(t *testing.T) {
+	s := operatorServer(t)
+	body := doJSON(t, s.Handler(), http.MethodGet, "/sms-opt-in", "").Body.String()
+
+	// The disclosure shown on the form, verbatim.
+	if !strings.Contains(body, optInDisclosure) {
+		t.Fatal("opt-in page is missing the verbatim form disclosure")
+	}
+	// The embedded screenshot of the actual form.
+	if !strings.Contains(body, "data:image/png;base64,") {
+		t.Fatal("opt-in page is missing the embedded form screenshot")
+	}
+	for _, want := range []string{
+		"Message frequency varies",
+		"Message and data rates may apply",
+		"<strong>STOP</strong>",
+		"<strong>HELP</strong>",
+		`href="/privacy"`,
+		`href="/terms"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("opt-in page missing %q", want)
+		}
+	}
+	// The active-consent statement (addresses 30925) — checked against
+	// normalized whitespace since the template wraps it across lines.
+	flat := strings.Join(strings.Fields(body), " ")
+	if !strings.Contains(flat, "no pre-ticked box") {
+		t.Fatal("opt-in page missing the active-consent (nothing pre-checked) statement")
+	}
+}
+
+// It must be reachable with no account — the reviewer has none — and absent
+// on an instance that publishes nothing.
+func TestSMSOptInPublicAndGated(t *testing.T) {
+	pub := operatorServer(t)
+	pub.auth = anonymousAuthenticator{}
+	if rec := doJSON(t, pub.Handler(), http.MethodGet, "/sms-opt-in", ""); rec.Code != http.StatusOK {
+		t.Fatalf("anonymous GET /sms-opt-in = %d, want 200", rec.Code)
+	}
+
+	none := newTestServer(t)
+	if rec := doJSON(t, none.Handler(), http.MethodGet, "/sms-opt-in", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /sms-opt-in with no operator = %d, want 404", rec.Code)
+	}
+}
+
+// The embedded screenshot must actually be present in the binary — a blank
+// const would ship an evidence page with no evidence.
+func TestOptInScreenshotEmbedded(t *testing.T) {
+	if len(optInScreenshotDataURI) < 1000 || !strings.HasPrefix(optInScreenshotDataURI, "data:image/png;base64,") {
+		t.Fatalf("opt-in screenshot is missing or malformed (len=%d)", len(optInScreenshotDataURI))
+	}
+}
+
+// The Go disclosure constant and the TS constant must stay identical; a
+// reviewer compares the screenshot text against the page text.
+func TestOptInDisclosureMatchesFrontend(t *testing.T) {
+	ts, err := os.ReadFile("../../web/src/lib/optInDisclosure.ts")
+	if err != nil {
+		t.Skipf("frontend constant not readable: %v", err)
+	}
+	// The TS builds the string from concatenated fragments; strip quotes,
+	// plus and whitespace and check the disclosure survives as a substring.
+	flat := strings.Join(strings.Fields(string(ts)), "")
+	wantFlat := strings.ReplaceAll(strings.Join(strings.Fields(optInDisclosure), ""), " ", "")
+	if !strings.Contains(strings.ReplaceAll(flat, "\"+\"", ""), wantFlat) {
+		t.Fatal("optInDisclosure (Go) and SMS_OPT_IN_DISCLOSURE (TS) have drifted apart")
 	}
 }

@@ -357,9 +357,33 @@ export function ReminderDeliverySection() {
                 the public /sms-opt-in page quotes this same sentence for
                 A2P vetting. Keep it verbatim with SMS_OPT_IN_DISCLOSURE. */}
             {channel === "sms" && (
-              <p className="m-0 rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-2 text-[0.72rem] text-gtc-muted">
-                {SMS_OPT_IN_DISCLOSURE}
-              </p>
+              <div className="m-0 space-y-1 rounded-gtc border border-gtc-line bg-gtc-inset px-2.5 py-2 text-[0.72rem] text-gtc-muted">
+                <p className="m-0">{SMS_OPT_IN_DISCLOSURE}</p>
+                {/* A compliant opt-in form links its own policies at the point
+                    of consent, not only elsewhere — carriers check for it, and
+                    the public /sms-opt-in screenshot must show it. */}
+                <p className="m-0">
+                  See our{" "}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-gtc-accent underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                  >
+                    Privacy Policy
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-gtc-accent underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                  >
+                    Terms
+                  </a>
+                  .
+                </p>
+              </div>
             )}
             {addError && (
               <p className="m-0 font-mono text-[0.66rem] text-gtc-danger" role="alert">

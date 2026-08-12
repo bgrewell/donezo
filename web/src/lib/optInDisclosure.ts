@@ -10,4 +10,6 @@ export const SMS_OPT_IN_DISCLOSURE =
   "By entering your number you agree to receive a one-time verification code " +
   "and the reminder texts you schedule from donezo Reminders. Message " +
   "frequency varies. Message and data rates may apply. Reply STOP to cancel, " +
-  "HELP for help.";
+  "HELP for help. We do not share, sell, or provide your mobile phone number " +
+  "or messaging consent data to third parties or affiliates for marketing or " +
+  "promotional purposes.";

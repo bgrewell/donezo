@@ -67,7 +67,8 @@ func (s *Server) crawlableIndex(data []byte) []byte {
 		` operates ` + template.HTMLEscapeString(programName) +
 		`, an SMS reminder service.</p>` +
 		`<p><a href="/privacy">Privacy Policy</a> · ` +
-		`<a href="/terms">Terms of Service</a></p>` +
+		`<a href="/terms">Terms of Service</a> · ` +
+		`<a href="/sms-opt-in">SMS opt-in</a></p>` +
 		`</footer></noscript>`
 	if idx := bytes.LastIndex(data, []byte("</body>")); idx >= 0 {
 		out := make([]byte, 0, len(data)+len(block))
