@@ -238,31 +238,60 @@ func TestSMSOptInPage(t *testing.T) {
 	s := operatorServer(t)
 	body := doJSON(t, s.Handler(), http.MethodGet, "/sms-opt-in", "").Body.String()
 
-	// The disclosure shown on the form, verbatim.
-	if !strings.Contains(body, optInDisclosure) {
-		t.Fatal("opt-in page is missing the verbatim form disclosure")
+	// The reviewer required a real form with a "distinct, separate checkbox
+	// specifically for SMS consent that defaults to unchecked". These pin
+	// exactly that, so a template edit cannot quietly drop it.
+	if !strings.Contains(body, `type="checkbox"`) || !strings.Contains(body, `id="dz-sms-consent"`) {
+		t.Fatal("opt-in page is missing the dedicated SMS-consent checkbox")
 	}
-	// The embedded screenshot of the actual form.
+	// The checkbox must be UNCHECKED by default: no `checked` attribute on it.
+	// Isolate the checkbox tag and assert it carries no checked attribute.
+	if i := strings.Index(body, `id="dz-sms-consent"`); i >= 0 {
+		start := strings.LastIndex(body[:i], "<input")
+		end := strings.Index(body[i:], ">") + i
+		if start < 0 || end <= start {
+			t.Fatal("could not isolate the consent checkbox tag")
+		}
+		if strings.Contains(body[start:end], "checked") {
+			t.Fatalf("the SMS-consent checkbox is pre-checked, but must default to unchecked:\n%s", body[start:end])
+		}
+	}
+	// A real form with a phone field and a submit control.
+	if !strings.Contains(body, `<input type="tel"`) {
+		t.Fatal("opt-in page is missing the phone number field")
+	}
+	if !strings.Contains(body, `<button type="submit"`) {
+		t.Fatal("opt-in page is missing the submit button")
+	}
+	// The embedded screenshot of the in-app form (supporting evidence).
 	if !strings.Contains(body, "data:image/png;base64,") {
 		t.Fatal("opt-in page is missing the embedded form screenshot")
 	}
 	for _, want := range []string{
 		"Message frequency varies",
 		"Message and data rates may apply",
-		"<strong>STOP</strong>",
-		"<strong>HELP</strong>",
+		"STOP to cancel", // in the checkbox label
+		"HELP for help",
 		`href="/privacy"`,
 		`href="/terms"`,
+		// The no-sell/no-share sentence, in the consent label.
+		"We do not share, sell, or provide my mobile phone number or messaging",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("opt-in page missing %q", want)
 		}
 	}
-	// The active-consent statement (addresses 30925) — checked against
-	// normalized whitespace since the template wraps it across lines.
+	// Whitespace-tolerant checks for phrases the template wraps across lines.
 	flat := strings.Join(strings.Fields(body), " ")
-	if !strings.Contains(flat, "no pre-ticked box") {
-		t.Fatal("opt-in page missing the active-consent (nothing pre-checked) statement")
+	for _, want := range []string{
+		// 30923: consent must not be a required condition of service.
+		"not a condition of purchase or of using donezo",
+		// The unchecked-by-default / deliberate-action statement.
+		"checkbox above is unchecked by default",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("opt-in page missing (normalized): %q", want)
+		}
 	}
 }
 
