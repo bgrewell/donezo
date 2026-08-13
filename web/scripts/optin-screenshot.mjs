@@ -3,16 +3,19 @@
  * page (internal/api/optin_screenshot.go).
  *
  * A carrier reviewer required "a hosted screenshot link showing your exact
- * phone number collection form and its compliance disclosures". Rather than
- * screenshot the in-app settings screen (which carries app chrome), this
- * renders a clean, standalone representation of the SMS opt-in form — a phone
- * field and a dedicated SMS-consent checkbox, unchecked, with the full
- * disclosure — screenshots it, compresses it, and writes the Go source with
- * the data: URI embedded.
+ * phone number collection form and its compliance disclosures". To make the
+ * screenshot look exactly like the real app, this drives a running donezo,
+ * opens Settings -> Reminders with the SMS channel selected, and injects a
+ * dedicated (unchecked) SMS-consent checkbox into the app's own disclosure box
+ * before capturing — reusing the app's real dark-theme styling. It then
+ * compresses the image and writes the Go source with the data: URI embedded.
  *
- * Prereqs: Python with Pillow for the compression step. Usage:
+ * The checkbox is injected only for the screenshot; the real app is unchanged.
  *
- *   node web/scripts/optin-screenshot.mjs
+ * Prereqs: a running donezod with SMS configured and an owner account, plus
+ * Python with Pillow. Usage:
+ *
+ *   node web/scripts/optin-screenshot.mjs <baseURL> <username> <password>
  */
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
@@ -23,47 +26,89 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 
-// The standalone opt-in form. This is the reference the reviewer sees; keep
-// the consent language in sync with the disclosures on /privacy and /terms.
-const FORM_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body { margin:0; background:#f4f6f9; font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#16191d; }
-  .card { max-width:520px; margin:24px auto; background:#fff; border:1px solid #dfe3e8; border-radius:10px; padding:22px 22px 26px; box-shadow:0 1px 3px rgba(16,24,40,.06); }
-  .brand { font-weight:700; font-size:1.05rem; margin:0 0 2px; }
-  .sub { color:#6b7580; font-size:.85rem; margin:0 0 18px; }
-  label.field { display:block; font-weight:600; font-size:.9rem; margin:0 0 6px; }
-  input[type=tel] { width:100%; box-sizing:border-box; padding:.6rem .7rem; font-size:1rem; border:1px solid #c4ccd6; border-radius:6px; }
-  label.consent { display:flex; gap:.6rem; align-items:flex-start; margin:16px 0; font-size:.82rem; color:#333; }
-  label.consent input { margin:.15rem 0 0; width:18px; height:18px; flex:0 0 auto; }
-  button { width:100%; padding:.7rem 1rem; font-size:1rem; font-weight:600; border:0; border-radius:6px; background:#9db8f0; color:#fff; cursor:not-allowed; }
-  a { color:#2f6feb; }
-</style></head><body>
-<div class="card">
-  <p class="brand">donezo Reminders &mdash; SMS sign-up</p>
-  <p class="sub">Grewell Tech</p>
-  <label class="field" for="p">Mobile number</label>
-  <input type="tel" id="p" value="+1 555 010 4477">
-  <label class="consent" for="c">
-    <input type="checkbox" id="c">
-    <span>I agree to receive recurring automated text messages from donezo Reminders (Grewell Tech) at the number provided: a one-time verification code and the reminder texts I schedule. Consent is not a condition of purchase or of using donezo. Message frequency varies. Message and data rates may apply. Reply STOP to cancel, HELP for help. We do not share, sell, or provide my mobile phone number or messaging consent data to third parties or affiliates for marketing or promotional purposes. See our <a href="#">Privacy Policy</a> and <a href="#">Terms</a>.</span>
-  </label>
-  <button disabled>Sign up for SMS reminders</button>
-</div>
-</body></html>`;
+const [base = "http://localhost:8855", user = "ben", pass = "adminpass123"] = process.argv.slice(2);
+
+// First-person consent language for the checkbox label. Keep it consistent
+// with the disclosures on /privacy and /terms.
+const CONSENT =
+  "I agree to receive text messages from donezo Reminders (Grewell Tech) at " +
+  "the number provided: a one-time verification code and the reminder texts I " +
+  "schedule. Consent is not a condition of using donezo. Message frequency " +
+  "varies. Message and data rates may apply. Reply STOP to cancel, HELP for " +
+  'help. We do not share, sell, or provide my mobile phone number or messaging ' +
+  "consent data to third parties or affiliates for marketing or promotional " +
+  'purposes. See our <a href="/privacy">Privacy Policy</a> and ' +
+  '<a href="/terms">Terms</a>.';
 
 const dir = mkdtempSync(join(tmpdir(), "optin-"));
 const rawPng = join(dir, "form.png");
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 560, height: 640 }, deviceScaleFactor: 2 });
-await page.setContent(FORM_HTML, { waitUntil: "networkidle" });
-await page.waitForTimeout(150);
-const box = await page.locator(".card").boundingBox();
-await page.screenshot({
-  path: rawPng,
-  clip: { x: box.x - 16, y: box.y - 16, width: box.width + 32, height: box.height + 32 },
+const ctx = await browser.newContext({
+  viewport: { width: 760, height: 1000 },
+  deviceScaleFactor: 2,
+  colorScheme: "dark",
 });
+const page = await ctx.newPage();
+await page.goto(`${base}/#/focus`, { waitUntil: "networkidle" });
+await page.waitForTimeout(500);
+await page.getByLabel(/username/i).fill(user);
+await page.getByLabel(/password/i).fill(pass);
+await page.getByRole("button", { name: /sign in|log in/i }).click();
+await page.waitForTimeout(1500);
+const welcome = page.getByRole("button", { name: "Just start" });
+if (await welcome.count()) {
+  await welcome.click();
+  await page.waitForTimeout(300);
+}
+await page.goto(`${base}/#/settings/reminders`, { waitUntil: "networkidle" });
+await page.waitForTimeout(900);
+await page.getByLabel("Delivery channel").selectOption("sms");
+await page.waitForTimeout(400);
+await page.getByLabel("Address or number").fill("+1 555 010 4477");
+await page.waitForTimeout(300);
+
+const clip = await page.evaluate((consent) => {
+  const disc = [...document.querySelectorAll("p")].find((el) =>
+    el.textContent.includes("By entering your number you agree")
+  );
+  if (!disc) return { err: "disclosure box not found" };
+  const box = disc.parentElement; // the disclosure box only
+  box.innerHTML = "";
+  const label = document.createElement("label");
+  Object.assign(label.style, {
+    display: "flex",
+    gap: "9px",
+    alignItems: "flex-start",
+    cursor: "pointer",
+    margin: "0",
+  });
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  Object.assign(cb.style, {
+    marginTop: "2px",
+    width: "16px",
+    height: "16px",
+    flex: "0 0 auto",
+    accentColor: "#4cc2ff",
+  });
+  const span = document.createElement("span");
+  span.innerHTML = consent;
+  label.appendChild(cb);
+  label.appendChild(span);
+  box.appendChild(label);
+
+  const heading = [...document.querySelectorAll("h1,h2,h3,h4")].find(
+    (e) => e.textContent.trim() === "Reminders"
+  );
+  const top = (heading ? heading.getBoundingClientRect().top : 100) - 14;
+  const left = (heading ? heading.getBoundingClientRect().left : 66) - 10;
+  const bottom = box.getBoundingClientRect().bottom + 16;
+  return { x: Math.max(0, left), y: Math.max(0, top), width: 760 - left - 10, height: bottom - top };
+}, CONSENT);
+if (clip.err) throw new Error(clip.err);
+await page.waitForTimeout(150);
+await page.screenshot({ path: rawPng, clip });
 await browser.close();
 
 const py = `
@@ -71,25 +116,27 @@ from PIL import Image
 import base64, io
 im = Image.open(${JSON.stringify(rawPng)}).convert("RGB")
 w,h = im.size
-if w > 1000:
-    im = im.resize((1000, int(h*1000/w)), Image.LANCZOS)
+if w > 1100:
+    im = im.resize((1100, int(h*1100/w)), Image.LANCZOS)
 buf = io.BytesIO()
-im.convert("P", palette=Image.ADAPTIVE, colors=64).save(buf, format="PNG", optimize=True)
+im.convert("P", palette=Image.ADAPTIVE, colors=96).save(buf, format="PNG", optimize=True)
 print("data:image/png;base64," + base64.b64encode(buf.getvalue()).decode())
 `;
 const dataURI = execFileSync("python3", ["-c", py]).toString().trim();
 
 const header = `package api
 
-// optInScreenshotDataURI is a PNG of the SMS opt-in form — a mobile number
-// field and a dedicated SMS-consent checkbox that is unchecked by default,
-// with the full consent disclosure — embedded as a data: URI so the public
+// optInScreenshotDataURI is a PNG of the donezo Settings -> Reminders screen
+// with the SMS ("Text message") channel selected: the mobile number field and,
+// beneath it, a dedicated SMS-consent checkbox that is unchecked by default,
+// with the full consent disclosure. It is the app's own dark-themed UI, so a
+// reviewer sees what a user sees. Embedded as a data: URI so the public
 // /sms-opt-in page is self-contained.
 //
 // A carrier reviewer required "a hosted screenshot link showing your exact
-// phone number collection form and its compliance disclosures". This is
-// captured from a standalone rendering of the opt-in form (see
-// web/scripts/optin-screenshot.mjs); regenerate it if the form changes.
+// phone number collection form and its compliance disclosures". Regenerate
+// with web/scripts/optin-screenshot.mjs (drives the real app and injects the
+// consent checkbox before capture) when the form changes.
 const optInScreenshotDataURI = \``;
 
 writeFileSync("internal/api/optin_screenshot.go", header + dataURI + "`\n");
