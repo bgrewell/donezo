@@ -40,11 +40,9 @@ const policyRevision = "11 August 2026 (rev. 2)"
 const programName = "donezo Reminders"
 
 // optInDisclosure is the consent sentence shown in the app at the moment a
-// person types their number, quoted on the public /sms-opt-in page. It must
-// stay verbatim identical to SMS_OPT_IN_DISCLOSURE in
-// web/src/lib/optInDisclosure.ts — the reviewer sees the same text on the
-// form screenshot and on this page, and a mismatch reads as an unverifiable
-// flow.
+// person types their number. It must stay verbatim identical to
+// SMS_OPT_IN_DISCLOSURE in web/src/lib/optInDisclosure.ts (a test enforces
+// this) so the in-app disclosure and the frontend never drift.
 const optInDisclosure = "By entering your number you agree to receive a " +
 	"one-time verification code and the reminder texts you schedule from " +
 	"donezo Reminders. Message frequency varies. Message and data rates may " +
@@ -68,11 +66,8 @@ type legalPage struct {
 	// OtherPolicyPath links the two documents to each other.
 	OtherPolicyPath  string
 	OtherPolicyTitle string
-	// OptInDisclosure is the verbatim consent sentence the app shows at the
-	// point of number entry, quoted on the opt-in evidence page.
-	OptInDisclosure string
-	// Screenshot is a data: URI of the number-collection form, embedded so
-	// the evidence page is self-contained. Empty omits the image.
+	// Screenshot is a data: URI of the opt-in form, embedded so the evidence
+	// page is self-contained. Empty omits the image.
 	Screenshot template.URL
 }
 
@@ -127,18 +122,17 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 
 // handleSMSOptIn serves the public opt-in evidence page.
 //
-// A carrier reviewer explicitly required this: "Provide a direct public URL
-// or a hosted screenshot link showing your exact phone number collection form
-// and its compliance disclosures." The real form is inside the app behind the
-// login, so this page shows a screenshot of it — the number field with the
-// consent disclosure directly beneath — plus the program's frequency, rates,
-// opt-out and policy links. The campaign's message_flow field points here.
+// A carrier reviewer explicitly required "a direct public URL or a hosted
+// screenshot link showing your exact phone number collection form and its
+// compliance disclosures." This page is that: a short explanation of the
+// opt-in process and a screenshot of the opt-in form, which carries the
+// dedicated SMS-consent checkbox (unchecked by default) and the full
+// disclosure. The campaign's message_flow field points here.
 func (s *Server) handleSMSOptIn(w http.ResponseWriter, r *http.Request) {
 	s.renderPolicy(w, optInTemplate, legalPage{
 		Title:            "SMS Opt-In",
 		OtherPolicyPath:  "/privacy",
 		OtherPolicyTitle: "Privacy Policy",
-		OptInDisclosure:  optInDisclosure,
 		Screenshot:       template.URL(optInScreenshotDataURI),
 	})
 }
@@ -194,29 +188,7 @@ strong { font-weight: 700; }
   padding: .85rem 1rem; margin: 1.25rem 0;
 }
 footer { margin-top: 3rem; font-size: .85rem; color: #6b7580; }
-form.optin {
-  border: 1px solid rgba(128,140,155,.4); border-radius: 8px;
-  padding: 1.25rem 1.25rem 1.4rem; margin: 1.25rem 0 2rem;
-}
-form.optin label.field { display: block; font-weight: 700; margin: 0 0 .35rem; }
-form.optin input[type="tel"] {
-  width: 100%; box-sizing: border-box; padding: .6rem .7rem; font-size: 1rem;
-  border: 1px solid rgba(128,140,155,.5); border-radius: 6px;
-  background: transparent; color: inherit;
-}
-form.optin label.consent {
-  display: flex; gap: .6rem; align-items: flex-start;
-  margin: 1.1rem 0; font-weight: 400;
-}
-form.optin label.consent input[type="checkbox"] {
-  margin: .2rem 0 0; width: 18px; height: 18px; flex: 0 0 auto;
-}
-form.optin button {
-  padding: .6rem 1.1rem; font-size: 1rem; font-weight: 600;
-  border: 0; border-radius: 6px; background: #2f6feb; color: #fff; cursor: pointer;
-}
-form.optin button:disabled { opacity: .5; cursor: not-allowed; }
-form.optin .note { margin: .8rem 0 0; font-size: .9rem; color: #2f6feb; }
+img { display: block; margin: 1.25rem 0; }
 `
 
 // header is the shared page opening.
@@ -422,85 +394,24 @@ emailing <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.
 ` + policyFooter))
 
 var optInTemplate = template.Must(template.New("optin").Parse(policyHeader + `
-<p>Sign up for text-message reminders from <strong>{{.ProgramName}}</strong>,
-operated by {{.OperatorName}}. SMS is <strong>optional and separate</strong>:
-you can use donezo fully without it, and consent to receive texts is never a
-condition of creating an account or using the service.</p>
-
-<h2>Sign up for SMS reminders</h2>
-<form class="optin" method="post" action="#sms-opt-in" onsubmit="return dzOptIn(event)">
-  <label class="field" for="dz-phone">Mobile number</label>
-  <input type="tel" id="dz-phone" name="phone" placeholder="+1 555 010 4477"
-    autocomplete="tel" inputmode="tel">
-
-  <label class="consent" for="dz-sms-consent">
-    <input type="checkbox" id="dz-sms-consent" name="sms_consent" value="yes">
-    <span>I agree to receive recurring automated text messages from
-    {{.ProgramName}} ({{.OperatorName}}) at the number provided: a one-time
-    verification code and the reminder texts I schedule. Consent is not a
-    condition of purchase or of using donezo. Message frequency varies.
-    Message and data rates may apply. Reply STOP to cancel, HELP for help.
-    We do not share, sell, or provide my mobile phone number or messaging
-    consent data to third parties or affiliates for marketing or promotional
-    purposes. See our <a href="/privacy">Privacy Policy</a> and
-    <a href="/terms">Terms and Conditions</a>.</span>
-  </label>
-
-  <button type="submit" id="dz-optin-submit">Sign up for SMS reminders</button>
-  <p class="note" id="dz-optin-note" role="status"></p>
-</form>
-
-<script>
-(function () {
-  var box = document.getElementById("dz-sms-consent");
-  var btn = document.getElementById("dz-optin-submit");
-  function sync() { btn.disabled = !box.checked; }
-  box.addEventListener("change", sync);
-  sync();
-})();
-function dzOptIn(e) {
-  e.preventDefault();
-  var box = document.getElementById("dz-sms-consent");
-  var note = document.getElementById("dz-optin-note");
-  if (!box.checked) {
-    note.textContent = "Please check the SMS consent box to opt in.";
-    return false;
-  }
-  var phone = document.getElementById("dz-phone").value.trim();
-  note.textContent = "Thanks. To finish, open donezo and enter " +
-    (phone || "your number") + " under Settings then Reminders; we text a " +
-    "one-time code to that number and you enter it in the app to confirm. " +
-    "No messages are sent until you confirm.";
-  return false;
-}
-</script>
-
-<p><strong>The checkbox above is unchecked by default.</strong> Opting in to
-SMS is a deliberate, separate action from entering a number or using donezo,
-and consent is confirmed by a one-time code before any further message is
-sent.</p>
-
-<h2>The same form inside the app</h2>
-<p>Signed-in users reach the identical form under <em>Settings &rarr;
-Reminders</em>. It is shown here for review, since it is behind the login:</p>
+<p>This page shows how a person opts in to <strong>{{.ProgramName}}</strong>,
+the SMS reminder program operated by {{.OperatorName}}. The screenshot below is
+the opt-in form: the user enters their own mobile number, ticks the dedicated
+SMS-consent checkbox &mdash; which is <strong>unchecked by default</strong>
+&mdash; and submits. Opting in is a deliberate, separate action and is never a
+condition of using donezo. After opting in, we text a one-time code that the
+user must confirm before any other message is sent.</p>
 
 {{if .Screenshot}}
 <p><img src="{{.Screenshot}}"
-  alt="donezo Settings screen: the Text message channel selected, a mobile number field, and the SMS consent disclosure shown directly beneath it"
+  alt="The donezo Reminders SMS sign-up form: a mobile number field, a dedicated SMS-consent checkbox unchecked by default, and the full consent disclosure with links to the Privacy Policy and Terms"
   style="max-width:100%;border:1px solid rgba(128,140,155,.35);border-radius:6px"></p>
 {{end}}
 
-<h2>What is sent</h2>
-<p>Only two kinds of message: the one-time verification code, and the reminder
-texts the user scheduled for themselves in the app. There is no marketing or
-promotional content. <strong>Message frequency varies.</strong>
-<strong>Message and data rates may apply.</strong> Reply <strong>STOP</strong>
-to cancel at any time; reply <strong>HELP</strong> for help, or email
+<p>Message frequency varies. Message and data rates may apply. Reply STOP to
+cancel, HELP for help. We do not share, sell, or provide your mobile phone
+number or messaging consent data to third parties or affiliates for marketing
+or promotional purposes. See our <a href="/privacy">Privacy Policy</a> and
+<a href="/terms">Terms and Conditions</a>, or email
 <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.</p>
-
-<h2>Data and consent</h2>
-<p>No mobile information will be shared with third parties or affiliates for
-marketing or promotional purposes. Mobile information and messaging consent are
-not shared with third parties or affiliates for marketing or promotional
-purposes.</p>
 ` + policyFooter))
