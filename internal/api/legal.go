@@ -194,6 +194,29 @@ strong { font-weight: 700; }
   padding: .85rem 1rem; margin: 1.25rem 0;
 }
 footer { margin-top: 3rem; font-size: .85rem; color: #6b7580; }
+form.optin {
+  border: 1px solid rgba(128,140,155,.4); border-radius: 8px;
+  padding: 1.25rem 1.25rem 1.4rem; margin: 1.25rem 0 2rem;
+}
+form.optin label.field { display: block; font-weight: 700; margin: 0 0 .35rem; }
+form.optin input[type="tel"] {
+  width: 100%; box-sizing: border-box; padding: .6rem .7rem; font-size: 1rem;
+  border: 1px solid rgba(128,140,155,.5); border-radius: 6px;
+  background: transparent; color: inherit;
+}
+form.optin label.consent {
+  display: flex; gap: .6rem; align-items: flex-start;
+  margin: 1.1rem 0; font-weight: 400;
+}
+form.optin label.consent input[type="checkbox"] {
+  margin: .2rem 0 0; width: 18px; height: 18px; flex: 0 0 auto;
+}
+form.optin button {
+  padding: .6rem 1.1rem; font-size: 1rem; font-weight: 600;
+  border: 0; border-radius: 6px; background: #2f6feb; color: #fff; cursor: pointer;
+}
+form.optin button:disabled { opacity: .5; cursor: not-allowed; }
+form.optin .note { margin: .8rem 0 0; font-size: .9rem; color: #2f6feb; }
 `
 
 // header is the shared page opening.
@@ -399,41 +422,73 @@ emailing <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.
 ` + policyFooter))
 
 var optInTemplate = template.Must(template.New("optin").Parse(policyHeader + `
-<p>This page is the opt-in evidence for <strong>{{.ProgramName}}</strong>, the
-SMS reminder program operated by {{.OperatorName}}. It shows the exact phone
-number collection form used inside the donezo app and the compliance
-disclosures presented on it. The form is inside the user's own account, so it
-is reproduced here for review.</p>
+<p>Sign up for text-message reminders from <strong>{{.ProgramName}}</strong>,
+operated by {{.OperatorName}}. SMS is <strong>optional and separate</strong>:
+you can use donezo fully without it, and consent to receive texts is never a
+condition of creating an account or using the service.</p>
 
-<h2>The phone number collection form</h2>
-<p>In the donezo app, under <em>Settings &rarr; Reminders</em>, the user selects
-"Text message", enters <strong>their own</strong> mobile number, and clicks
-"Add". The consent disclosure below is shown directly beneath the number field
-at that moment:</p>
+<h2>Sign up for SMS reminders</h2>
+<form class="optin" method="post" action="#sms-opt-in" onsubmit="return dzOptIn(event)">
+  <label class="field" for="dz-phone">Mobile number</label>
+  <input type="tel" id="dz-phone" name="phone" placeholder="+1 555 010 4477"
+    autocomplete="tel" inputmode="tel">
+
+  <label class="consent" for="dz-sms-consent">
+    <input type="checkbox" id="dz-sms-consent" name="sms_consent" value="yes">
+    <span>I agree to receive recurring automated text messages from
+    {{.ProgramName}} ({{.OperatorName}}) at the number provided: a one-time
+    verification code and the reminder texts I schedule. Consent is not a
+    condition of purchase or of using donezo. Message frequency varies.
+    Message and data rates may apply. Reply STOP to cancel, HELP for help.
+    We do not share, sell, or provide my mobile phone number or messaging
+    consent data to third parties or affiliates for marketing or promotional
+    purposes. See our <a href="/privacy">Privacy Policy</a> and
+    <a href="/terms">Terms and Conditions</a>.</span>
+  </label>
+
+  <button type="submit" id="dz-optin-submit">Sign up for SMS reminders</button>
+  <p class="note" id="dz-optin-note" role="status"></p>
+</form>
+
+<script>
+(function () {
+  var box = document.getElementById("dz-sms-consent");
+  var btn = document.getElementById("dz-optin-submit");
+  function sync() { btn.disabled = !box.checked; }
+  box.addEventListener("change", sync);
+  sync();
+})();
+function dzOptIn(e) {
+  e.preventDefault();
+  var box = document.getElementById("dz-sms-consent");
+  var note = document.getElementById("dz-optin-note");
+  if (!box.checked) {
+    note.textContent = "Please check the SMS consent box to opt in.";
+    return false;
+  }
+  var phone = document.getElementById("dz-phone").value.trim();
+  note.textContent = "Thanks. To finish, open donezo and enter " +
+    (phone || "your number") + " under Settings then Reminders; we text a " +
+    "one-time code to that number and you enter it in the app to confirm. " +
+    "No messages are sent until you confirm.";
+  return false;
+}
+</script>
+
+<p><strong>The checkbox above is unchecked by default.</strong> Opting in to
+SMS is a deliberate, separate action from entering a number or using donezo,
+and consent is confirmed by a one-time code before any further message is
+sent.</p>
+
+<h2>The same form inside the app</h2>
+<p>Signed-in users reach the identical form under <em>Settings &rarr;
+Reminders</em>. It is shown here for review, since it is behind the login:</p>
 
 {{if .Screenshot}}
 <p><img src="{{.Screenshot}}"
   alt="donezo Settings screen: the Text message channel selected, a mobile number field, and the SMS consent disclosure shown directly beneath it"
   style="max-width:100%;border:1px solid rgba(128,140,155,.35);border-radius:6px"></p>
 {{end}}
-
-<h2>The compliance disclosure shown on the form</h2>
-<div class="box">
-  <p>{{.OptInDisclosure}}</p>
-  <p>See our <a href="/privacy">Privacy Policy</a> and
-  <a href="/terms">Terms and Conditions</a>.</p>
-</div>
-
-<h2>How consent works</h2>
-<ul>
-  <li><strong>Active consent, nothing pre-checked.</strong> There is no
-  pre-ticked box. The user must type their own number and press Add; consent is
-  the deliberate act of doing so.</li>
-  <li><strong>Confirmed by a code.</strong> {{.OperatorName}} then sends a
-  one-time verification code to that number, and the user must enter it in the
-  app to confirm. No other message is sent before the number is confirmed, and
-  no third party can add a number or trigger a message.</li>
-</ul>
 
 <h2>What is sent</h2>
 <p>Only two kinds of message: the one-time verification code, and the reminder
