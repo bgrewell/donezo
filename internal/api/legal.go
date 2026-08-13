@@ -396,15 +396,16 @@ emailing <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>.
 var optInTemplate = template.Must(template.New("optin").Parse(policyHeader + `
 <p>This page shows how a person opts in to <strong>{{.ProgramName}}</strong>,
 the SMS reminder program operated by {{.OperatorName}}. The screenshot below is
-the opt-in form: the user enters their own mobile number, ticks the dedicated
-SMS-consent checkbox &mdash; which is <strong>unchecked by default</strong>
-&mdash; and submits. Opting in is a deliberate, separate action and is never a
-condition of using donezo. After opting in, we text a one-time code that the
-user must confirm before any other message is sent.</p>
+the opt-in form inside the donezo app (<em>Settings &rarr; Reminders</em>): the
+user selects "Text message", enters their own mobile number, ticks the
+dedicated SMS-consent checkbox &mdash; which is <strong>unchecked by
+default</strong> &mdash; and submits. Opting in is a deliberate, separate action
+and is never a condition of using donezo. After opting in, we text a one-time
+code that the user must confirm before any other message is sent.</p>
 
 {{if .Screenshot}}
 <p><img src="{{.Screenshot}}"
-  alt="The donezo Reminders SMS sign-up form: a mobile number field, a dedicated SMS-consent checkbox unchecked by default, and the full consent disclosure with links to the Privacy Policy and Terms"
+  alt="The donezo Settings and Reminders screen with Text message selected: a mobile number field and, beneath it, a dedicated SMS-consent checkbox unchecked by default with the full consent disclosure"
   style="max-width:100%;border:1px solid rgba(128,140,155,.35);border-radius:6px"></p>
 {{end}}
 
