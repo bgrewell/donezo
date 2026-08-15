@@ -6,6 +6,8 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/bgrewell/donezo/internal/store"
 )
 
 // This file defines the curated tool surface and registers it with the SDK
@@ -378,14 +380,17 @@ func buildTools() []tool {
 			name:  "create_reminder",
 			title: "Create reminder",
 			description: "Create a reminder that resurfaces at a specific time. Use it for time-bound nudges. " +
-				"remind_at is an ISO datetime like 2026-07-28T09:00:00.",
+				"remind_at is an ISO datetime like 2026-07-28T09:00:00. To make it recurring — re-reminding on a " +
+				"schedule until it is marked done — set repeat_every and repeat_unit (e.g. 1 + day for daily).",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
-				"space_id":   strProp("The space to create the reminder in."),
-				"text":       strProp("What to be reminded about — one short line."),
-				"details":    strProp("Optional longer detail: why it matters, what to have to hand."),
-				"remind_at":  strProp("When to resurface, ISO datetime (e.g. 2026-07-28T09:00:00)."),
-				"project_id": strProp("Optional project to attach the reminder to (must exist if given)."),
+				"space_id":     strProp("The space to create the reminder in."),
+				"text":         strProp("What to be reminded about — one short line."),
+				"details":      strProp("Optional longer detail: why it matters, what to have to hand."),
+				"remind_at":    strProp("When to resurface, ISO datetime (e.g. 2026-07-28T09:00:00)."),
+				"project_id":   strProp("Optional project to attach the reminder to (must exist if given)."),
+				"repeat_every": numProp("Optional recurrence interval count (>= 1). Set with repeat_unit to repeat until done."),
+				"repeat_unit":  enumProp("Optional recurrence unit; required with repeat_every.", store.RepeatUnits),
 			}, "space_id", "text", "remind_at"),
 			handler: toolCreateReminder,
 		},

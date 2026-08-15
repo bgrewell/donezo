@@ -1,11 +1,12 @@
 import * as React from "react";
 import { Button, Input, cn } from "@grewelltech/console";
 
-import type { Reminder } from "@/domain/types";
+import type { Reminder, ReminderRepeat } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
 import { withSeconds } from "@/lib/time";
 import { ProjectSelect } from "@/components/capture/ProjectSelect";
+import { RepeatSelect } from "@/components/capture/RepeatSelect";
 
 /** Inline editor for a reminder: text, details, when, and project.
  *
@@ -29,6 +30,7 @@ export function ReminderEditor({
   // datetime-local wants no seconds; the API stores them.
   const [remindAt, setRemindAt] = React.useState(reminder.remindAt.slice(0, 16));
   const [projectId, setProjectId] = React.useState(reminder.projectId ?? "");
+  const [repeat, setRepeat] = React.useState<ReminderRepeat | undefined>(reminder.repeat);
   // See TaskEditor: diffed against what the editor opened on, so a field the
   // user never touched cannot enter the patch and revert someone else's
   // change.
@@ -37,6 +39,7 @@ export function ReminderEditor({
     details: reminder.details,
     remindAt: reminder.remindAt,
     projectId: reminder.projectId,
+    repeat: reminder.repeat,
   });
 
   // Same rule as editing a note: a closed project stays listed while the item
@@ -56,6 +59,12 @@ export function ReminderEditor({
     if ((projectId || undefined) !== was.projectId) {
       patch.projectId = projectId || undefined;
     }
+    // A cleared repeat travels as undefined → null (see CLEARABLE in sync.ts),
+    // so the assignment must be explicit rather than conditional on presence.
+    const repeatChanged =
+      (repeat?.every ?? null) !== (was.repeat?.every ?? null) ||
+      (repeat?.unit ?? null) !== (was.repeat?.unit ?? null);
+    if (repeatChanged) patch.repeat = repeat;
     if (Object.keys(patch).length > 0) {
       dispatch({ type: "UPDATE_REMINDER", id: reminder.id, patch });
     }
@@ -93,6 +102,7 @@ export function ReminderEditor({
         <div className="min-w-[11rem]">
           <ProjectSelect projects={projects} value={projectId} onChange={setProjectId} />
         </div>
+        <RepeatSelect value={repeat} onChange={setRepeat} />
         <Button size="sm" variant="primary" onClick={save} disabled={!trimmed || !remindAt}>
           Save
         </Button>

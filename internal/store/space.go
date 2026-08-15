@@ -728,9 +728,11 @@ func insertReminder(ctx context.Context, ex execer, r Reminder) (Reminder, error
 	if err := requireID("reminder", r.ID); err != nil {
 		return Reminder{}, err
 	}
+	repeatEvery, repeatUnit := repeatToColumns(r.Repeat)
 	if _, err := ex.ExecContext(ctx,
-		`INSERT INTO reminders (id, text, details, remind_at, project_id, done) VALUES (?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done)); err != nil {
+		`INSERT INTO reminders (id, text, details, remind_at, project_id, done, repeat_every, repeat_unit)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), repeatEvery, repeatUnit); err != nil {
 		return Reminder{}, fmt.Errorf("store: create reminder %q: %w", r.ID, classifyConstraint(err))
 	}
 	return r, nil
@@ -748,10 +750,12 @@ func (s *SpaceStore) GetReminder(ctx context.Context, spaceID, id string) (Remin
 // getReminderRow reads one reminder by id via q, or ErrNotFound.
 func getReminderRow(ctx context.Context, q rowQuerier, id string) (Reminder, error) {
 	var r Reminder
-	var done *int64
+	var done, repeatEvery *int64
+	var repeatUnit *string
 	err := q.QueryRowContext(ctx,
-		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE id = ? AND deleted_at IS NULL`,
-		id).Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done)
+		`SELECT id, text, details, remind_at, project_id, done, repeat_every, repeat_unit
+		 FROM reminders WHERE id = ? AND deleted_at IS NULL`,
+		id).Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done, &repeatEvery, &repeatUnit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Reminder{}, fmt.Errorf("store: reminder %q: %w", id, ErrNotFound)
 	}
@@ -759,6 +763,7 @@ func getReminderRow(ctx context.Context, q rowQuerier, id string) (Reminder, err
 		return Reminder{}, fmt.Errorf("store: get reminder %q: %w", id, err)
 	}
 	r.Done = intPtrToBool(done)
+	r.Repeat = columnsToRepeat(repeatEvery, repeatUnit)
 	return r, nil
 }
 
@@ -784,9 +789,11 @@ func (s *SpaceStore) UpdateReminder(ctx context.Context, spaceID string, r Remin
 
 // execUpdateReminder rewrites all mutable columns of a reminder row via ex.
 func execUpdateReminder(ctx context.Context, ex execer, r Reminder) (sql.Result, error) {
+	repeatEvery, repeatUnit := repeatToColumns(r.Repeat)
 	return ex.ExecContext(ctx,
-		`UPDATE reminders SET text = ?, details = ?, remind_at = ?, project_id = ?, done = ? WHERE id = ?`,
-		r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), r.ID)
+		`UPDATE reminders SET text = ?, details = ?, remind_at = ?, project_id = ?, done = ?, repeat_every = ?, repeat_unit = ?
+		 WHERE id = ?`,
+		r.Text, r.Details, r.RemindAt, r.ProjectID, boolPtrToInt(r.Done), repeatEvery, repeatUnit, r.ID)
 }
 
 // DeleteReminder moves a reminder to the trash. Returns ErrNotFound if the id
@@ -802,7 +809,8 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, text, details, remind_at, project_id, done FROM reminders WHERE deleted_at IS NULL ORDER BY rowid`)
+		`SELECT id, text, details, remind_at, project_id, done, repeat_every, repeat_unit
+		 FROM reminders WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list reminders: %w", err)
 	}
@@ -810,11 +818,13 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 	out := []Reminder{}
 	for rows.Next() {
 		var r Reminder
-		var done *int64
-		if err := rows.Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done); err != nil {
+		var done, repeatEvery *int64
+		var repeatUnit *string
+		if err := rows.Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done, &repeatEvery, &repeatUnit); err != nil {
 			return nil, fmt.Errorf("store: scan reminder: %w", err)
 		}
 		r.Done = intPtrToBool(done)
+		r.Repeat = columnsToRepeat(repeatEvery, repeatUnit)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -1033,4 +1043,26 @@ func intPtrToBool(v *int64) *bool {
 	}
 	b := *v != 0
 	return &b
+}
+
+// repeatToColumns splits a reminder's optional recurrence into the two
+// nullable columns it is stored in. A nil Repeat is a one-shot reminder, which
+// is both columns NULL.
+func repeatToColumns(r *ReminderRepeat) (every *int64, unit *string) {
+	if r == nil {
+		return nil, nil
+	}
+	e := int64(r.Every)
+	u := r.Unit
+	return &e, &u
+}
+
+// columnsToRepeat reassembles a recurrence from its two columns. It is present
+// only when both are set; a half-populated pair (which the schema does not
+// produce) is treated as one-shot rather than guessed at.
+func columnsToRepeat(every *int64, unit *string) *ReminderRepeat {
+	if every == nil || unit == nil {
+		return nil
+	}
+	return &ReminderRepeat{Every: int(*every), Unit: *unit}
 }

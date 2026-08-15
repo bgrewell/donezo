@@ -240,6 +240,38 @@ func (f *dispatchFixture) addReminder(t *testing.T, id, text, remindAt string) {
 	}
 }
 
+// addRecurringReminder puts a reminder that repeats every N units in the space.
+func (f *dispatchFixture) addRecurringReminder(t *testing.T, id, text, remindAt string, every int, unit string) {
+	t.Helper()
+	if _, err := f.server.spaces.CreateReminder(context.Background(), f.spaceID, store.Reminder{
+		ID: id, Text: text, RemindAt: remindAt, Repeat: &store.ReminderRepeat{Every: every, Unit: unit},
+	}); err != nil {
+		t.Fatalf("create recurring reminder: %v", err)
+	}
+}
+
+// getReminder reads one reminder back, failing the test if it is gone.
+func (f *dispatchFixture) getReminder(t *testing.T, id string) store.Reminder {
+	t.Helper()
+	r, err := f.server.spaces.GetReminder(context.Background(), f.spaceID, id)
+	if err != nil {
+		t.Fatalf("get reminder %s: %v", id, err)
+	}
+	return r
+}
+
+// markDone ticks a reminder off, the way the app does.
+func (f *dispatchFixture) markDone(t *testing.T, id string) {
+	t.Helper()
+	if _, err := f.server.spaces.PatchReminder(context.Background(), f.spaceID, id, func(r *store.Reminder) error {
+		done := true
+		r.Done = &done
+		return nil
+	}); err != nil {
+		t.Fatalf("mark reminder %s done: %v", id, err)
+	}
+}
+
 // pendingIDs lists the reminders still awaiting delivery.
 func (f *dispatchFixture) pendingIDs(t *testing.T) []string {
 	t.Helper()
@@ -502,5 +534,163 @@ func TestDispatchCapsDeliveriesPerUserPerPass(t *testing.T) {
 	}
 	if got := len(f.pendingIDs(t)); got != 0 {
 		t.Fatalf("after second pass %d still pending, want 0", got)
+	}
+}
+
+// TestNextReminderOccurrence is the calendar math on its own: it must land on
+// the next slot strictly after now, keep the wall-clock time, and skip missed
+// occurrences during downtime rather than emit a burst.
+func TestNextReminderOccurrence(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	at := func(y int, m time.Month, d, h int) time.Time { return time.Date(y, m, d, h, 0, 0, 0, loc) }
+
+	tests := []struct {
+		name  string
+		due   time.Time
+		every int
+		unit  string
+		now   time.Time
+		want  time.Time
+	}{
+		{
+			name: "daily advances one day and keeps the hour",
+			due:  at(2026, 8, 15, 14), every: 1, unit: "day",
+			now: at(2026, 8, 15, 15), want: at(2026, 8, 16, 14),
+		},
+		{
+			name: "daily skips every missed day during downtime",
+			due:  at(2026, 8, 12, 9), every: 1, unit: "day",
+			now: at(2026, 8, 15, 15), want: at(2026, 8, 16, 9),
+		},
+		{
+			name: "hourly advances by whole hours past now",
+			due:  at(2026, 8, 15, 10), every: 3, unit: "hour",
+			now: at(2026, 8, 15, 15), want: at(2026, 8, 15, 16),
+		},
+		{
+			name: "weekly advances seven days",
+			due:  at(2026, 8, 15, 14), every: 1, unit: "week",
+			now: at(2026, 8, 15, 15), want: at(2026, 8, 22, 14),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got := nextReminderOccurrence(tt.due, store.ReminderRepeat{Every: tt.every, Unit: tt.unit}, tt.now, loc)
+			if !got.Equal(tt.want) {
+				t.Errorf("next = %s, want %s", got.Format(time.RFC3339), tt.want.Format(time.RFC3339))
+			}
+			if !got.After(tt.now) {
+				t.Errorf("next %s is not strictly after now %s", got, tt.now)
+			}
+		})
+	}
+}
+
+// TestDispatchReArmsRecurringReminder is the heart of the feature: a delivered
+// recurring reminder is not retired but re-armed for its next occurrence, and
+// keeps arriving until it is done.
+func TestDispatchReArmsRecurringReminder(t *testing.T) {
+	f := newDispatchFixture(t)
+	f.addRecurringReminder(t, "rem-rec", "Add a FIDO key", "2026-08-15T14:00:00", 1, "day")
+
+	// First pass: delivered once, re-armed for tomorrow, still pending.
+	f.server.dispatchReminders(context.Background())
+	if n := len(f.email.deliveries()); n != 1 {
+		t.Fatalf("first pass delivered %d, want 1", n)
+	}
+	if got := f.getReminder(t, "rem-rec").RemindAt; got != "2026-08-16T14:00:00" {
+		t.Fatalf("re-armed remind_at = %q, want tomorrow at the same time", got)
+	}
+	if ids := f.pendingIDs(t); len(ids) != 1 || ids[0] != "rem-rec" {
+		t.Fatalf("pending = %v, want the recurring reminder still awaiting its next occurrence", ids)
+	}
+
+	// A second pass at the same instant must not re-deliver: it is no longer due.
+	f.server.dispatchReminders(context.Background())
+	if n := len(f.email.deliveries()); n != 1 {
+		t.Fatalf("re-delivered before the next occurrence was due (%d sends)", n)
+	}
+
+	// Advance a day: it comes due again and is delivered a second time.
+	f.now = f.now.AddDate(0, 0, 1)
+	f.server.dispatchReminders(context.Background())
+	if n := len(f.email.deliveries()); n != 2 {
+		t.Fatalf("after a day delivered %d times, want 2 — the reminder should keep nagging", n)
+	}
+	if got := f.getReminder(t, "rem-rec").RemindAt; got != "2026-08-17T14:00:00" {
+		t.Fatalf("second re-arm remind_at = %q, want the day after", got)
+	}
+}
+
+// TestDispatchStopsRecurringWhenDone is the stop condition: marking a recurring
+// reminder done ends the series.
+func TestDispatchStopsRecurringWhenDone(t *testing.T) {
+	f := newDispatchFixture(t)
+	f.addRecurringReminder(t, "rem-rec", "Add a FIDO key", "2026-08-15T14:00:00", 1, "day")
+
+	f.server.dispatchReminders(context.Background())
+	if n := len(f.email.deliveries()); n != 1 {
+		t.Fatalf("first pass delivered %d, want 1", n)
+	}
+
+	f.markDone(t, "rem-rec")
+
+	// However many days pass, a done reminder never nags again.
+	for i := 0; i < 3; i++ {
+		f.now = f.now.AddDate(0, 0, 1)
+		f.server.dispatchReminders(context.Background())
+	}
+	if n := len(f.email.deliveries()); n != 1 {
+		t.Fatalf("delivered %d times after being marked done, want it to have stopped at 1", n)
+	}
+	if ids := f.pendingIDs(t); len(ids) != 0 {
+		t.Fatalf("pending = %v, want a done recurring reminder to have left the pending set", ids)
+	}
+}
+
+// TestDispatchReArmsRecurringPastMissedOccurrence: a recurring occurrence too
+// stale to send is skipped, but the series is re-armed for its next future
+// slot rather than retired.
+func TestDispatchReArmsRecurringPastMissedOccurrence(t *testing.T) {
+	f := newDispatchFixture(t)
+	// Three days ago, past the 24h lateness bound.
+	f.addRecurringReminder(t, "rem-rec", "Water the plants", "2026-08-12T09:00:00", 1, "day")
+
+	f.server.dispatchReminders(context.Background())
+
+	if sent := f.email.deliveries(); len(sent) != 0 {
+		t.Fatalf("delivered a stale occurrence instead of skipping it: %+v", sent)
+	}
+	if got := f.getReminder(t, "rem-rec").RemindAt; got != "2026-08-16T09:00:00" {
+		t.Fatalf("re-armed remind_at = %q, want the next future occurrence", got)
+	}
+	if ids := f.pendingIDs(t); len(ids) != 1 || ids[0] != "rem-rec" {
+		t.Fatalf("pending = %v, want the recurring reminder kept alive", ids)
+	}
+}
+
+// TestDispatchRecurringSurvivesGiveUp: a permanently failing destination
+// retires a one-shot reminder, but a recurring one is re-armed for its next
+// occurrence so a bad stretch does not silently end the series.
+func TestDispatchRecurringSurvivesGiveUp(t *testing.T) {
+	f := newDispatchFixture(t)
+	f.email.err = errors.New("relay refused")
+	f.addRecurringReminder(t, "rem-rec", "Add a FIDO key", "2026-08-15T14:00:00", 1, "day")
+
+	// Enough passes to exhaust the retry budget for this occurrence.
+	for i := 0; i <= maxDeliveryAttempts; i++ {
+		f.server.dispatchReminders(context.Background())
+	}
+
+	rem := f.getReminder(t, "rem-rec")
+	if rem.RemindAt != "2026-08-16T14:00:00" {
+		t.Fatalf("re-armed remind_at = %q, want the next occurrence after giving up", rem.RemindAt)
+	}
+	if ids := f.pendingIDs(t); len(ids) != 1 || ids[0] != "rem-rec" {
+		t.Fatalf("pending = %v, want the recurring reminder still alive after a failed stretch", ids)
 	}
 }

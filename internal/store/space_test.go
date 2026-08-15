@@ -354,6 +354,10 @@ func TestReminderCRUD(t *testing.T) {
 			name: "done false preserved",
 			in:   Reminder{ID: "r-3", Text: "Check", RemindAt: "2026-07-29T09:00:00", Done: ptr(false)},
 		},
+		{
+			name: "recurring reminder round-trips its interval",
+			in:   Reminder{ID: "r-4", Text: "FIDO key", RemindAt: "2026-07-30T09:00:00", Repeat: &ReminderRepeat{Every: 1, Unit: "day"}},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt // capture for parallel subtests (golangci-lint predates Go 1.22 loopvar)
@@ -394,6 +398,102 @@ func TestReminderCRUD(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRescheduleReminder covers the re-arm that makes a reminder recurring:
+// the interval survives into the dispatcher's pending read, a live reminder
+// re-arms with its bookkeeping cleared, and a done or trashed one refuses to
+// re-arm — which is how a recurring reminder stops.
+func TestRescheduleReminder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	pendingByID := func(t *testing.T, s *SpaceStore, id string) (PendingReminder, bool) {
+		t.Helper()
+		pend, err := s.PendingReminders(ctx, testSpace)
+		if err != nil {
+			t.Fatalf("PendingReminders: %v", err)
+		}
+		for _, p := range pend {
+			if p.ID == id {
+				return p, true
+			}
+		}
+		return PendingReminder{}, false
+	}
+
+	t.Run("carries the interval and re-arms a live reminder", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSpaceStore(t)
+		rem := Reminder{ID: "r-rec", Text: "FIDO key", RemindAt: "2026-07-30T09:00:00", Repeat: &ReminderRepeat{Every: 1, Unit: "day"}}
+		if _, err := s.CreateReminder(ctx, testSpace, rem); err != nil {
+			t.Fatalf("CreateReminder: %v", err)
+		}
+		p, ok := pendingByID(t, s, "r-rec")
+		if !ok {
+			t.Fatal("recurring reminder missing from pending set")
+		}
+		if p.Repeat == nil || p.Repeat.Every != 1 || p.Repeat.Unit != "day" {
+			t.Fatalf("pending reminder lost its interval: %+v", p.Repeat)
+		}
+
+		// Deliver it (marks notified) and record a failure, so there is
+		// bookkeeping for the re-arm to clear.
+		if err := s.MarkReminderNotified(ctx, testSpace, "r-rec"); err != nil {
+			t.Fatalf("MarkReminderNotified: %v", err)
+		}
+		if _, err := s.RecordReminderFailure(ctx, testSpace, "r-rec"); err != nil {
+			t.Fatalf("RecordReminderFailure: %v", err)
+		}
+		if _, ok := pendingByID(t, s, "r-rec"); ok {
+			t.Fatal("delivered reminder should have left the pending set")
+		}
+
+		if err := s.RescheduleReminder(ctx, testSpace, "r-rec", "2026-07-31T09:00:00"); err != nil {
+			t.Fatalf("RescheduleReminder: %v", err)
+		}
+		p, ok = pendingByID(t, s, "r-rec")
+		if !ok {
+			t.Fatal("re-armed reminder should be pending again")
+		}
+		if p.RemindAt != "2026-07-31T09:00:00" {
+			t.Errorf("remind_at = %q, want the next occurrence", p.RemindAt)
+		}
+		if p.Attempts != 0 {
+			t.Errorf("attempts = %d, want reset to 0", p.Attempts)
+		}
+	})
+
+	t.Run("refuses to re-arm a done reminder", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSpaceStore(t)
+		if _, err := s.CreateReminder(ctx, testSpace, Reminder{
+			ID: "r-done", Text: "Done", RemindAt: "2026-07-30T09:00:00",
+			Repeat: &ReminderRepeat{Every: 1, Unit: "week"}, Done: ptr(true),
+		}); err != nil {
+			t.Fatalf("CreateReminder: %v", err)
+		}
+		if err := s.RescheduleReminder(ctx, testSpace, "r-done", "2026-08-06T09:00:00"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("reschedule of a done reminder err = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("refuses to re-arm a trashed reminder", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSpaceStore(t)
+		if _, err := s.CreateReminder(ctx, testSpace, Reminder{
+			ID: "r-trash", Text: "Trash", RemindAt: "2026-07-30T09:00:00",
+			Repeat: &ReminderRepeat{Every: 2, Unit: "hour"},
+		}); err != nil {
+			t.Fatalf("CreateReminder: %v", err)
+		}
+		if err := s.DeleteReminder(ctx, testSpace, "r-trash"); err != nil {
+			t.Fatalf("DeleteReminder: %v", err)
+		}
+		if err := s.RescheduleReminder(ctx, testSpace, "r-trash", "2026-07-30T11:00:00"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("reschedule of a trashed reminder err = %v, want ErrNotFound", err)
+		}
+	})
 }
 
 func TestInboxCRUD(t *testing.T) {
