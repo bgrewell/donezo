@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Button, Dialog, Input, cn } from "@grewelltech/console";
 
-import type { ActivityType, ItemKind, ProjectColor } from "@/domain/types";
+import type { ActivityType, ItemKind, ProjectColor, ReminderRepeat } from "@/domain/types";
 import { ApiError, api, rewriteWithLLM } from "@/api/client";
 import { useLLMStatus } from "@/state/useLLMStatus";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
@@ -93,6 +93,7 @@ export function QuickCapture() {
   // Reminder
   const [whenChip, setWhenChip] = React.useState<WhenChipId | null>("tomorrow");
   const [remindAt, setRemindAt] = React.useState(defaultRemindAt);
+  const [repeat, setRepeat] = React.useState<ReminderRepeat | undefined>(undefined);
   // The optional long form, shared by every kind that has one. One piece of
   // state rather than one per kind: switching kind mid-capture keeps what was
   // typed, which is what someone means by changing their mind about what a
@@ -151,6 +152,7 @@ export function QuickCapture() {
     setDetails("");
     setWhenChip("tomorrow");
     setRemindAt(defaultRemindAt());
+    setRepeat(undefined);
     setActivityType("work");
     setActivityDate(todayISO());
     setActivityEffort("");
@@ -413,6 +415,7 @@ export function QuickCapture() {
             details,
             remindAt: withSeconds(remindAt),
             projectId: projectId || undefined,
+            repeat,
           },
         });
         break;
@@ -645,6 +648,8 @@ export function QuickCapture() {
                 setWhenChip(chip);
                 setRemindAt(at);
               }}
+              repeat={repeat}
+              onRepeat={setRepeat}
             />
           </div>
           <div className={cn("col-start-1 row-start-1", kind !== "activity" && "invisible")}>

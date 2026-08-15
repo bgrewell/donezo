@@ -46,7 +46,7 @@ is a summary, not the source of truth:
 | `create_task`         | write | Create a task — a **future** possibility with a lifecycle (open → done). `details` holds anything too long for the title. |
 | `complete_task`       | write | Mark a task done. By default also logs today's activity from the task title, mirroring the app's check-off flow. |
 | `create_note`         | write | Create a durable reference note.                                                                |
-| `create_reminder`     | write | Create a reminder that resurfaces at a specific time. `details` holds the longer version.        |
+| `create_reminder`     | write | Create a reminder that resurfaces at a specific time. `details` holds the longer version. Set `repeat_every` + `repeat_unit` (hour/day/week) to make it recur until marked done. |
 | `create_project`      | write | Create a project — a stream of work with a purpose and an outcome.                              |
 | `classify_inbox_item` | write | Atomically convert a pending inbox capture into a task, note, reminder, activity, or project.    |
 | `convert_note`        | write | Turn an existing note into a task, reminder, or activity. The note is **removed** — unlike an inbox capture, which stays behind marked converted. Its body becomes the new item's details. |

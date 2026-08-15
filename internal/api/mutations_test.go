@@ -139,6 +139,30 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			},
 		},
 		{
+			name: "create recurring reminder round-trips its interval", method: http.MethodPost,
+			path:       "/api/spaces/sandbox/reminders",
+			body:       `{"id":"rem-rec","text":"FIDO key","remindAt":"2026-07-27T09:00:00","repeat":{"every":1,"unit":"day"}}`,
+			wantStatus: http.StatusCreated, wantInBody: `"repeat":{"every":1,"unit":"day"}`,
+			checkState: func(t *testing.T, state map[string]json.RawMessage) {
+				t.Helper()
+				if !strings.Contains(string(state["reminders"]), `"repeat":{"every":1,"unit":"day"}`) {
+					t.Errorf("recurring reminder lost its interval: %s", state["reminders"])
+				}
+			},
+		},
+		{
+			name: "create reminder with unknown repeat unit is 400", method: http.MethodPost,
+			path:       "/api/spaces/sandbox/reminders",
+			body:       `{"id":"rem-bad","text":"x","remindAt":"2026-07-27T09:00:00","repeat":{"every":1,"unit":"fortnight"}}`,
+			wantStatus: http.StatusBadRequest, wantInBody: "repeat.unit must be one of",
+		},
+		{
+			name: "create reminder with zero repeat interval is 400", method: http.MethodPost,
+			path:       "/api/spaces/sandbox/reminders",
+			body:       `{"id":"rem-bad2","text":"x","remindAt":"2026-07-27T09:00:00","repeat":{"every":0,"unit":"day"}}`,
+			wantStatus: http.StatusBadRequest, wantInBody: "repeat.every must be between 1 and",
+		},
+		{
 			name: "create inbox item round-trips", method: http.MethodPost,
 			path: "/api/spaces/sandbox/inbox", body: inboxBody,
 			wantStatus: http.StatusCreated, wantInBody: `"id":"inb-1"`,
@@ -375,6 +399,35 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			seed:   []step{{http.MethodPost, "/api/spaces/sandbox/reminders", reminderBody}},
 			method: http.MethodPatch, path: "/api/spaces/sandbox/reminders/rem-1",
 			body: `{"done":true}`, wantStatus: http.StatusOK, wantInBody: `"done":true`,
+		},
+		{
+			name:   "patch reminder sets a repeat interval",
+			seed:   []step{{http.MethodPost, "/api/spaces/sandbox/reminders", reminderBody}},
+			method: http.MethodPatch, path: "/api/spaces/sandbox/reminders/rem-1",
+			body: `{"repeat":{"every":2,"unit":"hour"}}`, wantStatus: http.StatusOK,
+			wantInBody: `"repeat":{"every":2,"unit":"hour"}`,
+		},
+		{
+			name: "patch reminder clears a repeat interval with null",
+			seed: []step{
+				{http.MethodPost, "/api/spaces/sandbox/reminders",
+					`{"id":"rem-1","text":"Ping","remindAt":"2026-07-27T09:00:00","repeat":{"every":1,"unit":"week"}}`},
+			},
+			method: http.MethodPatch, path: "/api/spaces/sandbox/reminders/rem-1",
+			body: `{"repeat":null}`, wantStatus: http.StatusOK,
+			checkState: func(t *testing.T, state map[string]json.RawMessage) {
+				t.Helper()
+				if strings.Contains(string(state["reminders"]), `"repeat"`) {
+					t.Errorf("repeat should be cleared: %s", state["reminders"])
+				}
+			},
+		},
+		{
+			name:   "patch reminder with bad repeat unit is 400",
+			seed:   []step{{http.MethodPost, "/api/spaces/sandbox/reminders", reminderBody}},
+			method: http.MethodPatch, path: "/api/spaces/sandbox/reminders/rem-1",
+			body: `{"repeat":{"every":1,"unit":"year"}}`, wantStatus: http.StatusBadRequest,
+			wantInBody: "repeat.unit must be one of",
 		},
 		{
 			name:   "patch inbox item dismisses",

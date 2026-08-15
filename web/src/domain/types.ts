@@ -147,6 +147,18 @@ export interface Reminder {
   remindAt: string;
   projectId?: string;
   done?: boolean;
+  /** When set, the reminder repeats on this interval and keeps coming back
+   *  until it is marked done. Absent is an ordinary one-shot reminder. */
+  repeat?: ReminderRepeat;
+}
+
+/** The unit of a reminder's recurrence interval. */
+export type RepeatUnit = "hour" | "day" | "week";
+
+/** A reminder's recurrence interval: "every `every` `unit`s". */
+export interface ReminderRepeat {
+  every: number;
+  unit: RepeatUnit;
 }
 
 /** A raw capture that has not been fully classified yet. */

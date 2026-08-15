@@ -1,9 +1,10 @@
 import * as React from "react";
 import { Input } from "@grewelltech/console";
 
-import type { Project } from "@/domain/types";
+import type { Project, ReminderRepeat } from "@/domain/types";
 import { addDaysISO, startOfWeekISO, todayISO } from "@/lib/time";
 import { ProjectSelect } from "./ProjectSelect";
+import { RepeatSelect } from "./RepeatSelect";
 import { Chip, QuietLabel } from "./chips";
 
 /** Quick-pick ids for the WHEN row. */
@@ -45,6 +46,8 @@ export function ReminderFields({
   whenChip,
   remindAt,
   onWhen,
+  repeat,
+  onRepeat,
 }: {
   projects: Project[];
   projectId: string;
@@ -54,6 +57,9 @@ export function ReminderFields({
   /** datetime-local value (yyyy-MM-ddTHH:mm). */
   remindAt: string;
   onWhen: (chip: WhenChipId | null, remindAt: string) => void;
+  /** Current recurrence, or undefined for a one-shot reminder. */
+  repeat: ReminderRepeat | undefined;
+  onRepeat: (repeat: ReminderRepeat | undefined) => void;
 }) {
   // Generated, not fixed: see TaskFields — these mount outside quick capture
   // now, and a duplicate id would misdirect the label.
@@ -86,6 +92,7 @@ export function ReminderFields({
         <div className="min-w-[11rem] flex-1">
           <ProjectSelect projects={projects} value={projectId} onChange={onProjectId} />
         </div>
+        <RepeatSelect value={repeat} onChange={onRepeat} />
       </div>
     </div>
   );

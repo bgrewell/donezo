@@ -474,6 +474,38 @@ func TestCreateNoteAndReminder(t *testing.T) {
 	}
 }
 
+// TestCreateRecurringReminder covers the MCP surface for recurring reminders:
+// a matched interval is stored, and half an interval is a usage error rather
+// than a silent one-shot.
+func TestCreateRecurringReminder(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+
+	// repeat_every without repeat_unit is rejected.
+	if _, isErr := f.callTool(t, f.rw, "create_reminder",
+		`{"space_id":"sandbox","text":"half","remind_at":"2026-07-28T09:00:00","repeat_every":1}`); !isErr {
+		t.Error("repeat_every without repeat_unit should be isError")
+	}
+	// An unknown unit is rejected.
+	if _, isErr := f.callTool(t, f.rw, "create_reminder",
+		`{"space_id":"sandbox","text":"bad","remind_at":"2026-07-28T09:00:00","repeat_every":1,"repeat_unit":"year"}`); !isErr {
+		t.Error("unknown repeat_unit should be isError")
+	}
+	// A matched pair is stored as a recurring reminder.
+	if _, isErr := f.callTool(t, f.rw, "create_reminder",
+		`{"space_id":"sandbox","text":"FIDO key","remind_at":"2026-07-28T09:00:00","repeat_every":1,"repeat_unit":"day"}`); isErr {
+		t.Fatal("valid recurring reminder should succeed")
+	}
+	rems, err := f.spaces.ListReminders(ctx, "sandbox")
+	if err != nil {
+		t.Fatalf("list reminders: %v", err)
+	}
+	if len(rems) != 1 || rems[0].Repeat == nil || rems[0].Repeat.Every != 1 || rems[0].Repeat.Unit != "day" {
+		t.Errorf("stored reminder did not carry the interval: %+v", rems)
+	}
+}
+
 func TestClassifyInboxItem(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

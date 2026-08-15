@@ -1,5 +1,7 @@
 package store
 
+import "fmt"
+
 // The types below mirror web/src/domain/types.ts exactly. JSON field names
 // are the frontend's camelCase names, and optional TS fields are pointers
 // with omitempty so they are omitted when absent, matching TS optionals.
@@ -120,6 +122,50 @@ type Reminder struct {
 	RemindAt  string  `json:"remindAt"`
 	ProjectID *string `json:"projectId,omitempty"`
 	Done      *bool   `json:"done,omitempty"`
+	// Repeat, when set, makes the reminder recurring: after it is delivered it
+	// is re-armed for the next occurrence and keeps coming back until it is
+	// marked done. Nil is the ordinary one-shot reminder.
+	Repeat *ReminderRepeat `json:"repeat,omitempty"`
+}
+
+// ReminderRepeat is a reminder's recurrence interval: "every Every Units".
+type ReminderRepeat struct {
+	// Every is how many Units apart occurrences are (>= 1).
+	Every int `json:"every"`
+	// Unit is the interval unit: one of RepeatUnits.
+	Unit string `json:"unit"`
+}
+
+// RepeatUnits are the recurrence units a reminder may use. Hours advance by a
+// fixed duration; days and weeks advance the wall clock, so a daily reminder
+// keeps its local time across a daylight-saving change.
+var RepeatUnits = []string{"hour", "day", "week"}
+
+// MaxRepeatEvery bounds the interval multiplier. It exists only to reject
+// nonsense (a negative or absurd count), not to constrain real use — the
+// largest sensible interval, a few weeks, is far below it.
+const MaxRepeatEvery = 1000
+
+// ValidRepeatUnit reports whether u is a recognised recurrence unit.
+func ValidRepeatUnit(u string) bool {
+	for _, ru := range RepeatUnits {
+		if u == ru {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate checks a recurrence interval. A nil *ReminderRepeat is valid (it is
+// simply a one-shot reminder); this is the check for a present one.
+func (r ReminderRepeat) Validate() error {
+	if !ValidRepeatUnit(r.Unit) {
+		return fmt.Errorf("repeat.unit must be one of %v", RepeatUnits)
+	}
+	if r.Every < 1 || r.Every > MaxRepeatEvery {
+		return fmt.Errorf("repeat.every must be between 1 and %d", MaxRepeatEvery)
+	}
+	return nil
 }
 
 // InboxItem mirrors the frontend InboxItem type.

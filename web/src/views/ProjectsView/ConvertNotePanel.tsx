@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Button } from "@grewelltech/console";
 
-import type { ActivityType, NoteItem, NoteTargetKind } from "@/domain/types";
+import type { ActivityType, NoteItem, NoteTargetKind, ReminderRepeat } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
 import { newId } from "@/lib/id";
@@ -47,6 +47,7 @@ export function ConvertNotePanel({ note, onDone }: { note: NoteItem; onDone: () 
   const [due, setDue] = React.useState("");
   const [whenChip, setWhenChip] = React.useState<WhenChipId | null>("tomorrow");
   const [remindAt, setRemindAt] = React.useState(defaultRemindAt);
+  const [repeat, setRepeat] = React.useState<ReminderRepeat | undefined>(undefined);
   const [activityType, setActivityType] = React.useState<ActivityType>("work");
   const [activityDate, setActivityDate] = React.useState(todayISO);
   const [effort, setEffort] = React.useState("");
@@ -86,6 +87,7 @@ export function ConvertNotePanel({ note, onDone }: { note: NoteItem; onDone: () 
             details: note.body,
             remindAt: withSeconds(remindAt),
             projectId: projectId || undefined,
+            repeat,
           },
         });
         break;
@@ -147,6 +149,8 @@ export function ConvertNotePanel({ note, onDone }: { note: NoteItem; onDone: () 
             setWhenChip(chip);
             setRemindAt(at);
           }}
+          repeat={repeat}
+          onRepeat={setRepeat}
         />
       )}
       {kind === "activity" && (

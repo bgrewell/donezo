@@ -4,6 +4,7 @@ import { SectionLabel, cn } from "@grewelltech/console";
 
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { relativeFromToday } from "@/lib/time";
+import { describeRepeat, repeatPhrase } from "@/lib/repeat";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { RowActions } from "@/components/common/RowActions";
 import { DetailsDisclosure } from "@/components/common/DetailsDisclosure";
@@ -75,7 +76,17 @@ export function TimeSensitiveSection({ rows }: { rows: DueRow[] }) {
                 {row.title}
               </span>
               {row.kind === "reminder" && (
-                <Bell className="h-3.5 w-3.5 shrink-0 text-gtc-muted" aria-hidden />
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 text-gtc-muted"
+                  title={reminder?.repeat ? describeRepeat(reminder.repeat) : undefined}
+                >
+                  <Bell className="h-3.5 w-3.5" aria-hidden />
+                  {reminder?.repeat && (
+                    <span className="font-mono text-[0.62rem] uppercase tracking-label">
+                      {repeatPhrase(reminder.repeat)}
+                    </span>
+                  )}
+                </span>
               )}
               {row.project && (
                 // Drops under the title on phones instead of crushing it.

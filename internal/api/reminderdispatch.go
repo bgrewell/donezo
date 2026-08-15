@@ -198,7 +198,14 @@ func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipi
 			// them: they arrive with no context and bury anything current.
 			s.logger.Printf("reminder dispatch: reminder %s in %s was due %s ago; too late to send",
 				p.ID, sp.ID, now.Sub(due).Round(time.Minute))
-			s.skipDelivery(ctx, sp.ID, p.ID)
+			// A recurring reminder is not finished by a missed occurrence: skip
+			// the stale one but re-arm for its next future slot. A one-shot is
+			// simply retired.
+			if p.Repeat != nil {
+				s.rescheduleRecurring(ctx, sp, p, due, now, rcpt.loc)
+			} else {
+				s.skipDelivery(ctx, sp.ID, p.ID)
+			}
 			continue
 		}
 		// This one would be delivered. Stop once the owner has had their
@@ -211,7 +218,7 @@ func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipi
 			break
 		}
 		sentThisPass[sp.UserID]++
-		s.deliver(ctx, sp, p, rcpt)
+		s.deliver(ctx, sp, p, due, rcpt)
 	}
 	return nil
 }
@@ -222,7 +229,10 @@ func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipi
 // the first success rather than on all of them is the deliberate choice:
 // the alternative is that a failing SMS provider makes the email arrive
 // again every minute.
-func (s *Server) deliver(ctx context.Context, sp store.Space, p store.PendingReminder, rcpt *recipient) {
+//
+// due is the occurrence that just fired; a recurring reminder is re-armed from
+// it rather than retired.
+func (s *Server) deliver(ctx context.Context, sp store.Space, p store.PendingReminder, due time.Time, rcpt *recipient) {
 	msg := s.composeReminder(sp, p)
 	var delivered bool
 	for _, c := range rcpt.contacts {
@@ -240,12 +250,7 @@ func (s *Server) deliver(ctx context.Context, sp store.Space, p store.PendingRem
 	}
 
 	if delivered {
-		if err := s.spaces.MarkReminderNotified(ctx, sp.ID, p.ID); err != nil {
-			// Delivered but not marked: it will be sent again next pass.
-			// Loud, because a duplicate reminder every minute is the kind of
-			// thing someone silences by turning the whole feature off.
-			s.logger.Printf("reminder dispatch: reminder %s was delivered but could not be marked: %v", p.ID, err)
-		}
+		s.settleDelivered(ctx, sp, p, due, rcpt.loc)
 		return
 	}
 
@@ -255,9 +260,54 @@ func (s *Server) deliver(ctx context.Context, sp store.Space, p store.PendingRem
 		return
 	}
 	if attempts >= maxDeliveryAttempts {
+		// A recurring reminder is not abandoned over one bad stretch: skip this
+		// occurrence but re-arm for the next, so a transient outage does not end
+		// the series. A one-shot is retired.
+		if p.Repeat != nil {
+			s.logger.Printf("reminder dispatch: recurring reminder %s undeliverable after %d attempts; re-arming for its next occurrence",
+				p.ID, attempts)
+			s.rescheduleRecurring(ctx, sp, p, due, s.clock(), rcpt.loc)
+			return
+		}
 		s.logger.Printf("reminder dispatch: giving up on reminder %s after %d attempts; it stays in the app",
 			p.ID, attempts)
 		s.skipDelivery(ctx, sp.ID, p.ID)
+	}
+}
+
+// settleDelivered records a successful send. A one-shot reminder is marked
+// notified so it is never sent again; a recurring one is re-armed for its next
+// occurrence instead, which is what keeps it coming back until it is done.
+func (s *Server) settleDelivered(ctx context.Context, sp store.Space, p store.PendingReminder, due time.Time, loc *time.Location) {
+	if p.Repeat != nil {
+		s.rescheduleRecurring(ctx, sp, p, due, s.clock(), loc)
+		return
+	}
+	if err := s.spaces.MarkReminderNotified(ctx, sp.ID, p.ID); err != nil {
+		// Delivered but not marked: it will be sent again next pass. Loud,
+		// because a duplicate reminder every minute is the kind of thing
+		// someone silences by turning the whole feature off.
+		s.logger.Printf("reminder dispatch: reminder %s was delivered but could not be marked: %v", p.ID, err)
+	}
+}
+
+// rescheduleRecurring re-arms a recurring reminder for its next occurrence
+// after now. A reminder marked done or trashed in the meantime stops instead:
+// RescheduleReminder reports ErrNotFound, which is the intended end of the
+// series, not a failure.
+func (s *Server) rescheduleRecurring(ctx context.Context, sp store.Space, p store.PendingReminder, due, now time.Time, loc *time.Location) {
+	if p.Repeat == nil {
+		return
+	}
+	next := formatReminderTime(nextReminderOccurrence(due, *p.Repeat, now, loc))
+	err := s.spaces.RescheduleReminder(ctx, sp.ID, p.ID, next)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		// Done or trashed between the read and now — it has stopped recurring.
+	case err != nil:
+		s.logger.Printf("reminder dispatch: re-arming recurring reminder %s: %v", p.ID, err)
+	default:
+		s.logger.Printf("reminder dispatch: recurring reminder %s re-armed for %s", p.ID, next)
 	}
 }
 
@@ -291,6 +341,65 @@ func (s *Server) composeReminder(sp store.Space, p store.PendingReminder) notify
 	fmt.Fprintf(&body, "— donezo · %s", sp.Name)
 	msg.Body = body.String()
 	return msg
+}
+
+// maxRepeatCatchUp bounds how many interval steps nextReminderOccurrence will
+// take to land past now. It is only reached after a long outage relative to a
+// short interval (hourly reminders unsent for years), and its sole purpose is
+// to stop a degenerate interval from looping forever; the value is far above
+// any real gap.
+const maxRepeatCatchUp = 200_000
+
+// addRepeat advances t by one recurrence step. Hours add a fixed duration;
+// days and weeks advance the wall clock via AddDate, so "every day at 2pm"
+// stays 2pm across a daylight-saving change rather than drifting an hour.
+func addRepeat(t time.Time, r store.ReminderRepeat) time.Time {
+	switch r.Unit {
+	case "hour":
+		return t.Add(time.Duration(r.Every) * time.Hour)
+	case "day":
+		return t.AddDate(0, 0, r.Every)
+	case "week":
+		return t.AddDate(0, 0, 7*r.Every)
+	default:
+		// Unreachable: the unit is validated on the way in. Advancing a day is
+		// a safe non-zero fallback that cannot wedge the catch-up loop.
+		return t.AddDate(0, 0, 1)
+	}
+}
+
+// nextReminderOccurrence is the first scheduled occurrence strictly after now.
+//
+// It keeps the reminder on its calendar slot rather than nudging from whenever
+// it happened to be delivered: a weekly Saturday-2pm reminder re-arms for next
+// Saturday 2pm, and one missed during downtime skips straight to the next
+// future slot rather than firing a burst to catch up. The interval is applied
+// in loc so day and week steps track the recipient's wall clock.
+func nextReminderOccurrence(due time.Time, r store.ReminderRepeat, now time.Time, loc *time.Location) time.Time {
+	if loc == nil {
+		loc = time.Local
+	}
+	next := due.In(loc)
+	for i := 0; i < maxRepeatCatchUp && !next.After(now); i++ {
+		next = addRepeat(next, r)
+	}
+	if !next.After(now) {
+		// The bound was hit (an implausibly large gap). Land one interval past
+		// now so the series continues without another marathon of steps.
+		next = addRepeat(now.In(loc), r)
+	}
+	return next
+}
+
+// reminderTimeLayout is the naive-local wall-clock format reminder times are
+// stored in. formatReminderTime writes a re-armed occurrence back in it.
+const reminderTimeLayout = "2006-01-02T15:04:05"
+
+// formatReminderTime renders a re-armed occurrence as the naive-local string
+// the store holds and reminderDueAt reads back. t is expected to already be in
+// the recipient's location.
+func formatReminderTime(t time.Time) string {
+	return t.Format(reminderTimeLayout)
 }
 
 // reminderDueAt resolves a stored reminder time to the instant it fires.

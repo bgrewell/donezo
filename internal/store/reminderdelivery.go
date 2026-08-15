@@ -42,7 +42,7 @@ func (s *SpaceStore) PendingReminders(ctx context.Context, spaceID string) ([]Pe
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, text, details, remind_at, project_id, done, notify_attempts
+		`SELECT id, text, details, remind_at, project_id, done, notify_attempts, repeat_every, repeat_unit
 		 FROM reminders
 		 WHERE deleted_at IS NULL
 		   AND notified_at IS NULL
@@ -59,7 +59,9 @@ func (s *SpaceStore) PendingReminders(ctx context.Context, spaceID string) ([]Pe
 		var p PendingReminder
 		var projectID sql.NullString
 		var done sql.NullBool
-		if err := rows.Scan(&p.ID, &p.Text, &p.Details, &p.RemindAt, &projectID, &done, &p.Attempts); err != nil {
+		var repeatEvery sql.NullInt64
+		var repeatUnit sql.NullString
+		if err := rows.Scan(&p.ID, &p.Text, &p.Details, &p.RemindAt, &projectID, &done, &p.Attempts, &repeatEvery, &repeatUnit); err != nil {
 			return nil, fmt.Errorf("store: pending reminders: %w", err)
 		}
 		if projectID.Valid {
@@ -69,6 +71,9 @@ func (s *SpaceStore) PendingReminders(ctx context.Context, spaceID string) ([]Pe
 		if done.Valid {
 			d := done.Bool
 			p.Done = &d
+		}
+		if repeatEvery.Valid && repeatUnit.Valid {
+			p.Repeat = &ReminderRepeat{Every: int(repeatEvery.Int64), Unit: repeatUnit.String}
 		}
 		out = append(out, p)
 	}
@@ -101,6 +106,41 @@ func (s *SpaceStore) MarkReminderNotified(ctx context.Context, spaceID, id strin
 	n, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("store: mark reminder notified: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("store: reminder %q: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// RescheduleReminder re-arms a recurring reminder for its next occurrence: it
+// moves remind_at forward and clears the delivery bookkeeping (notified_at and
+// notify_attempts) so the dispatcher treats the next occurrence as fresh.
+//
+// The WHERE clause is the stop condition for the whole recurrence. It re-arms
+// only a reminder that is still live and not done, so one marked done or
+// trashed between the dispatch read and this write is not resurrected — it
+// simply stops recurring, which is the only way a recurring reminder ends. A
+// no-op reports ErrNotFound, which the dispatcher treats as "it stopped", not
+// as an error.
+func (s *SpaceStore) RescheduleReminder(ctx context.Context, spaceID, id, nextRemindAt string) error {
+	if id == "" {
+		return errors.New("store: reminder id is required")
+	}
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE reminders SET remind_at = ?, notified_at = NULL, notify_attempts = 0
+		 WHERE id = ? AND deleted_at IS NULL AND (done IS NULL OR done = 0)`,
+		nextRemindAt, id)
+	if err != nil {
+		return fmt.Errorf("store: reschedule reminder: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: reschedule reminder: %w", err)
 	}
 	if n == 0 {
 		return fmt.Errorf("store: reminder %q: %w", id, ErrNotFound)

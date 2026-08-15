@@ -20,7 +20,7 @@ const CLEARABLE = {
   activity: new Set(["effortHours", "nextAction", "planned"]),
   task: new Set(["projectId", "due", "waitingOn"]),
   note: new Set(["projectId"]),
-  reminder: new Set(["projectId", "done"]),
+  reminder: new Set(["projectId", "done", "repeat"]),
   inbox: new Set(["suggestedProjectId"]),
 } as const;
 

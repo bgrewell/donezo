@@ -822,11 +822,13 @@ func toolCreateNote(ctx context.Context, h *Handler, c caller, args json.RawMess
 
 func toolCreateReminder(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
 	var a struct {
-		SpaceID   string `json:"space_id"`
-		Text      string `json:"text"`
-		Details   string `json:"details"`
-		RemindAt  string `json:"remind_at"`
-		ProjectID string `json:"project_id"`
+		SpaceID     string `json:"space_id"`
+		Text        string `json:"text"`
+		Details     string `json:"details"`
+		RemindAt    string `json:"remind_at"`
+		ProjectID   string `json:"project_id"`
+		RepeatEvery int    `json:"repeat_every"`
+		RepeatUnit  string `json:"repeat_unit"`
 	}
 	if !decodeArgs(args, &a) {
 		return "invalid arguments", true
@@ -836,6 +838,10 @@ func toolCreateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 	}
 	if !validDateTime(a.RemindAt) {
 		return "remind_at must be an ISO datetime like 2026-07-28T09:00:00", true
+	}
+	repeat, msg, ok := reminderRepeatFromArgs(a.RepeatEvery, a.RepeatUnit)
+	if !ok {
+		return msg, true
 	}
 	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
 	if !ok {
@@ -852,11 +858,30 @@ func toolCreateReminder(ctx context.Context, h *Handler, c caller, args json.Raw
 		Details:   a.Details,
 		RemindAt:  a.RemindAt,
 		ProjectID: optString(a.ProjectID),
+		Repeat:    repeat,
 	})
 	if err != nil {
 		return h.storeErrText("reminder", err), true
 	}
 	return jsonText(map[string]any{"reminder": created}), false
+}
+
+// reminderRepeatFromArgs builds an optional recurrence from the MCP args. The
+// two fields go together: neither is a one-shot reminder (nil), both is a
+// validated interval, and one without the other is a usage error rather than a
+// silent default.
+func reminderRepeatFromArgs(every int, unit string) (*store.ReminderRepeat, string, bool) {
+	if every == 0 && unit == "" {
+		return nil, "", true
+	}
+	if every == 0 || unit == "" {
+		return nil, "repeat_every and repeat_unit must be set together", false
+	}
+	r := &store.ReminderRepeat{Every: every, Unit: unit}
+	if err := r.Validate(); err != nil {
+		return nil, err.Error(), false
+	}
+	return r, "", true
 }
 
 // classifyArgs is the classify_inbox_item argument set: a superset of the

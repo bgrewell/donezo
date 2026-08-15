@@ -266,7 +266,17 @@ func validateReminderCreate(r store.Reminder) error {
 		required("text", r.Text),
 		isoDateTime("remindAt", r.RemindAt),
 		optionalNonEmpty("projectId", r.ProjectID),
+		validateRepeat(r.Repeat),
 	)
+}
+
+// validateRepeat checks an optional recurrence interval. A nil repeat is a
+// one-shot reminder and always valid.
+func validateRepeat(r *store.ReminderRepeat) error {
+	if r == nil {
+		return nil
+	}
+	return r.Validate()
 }
 
 // validateInboxCreate checks a POST inbox body.
@@ -589,9 +599,13 @@ type reminderPatch struct {
 	RemindAt  *string         `json:"remindAt"`
 	ProjectID json.RawMessage `json:"projectId"`
 	Done      json.RawMessage `json:"done"`
+	// Repeat is clearable: null turns a recurring reminder back into a
+	// one-shot, absent leaves the interval as it was.
+	Repeat json.RawMessage `json:"repeat"`
 
-	projectID *string // decoded by validate
-	done      *bool   // decoded by validate
+	projectID *string               // decoded by validate
+	done      *bool                 // decoded by validate
+	repeat    *store.ReminderRepeat // decoded by validate
 }
 
 // validate checks every present field and decodes the clearable ones.
@@ -606,11 +620,15 @@ func (p *reminderPatch) validate() error {
 			return err
 		}
 	}
-	return firstError(
+	if err := firstError(
 		decodeNullable("projectId", "string", p.ProjectID, &p.projectID),
 		decodeNullable("done", "boolean", p.Done, &p.done),
+		decodeNullable("repeat", "object", p.Repeat, &p.repeat),
 		optionalNonEmpty("projectId", p.projectID),
-	)
+	); err != nil {
+		return err
+	}
+	return validateRepeat(p.repeat)
 }
 
 // apply copies the present fields onto the stored reminder.
@@ -629,6 +647,9 @@ func (p *reminderPatch) apply(cur *store.Reminder) error {
 	}
 	if p.Done != nil {
 		cur.Done = p.done
+	}
+	if p.Repeat != nil {
+		cur.Repeat = p.repeat
 	}
 	return nil
 }
