@@ -26,6 +26,16 @@ const (
 	defaultLLMWindow = 5 * time.Minute
 )
 
+// Notification-send limits: each add or resend texts/emails a destination,
+// which costs the operator money and can reach someone who did not ask for
+// it, so the send endpoints are capped per user. Generous for a person
+// setting up a couple of destinations, low enough that a member cannot turn
+// them into an outbound-message cannon.
+const (
+	defaultNotifyLimit  = 5
+	defaultNotifyWindow = time.Hour
+)
+
 // Server wires the stores to the HTTP surface.
 type Server struct {
 	core        *store.CoreStore
@@ -39,8 +49,12 @@ type Server struct {
 	revisions   *revisions
 	hideVersion bool
 	llmLimiter  *auth.RateLimiter
-	clock       func() time.Time
-	location    *time.Location
+	// notifyLimiter caps notification-send endpoints per user (contact add
+	// and code resend), so a member cannot spend the operator's SMS/email
+	// budget or spray messages at addresses they do not control.
+	notifyLimiter *auth.RateLimiter
+	clock         func() time.Time
+	location      *time.Location
 	// trashRetention is how long a deleted item stays restorable before the
 	// sweep purges it. Zero or less disables the sweep.
 	trashRetention time.Duration
@@ -273,6 +287,13 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 		s.llmLimiter = auth.NewRateLimiter(
 			auth.WithLimit(defaultLLMLimit),
 			auth.WithWindow(defaultLLMWindow),
+			auth.WithLimiterClock(s.clock),
+		)
+	}
+	if s.notifyLimiter == nil {
+		s.notifyLimiter = auth.NewRateLimiter(
+			auth.WithLimit(defaultNotifyLimit),
+			auth.WithWindow(defaultNotifyWindow),
 			auth.WithLimiterClock(s.clock),
 		)
 	}

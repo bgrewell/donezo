@@ -122,7 +122,12 @@ func (s *Server) withLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		s.logger.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Microsecond))
+		// %q on the path: it is percent-decoded by net/http, so a raw %0a in
+		// the request line arrives as a real newline. Logged with %s that
+		// would let an unauthenticated client forge whole log lines (this
+		// wrapper is outermost, so it runs before auth can refuse anything).
+		// strconv.Quote escapes CR/LF/NUL, keeping one request to one line.
+		s.logger.Printf("%s %q %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Microsecond))
 	})
 }
 

@@ -473,3 +473,34 @@ func TestRunReminderDispatchReturnsWhenNothingIsConfigured(t *testing.T) {
 		t.Fatal("RunReminderDispatch did not return with no channels configured")
 	}
 }
+
+// Finding #4: one pass delivers at most maxDeliveriesPerUserPass reminders
+// for a user; the rest are deferred, not dropped. Without the cap, a member
+// posting a large batch dated "now" would fire them all at once (billed
+// sends, and the single dispatch goroutine blocked for everyone else).
+func TestDispatchCapsDeliveriesPerUserPerPass(t *testing.T) {
+	f := newDispatchFixture(t)
+	// More due reminders than the per-pass cap, all due an hour ago.
+	total := maxDeliveriesPerUserPass + 5
+	for i := 0; i < total; i++ {
+		f.addReminder(t, fmt.Sprintf("rem-%02d", i), fmt.Sprintf("Reminder %d", i), "2026-08-15T14:00:00")
+	}
+
+	f.server.dispatchReminders(context.Background())
+	if got := len(f.email.deliveries()); got != maxDeliveriesPerUserPass {
+		t.Fatalf("first pass delivered %d, want the cap %d", got, maxDeliveriesPerUserPass)
+	}
+	if got := len(f.pendingIDs(t)); got != total-maxDeliveriesPerUserPass {
+		t.Fatalf("after first pass %d still pending, want %d (overflow deferred, not dropped)",
+			got, total-maxDeliveriesPerUserPass)
+	}
+
+	// The next pass drains the rest.
+	f.server.dispatchReminders(context.Background())
+	if got := len(f.email.deliveries()); got != total {
+		t.Fatalf("after second pass delivered %d, want all %d", got, total)
+	}
+	if got := len(f.pendingIDs(t)); got != 0 {
+		t.Fatalf("after second pass %d still pending, want 0", got)
+	}
+}

@@ -53,6 +53,16 @@ var ErrCodeIncorrect = errors.New("verification code incorrect")
 // ContactResendInterval has passed.
 var ErrResendTooSoon = errors.New("a code was just sent; wait before asking for another")
 
+// MaxContactsPerUser caps how many delivery destinations one account may
+// hold. Each unverified add sends a verification message, so without a cap a
+// member could post an unbounded list of numbers and have the instance text
+// every one at the operator's expense. Ten is far more destinations than a
+// person needs and still bounds the abuse.
+const MaxContactsPerUser = 10
+
+// ErrTooManyContacts is returned when a user is already at MaxContactsPerUser.
+var ErrTooManyContacts = errors.New("too many delivery destinations")
+
 // UserContact is one destination reminders can be delivered to.
 type UserContact struct {
 	// ID identifies the row (an identifier, not a secret).
@@ -98,12 +108,23 @@ func (s *CoreStore) CreateUserContact(ctx context.Context, c UserContact) (UserC
 		return UserContact{}, errors.New("store: contact address is required")
 	}
 	c.CreatedAt = s.opts.now()
-	_, err := s.db.ExecContext(ctx,
+	// The insert is guarded by a subquery cap so the count-and-insert is one
+	// atomic statement: two concurrent adds cannot both slip past a separate
+	// count. INSERT ... SELECT ... WHERE inserts zero rows when the user is
+	// already at the cap, which shows up as RowsAffected() == 0.
+	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO user_contacts (id, user_id, channel, address, label, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		c.ID, c.UserID, c.Channel, c.Address, c.Label, c.CreatedAt)
+		 SELECT ?, ?, ?, ?, ?, ?
+		 WHERE (SELECT COUNT(*) FROM user_contacts WHERE user_id = ?) < ?`,
+		c.ID, c.UserID, c.Channel, c.Address, c.Label, c.CreatedAt,
+		c.UserID, MaxContactsPerUser)
 	if err != nil {
 		return UserContact{}, fmt.Errorf("store: create contact: %w", classifyConstraint(err))
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return UserContact{}, fmt.Errorf("store: create contact: %w", err)
+	} else if n == 0 {
+		return UserContact{}, ErrTooManyContacts
 	}
 	c.VerifiedAt = nil
 	return c, nil
@@ -216,39 +237,47 @@ func (s *CoreStore) StartContactChallenge(ctx context.Context, userID int64, id,
 	if codeHash == "" {
 		return UserContact{}, errors.New("store: contact code hash is required")
 	}
+	now := s.opts.clock().UTC()
+	cutoff := now.Add(-ContactResendInterval).Format(time.RFC3339)
+
+	// One conditional UPDATE does the resend-throttle check and the write
+	// together, so it cannot be raced: previously this read code_sent_at,
+	// compared it in Go, then wrote in a separate statement, and concurrent
+	// callers all read the same stale stamp and every one got through. The
+	// WHERE only matches an unverified row whose last send is old enough;
+	// RFC 3339 UTC timestamps compare correctly as strings.
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE user_contacts
+		 SET code_hash = ?, code_expires_at = ?, code_attempts = 0, code_sent_at = ?
+		 WHERE id = ? AND user_id = ? AND verified_at IS NULL
+		   AND (code_sent_at IS NULL OR code_sent_at <= ?)`,
+		codeHash, now.Add(ContactCodeTTL).Format(time.RFC3339), now.Format(time.RFC3339),
+		id, userID, cutoff)
+	if err != nil {
+		return UserContact{}, fmt.Errorf("store: contact challenge: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return UserContact{}, fmt.Errorf("store: contact challenge: %w", err)
+	}
+	if n == 1 {
+		contact, err := s.GetUserContact(ctx, userID, id)
+		if err != nil {
+			return UserContact{}, err
+		}
+		contact.PendingCode = true
+		return contact, nil
+	}
+
+	// No row updated: distinguish the reasons so the caller can answer well.
 	contact, err := s.GetUserContact(ctx, userID, id)
 	if err != nil {
-		return UserContact{}, err
+		return UserContact{}, err // ErrNotFound
 	}
 	if contact.Verified() {
 		return UserContact{}, errors.New("store: contact is already verified")
 	}
-
-	now := s.opts.clock().UTC()
-	var lastSent sql.NullString
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT code_sent_at FROM user_contacts WHERE id = ? AND user_id = ?`, id, userID).
-		Scan(&lastSent); err != nil {
-		return UserContact{}, fmt.Errorf("store: contact challenge: %w", err)
-	}
-	if lastSent.Valid {
-		if sent, err := time.Parse(time.RFC3339, lastSent.String); err == nil {
-			if now.Sub(sent) < ContactResendInterval {
-				return UserContact{}, ErrResendTooSoon
-			}
-		}
-	}
-
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE user_contacts
-		 SET code_hash = ?, code_expires_at = ?, code_attempts = 0, code_sent_at = ?
-		 WHERE id = ? AND user_id = ?`,
-		codeHash, now.Add(ContactCodeTTL).Format(time.RFC3339), now.Format(time.RFC3339),
-		id, userID); err != nil {
-		return UserContact{}, fmt.Errorf("store: contact challenge: %w", err)
-	}
-	contact.PendingCode = true
-	return contact, nil
+	return UserContact{}, ErrResendTooSoon
 }
 
 // VerifyUserContact checks a code and marks the destination verified.

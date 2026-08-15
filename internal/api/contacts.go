@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/bgrewell/donezo/internal/auth"
@@ -140,6 +141,12 @@ func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("this instance cannot send %s; ask the operator to configure it", channel))
 		return
 	}
+	// Adding a destination sends it a verification message, so it is capped
+	// per user — the send goes to an address the sender has not yet proved is
+	// theirs.
+	if !s.allowNotifySend(w, user.ID) {
+		return
+	}
 
 	id, err := newContactID()
 	if err != nil {
@@ -153,6 +160,11 @@ func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicateID) {
 			writeError(w, http.StatusConflict, "that destination is already on your list")
+			return
+		}
+		if errors.Is(err, store.ErrTooManyContacts) {
+			writeError(w, http.StatusConflict,
+				fmt.Sprintf("you already have the maximum of %d delivery destinations; remove one first", store.MaxContactsPerUser))
 			return
 		}
 		s.logger.Printf("create contact: %v", err)
@@ -175,6 +187,26 @@ func (s *Server) handleCreateContact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"contact": contact})
 }
 
+// allowNotifySend applies the per-user notification-send limit. Over budget
+// it answers 429 with Retry-After and reports false. It is keyed on the user
+// id, not the client IP: the resource being protected is the operator's
+// outbound-message budget and other people's phones, both of which are per
+// account regardless of where the request comes from.
+func (s *Server) allowNotifySend(w http.ResponseWriter, userID int64) bool {
+	ok, retryAfter := s.notifyLimiter.Allow(strconv.FormatInt(userID, 10))
+	if ok {
+		return true
+	}
+	secs := int(retryAfter.Seconds())
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	writeError(w, http.StatusTooManyRequests,
+		"too many verification messages; please wait before adding or resending")
+	return false
+}
+
 // handleSendContactCode sends a fresh verification code.
 func (s *Server) handleSendContactCode(w http.ResponseWriter, r *http.Request) {
 	user, ok := userFrom(r.Context())
@@ -189,6 +221,9 @@ func (s *Server) handleSendContactCode(w http.ResponseWriter, r *http.Request) {
 	}
 	if contact.Verified() {
 		writeError(w, http.StatusConflict, "that destination is already verified")
+		return
+	}
+	if !s.allowNotifySend(w, user.ID) {
 		return
 	}
 	if err := s.sendContactCode(r, user.ID, contact); err != nil {
