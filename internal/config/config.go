@@ -6,9 +6,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +32,10 @@ const (
 	EnvSeed = "DONEZOD_SEED"
 	// EnvTrustProxy overrides --trust-proxy.
 	EnvTrustProxy = "DONEZOD_TRUST_PROXY"
+	// EnvBindAddress overrides --bind.
+	EnvBindAddress = "DONEZOD_BIND"
+	// EnvTrustedProxyCIDRs overrides --trusted-proxies.
+	EnvTrustedProxyCIDRs = "DONEZOD_TRUSTED_PROXIES"
 	// EnvHideVersion overrides --hide-version.
 	EnvHideVersion = "DONEZOD_HIDE_VERSION"
 	// EnvTimezone overrides --timezone.
@@ -101,7 +108,25 @@ type Config struct {
 	// X-Forwarded-Proto: https marks session cookies Secure. Leave it
 	// off when clients can reach donezod directly — both headers are
 	// then attacker-controlled and are ignored.
+	//
+	// This alone is not enough: the forwarded headers are only honoured for
+	// requests whose socket peer is actually the proxy — loopback, or a
+	// TrustedProxyCIDRs entry. Otherwise anyone who can open a direct
+	// connection to the listen port could forge them (see BindAddress).
 	TrustProxy bool
+
+	// BindAddress is the interface donezod listens on. Empty resolves via
+	// ListenAddr: 127.0.0.1 when TrustProxy is set (a same-host proxy
+	// reaches donezod over loopback, and exposing the port to the network
+	// would let a direct connection bypass that proxy), and all interfaces
+	// otherwise (the direct-access case, e.g. a LAN instance). Set it
+	// explicitly when a proxy runs on a different host.
+	BindAddress string
+
+	// TrustedProxyCIDRs are extra networks — beyond loopback — whose socket
+	// peers are trusted to have set X-Forwarded-For/-Proto. Needed only when
+	// the reverse proxy is not on the same host. Empty means loopback only.
+	TrustedProxyCIDRs []string
 
 	// HideVersion stops the running version being reported to the web UI,
 	// which otherwise shows it in the nav rail. Useful once an instance is
@@ -270,12 +295,50 @@ func (c Config) Validate() error {
 	if err := c.validateNotify(); err != nil {
 		return err
 	}
+	if _, err := c.TrustedProxyPrefixes(); err != nil {
+		return err
+	}
 	if c.DevAutoLogin && !underTmp(c.DataDir) && os.Getenv(EnvDevAutoLoginConsent) != "1" {
 		return fmt.Errorf(
 			"config: --dev-auto-login disables authentication and is refused for data dir %s; use a --data-dir under /tmp, or set %s=1 if you really mean it",
 			c.DataDir, EnvDevAutoLoginConsent)
 	}
 	return nil
+}
+
+// ListenAddr is the address the HTTP server binds, host and port.
+//
+// A set BindAddress wins. Otherwise the default depends on TrustProxy: with a
+// trusted proxy in front, donezod is reached over loopback and must NOT be
+// exposed to the network — a direct connection to an exposed port would
+// bypass the proxy and forge the forwarded headers. Without a proxy, it binds
+// all interfaces, which is the direct-access case (a LAN or dev instance).
+func (c Config) ListenAddr() string {
+	host := c.BindAddress
+	if host == "" && c.TrustProxy {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(c.Port))
+}
+
+// TrustedProxyPrefixes parses TrustedProxyCIDRs into prefixes, returning an
+// error for any that will not parse. Loopback is always trusted and is not
+// listed here.
+func (c Config) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(c.TrustedProxyCIDRs))
+	for _, raw := range c.TrustedProxyCIDRs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
+			return nil, fmt.Errorf("config: %s: %q is not a CIDR like 10.0.0.0/8 (%s)",
+				EnvTrustedProxyCIDRs, raw, err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // Location resolves Timezone, defaulting to the host's zone when it is empty.

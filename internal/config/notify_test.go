@@ -232,3 +232,49 @@ func TestSMTPHalfConfiguredIsStillRefused(t *testing.T) {
 		})
 	}
 }
+
+// ListenAddr must bind loopback under --trust-proxy (so an exposed port
+// cannot bypass the proxy) and all interfaces otherwise, with an explicit
+// --bind winning either way. This is finding #1's belt half.
+func TestListenAddr(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{name: "no proxy binds all interfaces", mutate: func(c *Config) {}, want: ":8787"},
+		{name: "trust-proxy binds loopback", mutate: func(c *Config) { c.TrustProxy = true }, want: "127.0.0.1:8787"},
+		{name: "explicit bind wins without proxy", mutate: func(c *Config) { c.BindAddress = "0.0.0.0" }, want: "0.0.0.0:8787"},
+		{name: "explicit bind wins under proxy", mutate: func(c *Config) { c.TrustProxy = true; c.BindAddress = "10.0.0.5" }, want: "10.0.0.5:8787"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseConfig()
+			tt.mutate(&cfg)
+			if got := cfg.ListenAddr(); got != tt.want {
+				t.Fatalf("ListenAddr = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrustedProxyPrefixes(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TrustedProxyCIDRs = []string{"10.0.0.0/8", " 192.168.1.0/24 ", ""}
+	got, err := cfg.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatalf("TrustedProxyPrefixes: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d prefixes, want 2 (empty entry skipped)", len(got))
+	}
+
+	cfg.TrustedProxyCIDRs = []string{"not-a-cidr"}
+	if _, err := cfg.TrustedProxyPrefixes(); err == nil {
+		t.Fatal("TrustedProxyPrefixes accepted a non-CIDR")
+	}
+	// And Validate surfaces the same error at startup.
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted a bad trusted-proxy CIDR")
+	}
+}

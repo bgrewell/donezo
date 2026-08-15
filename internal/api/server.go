@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/bgrewell/donezo/internal/auth"
@@ -58,9 +59,13 @@ type Server struct {
 	operatorName string
 	supportEmail string
 	trustProxy   bool
-	logger       *log.Logger
-	ui           fs.FS
-	version      string
+	// trustedProxyNets are networks — beyond loopback — whose socket peers may
+	// set the forwarded headers. Empty means loopback only. Only consulted
+	// when trustProxy is on.
+	trustedProxyNets []netip.Prefix
+	logger           *log.Logger
+	ui               fs.FS
+	version          string
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -185,6 +190,15 @@ func WithLLMRateLimiter(l *auth.RateLimiter) ServerOption {
 // ignored by default.
 func WithTrustProxy(trust bool) ServerOption {
 	return func(s *Server) { s.trustProxy = trust }
+}
+
+// WithTrustedProxies sets the networks — beyond loopback — whose socket peers
+// are trusted to have set the forwarded headers. It matters only with
+// WithTrustProxy on, and only when the proxy is not on the same host as
+// donezod. Without it, the forwarded headers are honoured for loopback peers
+// alone.
+func WithTrustedProxies(nets []netip.Prefix) ServerOption {
+	return func(s *Server) { s.trustedProxyNets = nets }
 }
 
 // WithClock overrides the server's time source (session issuance and
