@@ -295,6 +295,14 @@ install_unit() {
     # is plain string substitution so arbitrary paths are safe.
     rendered="${template//\/var\/lib\/donezo/$DATA_DIR}"
     rendered="$(sed -E "s/--port [0-9]+/--port $PORT/" <<<"$rendered")"
+    if [ "$NO_CADDY" = "1" ]; then
+        # No reverse proxy in front: donezod must accept direct connections,
+        # so it must not run --trust-proxy. That flag both binds donezod to
+        # loopback (making it unreachable here) and trusts forwarded headers
+        # that no proxy is setting. Without it, donezod binds all interfaces
+        # and ignores the headers, which is correct for direct access.
+        rendered="$(sed -E "s/ --trust-proxy//" <<<"$rendered")"
+    fi
     if [ -f "$UNIT_PATH" ] && [ "$(cat "$UNIT_PATH")" = "$rendered" ]; then
         log "unit unchanged: $UNIT_PATH"
         return 0

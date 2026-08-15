@@ -154,11 +154,19 @@ safe and changes nothing (apart from a service restart):
    `/etc/caddy/conf.d/*.caddy` (added once), writes
    `/etc/caddy/conf.d/donezo.caddy`, and reloads Caddy.
 
-The service runs as `User=donezo` with `--trust-proxy` (safe because only
-Caddy talks to it on 127.0.0.1). With `DONEZO_NO_CADDY=1` the packaged
-unit still passes `--trust-proxy`; remove that flag from the unit if
-clients will reach donezod directly, since proxy headers are then
-attacker-controlled.
+The service runs as `User=donezo` with `--trust-proxy`. That flag now also
+**binds donezod to `127.0.0.1`**, so the port is not exposed to the network
+and a direct connection cannot bypass Caddy or forge the `X-Forwarded-*`
+headers (those are honoured only from the loopback peer). With
+`DONEZO_NO_CADDY=1` the installer drops `--trust-proxy` from the unit, so
+donezod binds all interfaces for direct access and ignores the forwarded
+headers.
+
+If you run the reverse proxy on a **different host**, keep `--trust-proxy`,
+add `--bind <addr>` (`DONEZOD_BIND`) to listen off-loopback, and
+`--trusted-proxies <cidr>` (`DONEZOD_TRUSTED_PROXIES`, comma-separated) so
+only that proxy's forwarded headers are believed. Without a trusted CIDR,
+only loopback peers are trusted.
 
 ## First run
 

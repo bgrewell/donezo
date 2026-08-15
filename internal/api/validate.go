@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"regexp"
 	"strings"
@@ -47,10 +48,33 @@ var (
 	fontSizeIDs = []string{"small", "medium", "large"}
 )
 
+// requireJSONContentType rejects a bodied request that does not declare
+// Content-Type: application/json.
+//
+// This closes a login/CSRF vector. A cross-origin HTML form can POST a
+// text/plain body that happens to be valid JSON — a CORS "simple request"
+// that needs no preflight — so without this check a hostile page could drive
+// the cookie-authenticated API (log a victim into the attacker's account, or
+// write on their behalf). Requiring the JSON media type takes these routes
+// out of the simple-request set: a cross-origin caller then needs a preflight,
+// which donezod does not answer, so the browser blocks the request. The web
+// app already sends this header on every write (web/src/api/client.ts).
+func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+		return false
+	}
+	return true
+}
+
 // decodeBody parses one strict JSON value from the request into dst:
 // unknown fields, type mismatches, oversized bodies, and trailing content
 // all answer 400 with a calm message, reporting false.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if !requireJSONContentType(w, r) {
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()

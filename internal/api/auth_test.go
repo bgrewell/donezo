@@ -145,6 +145,16 @@ func (f *authFixture) do(method, path, body string, mod func(*http.Request)) *ht
 		rdr = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, path, rdr)
+	if body != "" {
+		// The API requires a JSON content type on bodied requests (a CSRF
+		// guard); the real frontend always sends it.
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Model the standard deployment: the reverse proxy sits on the same host,
+	// so requests reach donezod over loopback — the peer whose X-Forwarded-*
+	// headers are trusted. Tests that isolate on a specific client address
+	// override this in their mod.
+	req.RemoteAddr = "127.0.0.1:12345"
 	if mod != nil {
 		mod(req)
 	}

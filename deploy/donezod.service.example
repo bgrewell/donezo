@@ -12,8 +12,14 @@
 # /etc/donezo/donezod.env; the leading "-" below makes the file optional.
 #
 # --trust-proxy assumes a reverse proxy (TLS-terminating) directly in
-# front of donezod. Remove it if clients connect to :8787 directly —
-# with no proxy the forwarded headers are attacker-controlled.
+# front of donezod. It also binds donezod to 127.0.0.1 by default, so the
+# port is not exposed to the network and a direct connection cannot bypass
+# the proxy (or forge the forwarded headers). Point the proxy at
+# 127.0.0.1:8787. Remove --trust-proxy if clients connect to :8787
+# directly — with no proxy the forwarded headers are attacker-controlled,
+# and donezod then binds all interfaces. If the proxy runs on a different
+# host, keep --trust-proxy, add --bind <addr> to listen off-loopback, and
+# --trusted-proxies <cidr> so only that proxy's forwarded headers count.
 
 [Unit]
 Description=donezod — donezo backend API server with embedded web UI

@@ -44,6 +44,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	rec = httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPatch, "/api/settings",
 		bytes.NewBufferString(`{"theme":"paper","font":"inter"}`))
+	req.Header.Set("Content-Type", "application/json")
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH settings = %d, want 200 (body %s)", rec.Code, rec.Body)
@@ -57,6 +58,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPatch, "/api/settings",
 		bytes.NewBufferString(`{"fontSize":"large"}`))
+	req.Header.Set("Content-Type", "application/json")
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("second PATCH = %d, want 200 (body %s)", rec.Code, rec.Body)
@@ -70,6 +72,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPatch, "/api/settings",
 		bytes.NewBufferString(`{"theme":""}`))
+	req.Header.Set("Content-Type", "application/json")
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("clearing PATCH = %d, want 200 (body %s)", rec.Code, rec.Body)
@@ -117,6 +120,7 @@ func TestSettingsPatchRejectsBadInput(t *testing.T) {
 			srv := newTestServer(t)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPatch, "/api/settings", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
 			srv.Handler().ServeHTTP(rec, req)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body)
@@ -166,6 +170,7 @@ func TestSettingsRequireAuth(t *testing.T) {
 			req = httptest.NewRequest(tc.method, "/api/settings", nil)
 		} else {
 			req = httptest.NewRequest(tc.method, "/api/settings", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
 		}
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {

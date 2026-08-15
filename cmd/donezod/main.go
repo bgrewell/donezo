@@ -62,6 +62,8 @@ func main() {
 	root.Flags.String("data-dir", "d", "Data directory for core.db and space databases", defaultDataDir).Env = config.EnvDataDir
 	root.Flags.String("seed", "s", "Seed JSON file to import before serving (skipped if already seeded)", "").Env = config.EnvSeed
 	root.Flags.Bool("trust-proxy", "", "Trust proxy headers: the last X-Forwarded-For hop keys rate limiting and X-Forwarded-Proto marks cookies Secure (only directly behind a reverse proxy)", false).Env = config.EnvTrustProxy
+	root.Flags.String("bind", "", "Interface to listen on (default: 127.0.0.1 when --trust-proxy is set, all interfaces otherwise)", "").Env = config.EnvBindAddress
+	root.Flags.String("trusted-proxies", "", "Comma-separated CIDRs, beyond loopback, whose X-Forwarded-* headers are trusted (only needed when the proxy is on a different host)", "").Env = config.EnvTrustedProxyCIDRs
 	root.Flags.Bool("hide-version", "", "Do not report the running version to the web UI (it is shown in the nav rail otherwise)", false).Env = config.EnvHideVersion
 	root.Flags.String("timezone", "", "IANA zone for calendar days when a user has no timezone of their own, e.g. America/Los_Angeles (default: the host's zone)", "").Env = config.EnvTimezone
 	root.Flags.Int("trash-retention-days", "", "Days a deleted item stays restorable before it is purged for good (0 disables the sweep)", 30).Env = config.EnvTrashRetentionDays
@@ -103,6 +105,8 @@ func run(ctx *stencil.Context) error {
 		DataDir:            ctx.Flags.String("data-dir"),
 		SeedPath:           ctx.Flags.String("seed"),
 		TrustProxy:         ctx.Flags.Bool("trust-proxy"),
+		BindAddress:        ctx.Flags.String("bind"),
+		TrustedProxyCIDRs:  splitCSV(ctx.Flags.String("trusted-proxies")),
 		HideVersion:        ctx.Flags.Bool("hide-version"),
 		Timezone:           ctx.Flags.String("timezone"),
 		TrashRetentionDays: ctx.Flags.Int("trash-retention-days"),
@@ -214,10 +218,13 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 	if err != nil {
 		return err
 	}
+	// Validate has already checked these parse; ignore the error here.
+	trustedProxies, _ := cfg.TrustedProxyPrefixes()
 	opts := []api.ServerOption{
 		api.WithRateLimiter(limiter),
 		api.WithMCPRateLimiter(mcpLimiter),
 		api.WithTrustProxy(cfg.TrustProxy),
+		api.WithTrustedProxies(trustedProxies),
 		api.WithServerVersion(appVersion),
 		api.WithHideVersion(cfg.HideVersion),
 		api.WithLocation(location),
@@ -331,7 +338,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 	}()
 
 	httpServer := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Addr:              cfg.ListenAddr(),
 		Handler:           server.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// Bound whole-request reads and writes so slow clients cannot pin
@@ -365,4 +372,20 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		}
 		return <-errCh
 	}
+}
+
+// splitCSV splits a comma-separated flag value into trimmed, non-empty
+// entries. An empty input yields nil, which the config treats as "unset".
+func splitCSV(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

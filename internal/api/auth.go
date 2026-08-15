@@ -238,12 +238,45 @@ func (s *Server) expiredSessionCookie(r *http.Request) *http.Cookie {
 }
 
 // requestIsTLS reports whether the request arrived over HTTPS:
-// terminated here, or — only under --trust-proxy — according to
+// terminated here, or — only from a trusted proxy peer — according to
 // X-Forwarded-Proto. The header sits on the same trust boundary as
-// X-Forwarded-For: without --trust-proxy anything a client puts in it
-// is ignored.
+// X-Forwarded-For: unless the socket peer is the proxy, anything a client
+// puts in it is ignored.
 func (s *Server) requestIsTLS(r *http.Request) bool {
-	return r.TLS != nil || (s.trustProxy && r.Header.Get("X-Forwarded-Proto") == "https")
+	return r.TLS != nil || (s.peerIsTrustedProxy(r) && r.Header.Get("X-Forwarded-Proto") == "https")
+}
+
+// peerIsTrustedProxy reports whether the request's socket peer is the reverse
+// proxy whose forwarded headers may be believed.
+//
+// --trust-proxy alone is not enough: it says "a proxy is in front", but if
+// the listen port is reachable directly (see config.BindAddress), an attacker
+// opening their own connection could forge X-Forwarded-For to mint a fresh
+// rate-limit key per request and defeat the credential limiter entirely. So
+// the headers are honoured only when the connection actually came from the
+// proxy — loopback (the same-host case), or a configured trusted-proxy CIDR.
+func (s *Server) peerIsTrustedProxy(r *http.Request) bool {
+	if !s.trustProxy {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap()
+	if ip.IsLoopback() {
+		return true
+	}
+	for _, n := range s.trustedProxyNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // allowAttempt applies the credential-guessing rate limit. When the
@@ -270,7 +303,7 @@ func (s *Server) allowAttempt(w http.ResponseWriter, r *http.Request) bool {
 // whatever header arrived); every hop left of it came from the
 // client's own header and is attacker-chosen, so it is never used.
 func (s *Server) clientIP(r *http.Request) string {
-	if s.trustProxy {
+	if s.peerIsTrustedProxy(r) {
 		// With several X-Forwarded-For header lines the proxy appends to
 		// the final one, so the trustworthy hop is the last value of the
 		// last line.
@@ -314,6 +347,9 @@ func rateLimitKey(addr string) string {
 // decodeJSON parses the request body into dst, answering 400 and
 // reporting false on malformed or oversized input.
 func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if !requireJSONContentType(w, r) {
+		return false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
