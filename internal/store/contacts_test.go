@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -327,5 +329,80 @@ func TestPendingCodeReflectsLiveChallenge(t *testing.T) {
 	f.now = f.now.Add(ContactCodeTTL + time.Second)
 	if got, _ = f.core.GetUserContact(ctx, f.userID, c.ID); got.PendingCode {
 		t.Fatal("PendingCode still set after the challenge expired")
+	}
+}
+
+// Finding #3: a user cannot hold more than MaxContactsPerUser destinations —
+// each unverified add sends a message, so an unbounded list is an
+// unbounded-message lever.
+func TestCreateUserContactEnforcesCap(t *testing.T) {
+	f := newContactFixture(t)
+	ctx := context.Background()
+	for i := 0; i < MaxContactsPerUser; i++ {
+		if _, err := f.core.CreateUserContact(ctx, UserContact{
+			ID: fmt.Sprintf("ctc-%02d", i), UserID: f.userID, Channel: "sms",
+			Address: fmt.Sprintf("+1555000%04d", i),
+		}); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	_, err := f.core.CreateUserContact(ctx, UserContact{
+		ID: "ctc-over", UserID: f.userID, Channel: "sms", Address: "+15559999999",
+	})
+	if !errors.Is(err, ErrTooManyContacts) {
+		t.Fatalf("create past the cap = %v, want ErrTooManyContacts", err)
+	}
+	// The cap is per user: a different account is unaffected.
+	other, err := f.core.CreateUser(ctx, "mallory", "Mallory")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := f.core.CreateUserContact(ctx, UserContact{
+		ID: "ctc-other", UserID: other.ID, Channel: "sms", Address: "+15558888888",
+	}); err != nil {
+		t.Fatalf("other user's first contact = %v, want success", err)
+	}
+}
+
+// Finding #3: StartContactChallenge is atomic — concurrent calls on one
+// contact produce exactly one send, not several. The old check-then-act read
+// the send stamp, compared it in Go, then wrote separately, so racing callers
+// all saw the same stale stamp and every one got through. This fails against
+// that code.
+func TestStartContactChallengeIsRaceFree(t *testing.T) {
+	f := newContactFixture(t)
+	ctx := context.Background()
+	c := f.add(t, "ctc-1", "sms", "+15551234567")
+
+	const racers = 16
+	results := make(chan error, racers)
+	var wg sync.WaitGroup
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			_, err := f.core.StartContactChallenge(ctx, f.userID, c.ID, fmt.Sprintf("hash-%d", n))
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+
+	var ok, tooSoon, other int
+	for err := range results {
+		switch {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrResendTooSoon):
+			tooSoon++
+		default:
+			other++
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("%d concurrent challenges produced %d sends, want exactly 1 (the rest throttled)", racers, ok)
+	}
+	if tooSoon != racers-1 {
+		t.Fatalf("throttled = %d, want %d (other errors: %d)", tooSoon, racers-1, other)
 	}
 }

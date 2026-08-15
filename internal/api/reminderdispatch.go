@@ -35,6 +35,14 @@ const dispatchInterval = time.Minute
 // reminder is still in the app; what is given up on is delivering it.
 const maxDeliveryAttempts = 5
 
+// maxDeliveriesPerUserPass bounds how many reminders one account has
+// delivered in a single dispatch pass. It caps the billed sends a member can
+// trigger per minute and stops one account's backlog from starving everyone
+// else's reminders in the single dispatch goroutine. Generous for real use —
+// few people have twenty reminders due in the same minute — and the overflow
+// is not dropped, only deferred to the next pass.
+const maxDeliveriesPerUserPass = 20
+
 // DefaultReminderMaxLateness is how overdue a reminder may be and still be
 // delivered. It mirrors config.DefaultReminderMaxLatenessHours, which is the
 // CLI's default for the same value; this is the one that applies when a
@@ -87,6 +95,13 @@ func (s *Server) dispatchReminders(ctx context.Context) {
 	// One user usually owns several spaces; their contacts and timezone are
 	// the same for all of them, so they are resolved once per pass.
 	recipients := make(map[int64]*recipient)
+	// Deliveries per user this pass. The pass sends synchronously in one
+	// goroutine, so an account with a large backlog of due reminders — or one
+	// deliberately created to spend the operator's SMS budget — would
+	// otherwise fire them all at once and block every other account's
+	// reminders behind them. Each user gets at most maxDeliveriesPerUserPass
+	// this minute; the rest stay pending and go out on later passes.
+	sentThisPass := make(map[int64]int)
 	for _, sp := range spaces {
 		if sp.ArchivedAt != nil {
 			// An archived space is read-only, and delivering would mean
@@ -106,7 +121,7 @@ func (s *Server) dispatchReminders(ctx context.Context) {
 			// having been quietly consumed while there was no way to send.
 			continue
 		}
-		if err := s.dispatchSpace(ctx, sp, rcpt); err != nil {
+		if err := s.dispatchSpace(ctx, sp, rcpt, sentThisPass); err != nil {
 			s.logger.Printf("reminder dispatch: space %s: %v", sp.ID, err)
 		}
 	}
@@ -156,8 +171,9 @@ func (s *Server) resolveRecipient(ctx context.Context, userID int64) *recipient 
 	return r
 }
 
-// dispatchSpace delivers whatever is due in one space.
-func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipient) error {
+// dispatchSpace delivers whatever is due in one space, up to the owner's
+// remaining per-pass budget in sentThisPass.
+func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipient, sentThisPass map[int64]int) error {
 	pending, err := s.spaces.PendingReminders(ctx, sp.ID)
 	if err != nil {
 		return err
@@ -185,6 +201,16 @@ func (s *Server) dispatchSpace(ctx context.Context, sp store.Space, rcpt *recipi
 			s.skipDelivery(ctx, sp.ID, p.ID)
 			continue
 		}
+		// This one would be delivered. Stop once the owner has had their
+		// share this pass; the rest stay pending (notified_at untouched) and
+		// go out on a later pass, so a big backlog cannot monopolise the
+		// dispatch loop or the send budget.
+		if sentThisPass[sp.UserID] >= maxDeliveriesPerUserPass {
+			s.logger.Printf("reminder dispatch: user %d hit the per-pass delivery cap (%d); %d+ reminders wait for the next pass",
+				sp.UserID, maxDeliveriesPerUserPass, 1)
+			break
+		}
+		sentThisPass[sp.UserID]++
 		s.deliver(ctx, sp, p, rcpt)
 	}
 	return nil

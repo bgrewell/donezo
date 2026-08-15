@@ -20,14 +20,22 @@ type PendingReminder struct {
 	Attempts int
 }
 
-// PendingReminders returns every live, unfinished, undelivered reminder in a
-// space, oldest first.
+// maxPendingRemindersPerPass bounds how many undelivered reminders one pass
+// loads from a space. Deliberately larger than the dispatcher's per-user
+// per-pass delivery cap, so it never starves normal delivery, while still
+// keeping the read (and memory) bounded if an account accumulates a huge
+// backlog — a reminder someone did not deal with is usually a handful, but a
+// hostile or runaway account should not be able to make one pass load
+// unbounded rows. The oldest-due are taken first, so nothing is stranded.
+const maxPendingRemindersPerPass = 200
+
+// PendingReminders returns live, unfinished, undelivered reminders in a
+// space, oldest first, up to maxPendingRemindersPerPass.
 //
 // Deliberately unfiltered by time. RemindAt is a naive local wall clock (see
 // the time model in docs/api.md), so which of these is actually due depends
 // on the owner's timezone — a fact this layer does not have and should not
-// guess at. The dispatcher resolves that, and the row count here is bounded
-// by "reminders a person has not dealt with", which is small.
+// guess at. The dispatcher resolves that.
 func (s *SpaceStore) PendingReminders(ctx context.Context, spaceID string) ([]PendingReminder, error) {
 	db, err := s.db(ctx, spaceID)
 	if err != nil {
@@ -39,7 +47,8 @@ func (s *SpaceStore) PendingReminders(ctx context.Context, spaceID string) ([]Pe
 		 WHERE deleted_at IS NULL
 		   AND notified_at IS NULL
 		   AND (done IS NULL OR done = 0)
-		 ORDER BY remind_at, rowid`)
+		 ORDER BY remind_at, rowid
+		 LIMIT ?`, maxPendingRemindersPerPass)
 	if err != nil {
 		return nil, fmt.Errorf("store: pending reminders: %w", err)
 	}

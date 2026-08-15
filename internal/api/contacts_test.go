@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -281,5 +282,33 @@ func TestNotifyStatusCarriesNoCredentials(t *testing.T) {
 	}
 	if strings.Contains(body, "relay-user") {
 		t.Fatalf("status response contains the relay username: %s", body)
+	}
+}
+
+// Finding #3: adding destinations is rate-limited per user, so a member
+// cannot turn the verification send into an unmetered outbound-message
+// cannon. The default budget is defaultNotifyLimit per window.
+func TestCreateContactIsRateLimitedPerUser(t *testing.T) {
+	s, email := newContactServer(t)
+	h := s.Handler()
+
+	for i := 0; i < defaultNotifyLimit; i++ {
+		body := fmt.Sprintf(`{"channel":"email","address":"ben+%d@example.com"}`, i)
+		if rec := doJSON(t, h, http.MethodPost, "/api/notify/contacts", body); rec.Code != http.StatusCreated {
+			t.Fatalf("add %d = %d, want 201: %s", i, rec.Code, rec.Body)
+		}
+	}
+	// The next add is over budget and must not send.
+	before := len(email.deliveries())
+	rec := doJSON(t, h, http.MethodPost, "/api/notify/contacts",
+		`{"channel":"email","address":"ben+over@example.com"}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("add past the send budget = %d, want 429: %s", rec.Code, rec.Body)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("429 is missing Retry-After")
+	}
+	if got := len(email.deliveries()); got != before {
+		t.Fatalf("a rate-limited add still sent a message (%d -> %d)", before, got)
 	}
 }

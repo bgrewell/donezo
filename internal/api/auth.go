@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/bgrewell/donezo/internal/auth"
 	"github.com/bgrewell/donezo/internal/store"
@@ -59,8 +62,8 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Username == "" {
-		writeError(w, http.StatusBadRequest, "username is required")
+	if err := validateUsername(req.Username); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
@@ -235,6 +238,33 @@ func (s *Server) expiredSessionCookie(r *http.Request) *http.Cookie {
 	c := s.sessionCookie(r, "", time.Unix(0, 0).UTC())
 	c.MaxAge = -1
 	return c
+}
+
+// maxUsernameRunes caps a username. Generous; the point is a bound, not a
+// short name.
+const maxUsernameRunes = 64
+
+// validateUsername accepts a username created at setup or registration: 1–64
+// characters with no whitespace and no control characters.
+//
+// The charset limit is not cosmetic. A username is echoed in the UI and
+// written to the request/audit log, so a control character or newline in one
+// is both a display hazard and a log-forgery vector; rejecting it at the one
+// place a username is chosen is cleaner than escaping it everywhere it is
+// later shown.
+func validateUsername(u string) error {
+	if u == "" {
+		return errors.New("username is required")
+	}
+	if utf8.RuneCountInString(u) > maxUsernameRunes {
+		return fmt.Errorf("username must be %d characters or fewer", maxUsernameRunes)
+	}
+	for _, r := range u {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return errors.New("username must not contain spaces or control characters")
+		}
+	}
+	return nil
 }
 
 // requestIsTLS reports whether the request arrived over HTTPS:

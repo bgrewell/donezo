@@ -242,8 +242,8 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "an invite code is required")
 		return
 	}
-	if req.Username == "" {
-		writeError(w, http.StatusBadRequest, "username is required")
+	if err := validateUsername(req.Username); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
@@ -296,7 +296,7 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		// even the unwind fails, the claim stays burned (the safe
 		// direction) and the fault is logged for the operator.
 		if err := s.spaces.EnsureSpace(r.Context(), sp.ID); err != nil {
-			s.logger.Printf("register %s: ensure space database: %v", user.Username, err)
+			s.logger.Printf("register %q: ensure space database: %v", user.Username, err)
 			if err := s.core.UnregisterInvitedUser(r.Context(), codeHash, user.ID, sp.ID); err != nil {
 				s.logger.Printf("register compensation: %v", err)
 			}
