@@ -18,8 +18,8 @@ donezo frontend itself).
 | `POST /api/auth/logout`                            | Delete the session, expire the cookie                                  |
 | `POST /api/auth/register`                          | `{code, username, displayName?, password}` → member account + `main` space + session |
 | `GET /api/auth/me`                                 | `{user}` (includes `role`) or `401`                                    |
-| `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here** |
-| `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames; never the code |
+| `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here**. Add `{email}` to also send the code to that address (requires an email channel; `409` if unconfigured, `400` if the address is invalid); the response then carries `sent`/`warning` and the recorded `email` |
+| `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames + any recipient `email`; never the code |
 | `DELETE /api/invites/{id}`                         | Admin: revoke → `204` (idempotent)                                     |
 | `GET /privacy` / `GET /terms`                      | **Public, no account**: the privacy policy and terms, served only when `DONEZOD_OPERATOR_NAME` and `DONEZOD_SUPPORT_EMAIL` are set (404 otherwise). HTML, not JSON — a carrier reviewing an SMS program has no account |
 | `GET /api/admin/usage`                             | Admin: derived usage statistics for every account — counts, windows and distributions. Never item text, and never a project or space identifier (see below) |
@@ -118,6 +118,18 @@ deliberate, bounded disclosure: it is visible only to someone the admin
 already handed a valid code (anonymous login keeps its uniform `401`),
 and every registration attempt — including the `409` — spends the
 shared login/setup rate-limit budget.
+
+**Emailing an invite.** When the admin supplies an `email` and an email
+channel is configured, the same `POST /api/invites` also sends the code to
+that address — a short message with the code, its expiry, and, when
+`--public-url` is set, a join link of the form `<public-url>/#/join/<code>`.
+The code rides in the URL fragment, which browsers never send to the server,
+so it stays out of access logs and referrers; opening that link lands the
+invitee on the register form with the code prefilled. The address is recorded
+on the invite (a label for the admin's list) but plays no part in claiming —
+the code alone still redeems it. The send is metered against the admin's
+per-user outbound budget, and a send failure still returns the code (with a
+`warning`) so it can be shared by hand.
 
 ### Staying current
 

@@ -147,6 +147,42 @@ func TestCreateInvite(t *testing.T) {
 	}
 }
 
+// TestCreateInviteEmail covers the recipient address added for email invites:
+// a set address round-trips through create and into the admin listing, and a
+// code minted without one stays NULL rather than empty-string.
+func TestCreateInviteEmail(t *testing.T) {
+	t.Parallel()
+	s, _, admin := newInviteStore(t)
+	ctx := context.Background()
+
+	email := "nina@example.com"
+	if _, err := s.CreateInvite(ctx, Invite{
+		ID: "inv-mailed", CodeHash: "hash-mailed", CodePrefix: "dz-mailed", CreatedBy: admin.ID, Email: &email,
+	}, time.Hour); err != nil {
+		t.Fatalf("CreateInvite (with email): %v", err)
+	}
+	if _, err := s.CreateInvite(ctx, Invite{
+		ID: "inv-bare", CodeHash: "hash-bare", CodePrefix: "dz-bare", CreatedBy: admin.ID,
+	}, time.Hour); err != nil {
+		t.Fatalf("CreateInvite (no email): %v", err)
+	}
+
+	listed, err := s.ListInvites(ctx)
+	if err != nil {
+		t.Fatalf("ListInvites: %v", err)
+	}
+	byID := map[string]InviteListing{}
+	for _, l := range listed {
+		byID[l.ID] = l
+	}
+	if got := byID["inv-mailed"].Email; got == nil || *got != email {
+		t.Errorf("emailed invite Email = %v, want %q", got, email)
+	}
+	if got := byID["inv-bare"].Email; got != nil {
+		t.Errorf("bare invite Email = %v, want nil", got)
+	}
+}
+
 func TestListInvites(t *testing.T) {
 	t.Parallel()
 	s, _, admin := newInviteStore(t)

@@ -57,6 +57,8 @@ export interface Invite {
   usedBy?: string;
   usedAt?: string;
   revokedAt?: string;
+  /** Address the invite was emailed to, absent for a bare code. */
+  email?: string;
 }
 
 /** A freshly minted invite — the only place the plaintext code exists. */
@@ -65,6 +67,12 @@ export interface CreatedInvite {
   code: string;
   codePrefix: string;
   expiresAt: string;
+  /** Address it was emailed to, when created with one. */
+  email?: string;
+  /** True when the invite email was accepted by the mail server. */
+  sent?: boolean;
+  /** Present when the invite was created but its email could not be sent. */
+  warning?: string;
 }
 
 /** What an API token may do over MCP: read the account, or read and write. */
@@ -186,10 +194,17 @@ export function logout(): Promise<void> {
 
 // ─── Invites (admin only) ─────────────────────────────────────────────────
 
-/** Mint an invite code. The plaintext code appears only in this response. */
-export async function createInvite(expiresInDays?: number): Promise<CreatedInvite> {
-  const body = expiresInDays !== undefined ? { expiresInDays } : undefined;
-  return (await api.post<{ invite: CreatedInvite }>("/api/invites", body)).invite;
+/** Mint an invite code, optionally emailing it to an address. The plaintext
+ *  code appears only in this response, whether or not it was also emailed. */
+export async function createInvite(
+  expiresInDays?: number,
+  email?: string
+): Promise<CreatedInvite> {
+  const body: { expiresInDays?: number; email?: string } = {};
+  if (expiresInDays !== undefined) body.expiresInDays = expiresInDays;
+  if (email) body.email = email;
+  const payload = Object.keys(body).length > 0 ? body : undefined;
+  return (await api.post<{ invite: CreatedInvite }>("/api/invites", payload)).invite;
 }
 
 export async function fetchInvites(): Promise<Invite[]> {

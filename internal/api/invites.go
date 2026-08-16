@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/auth"
+	"github.com/bgrewell/donezo/internal/notify"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -65,6 +67,8 @@ type inviteView struct {
 	UsedBy     *string `json:"usedBy,omitempty"`
 	UsedAt     *string `json:"usedAt,omitempty"`
 	RevokedAt  *string `json:"revokedAt,omitempty"`
+	// Email is the address an invite was sent to, absent for a bare code.
+	Email *string `json:"email,omitempty"`
 }
 
 // inviteStatus derives an invite's lifecycle state at now (RFC 3339
@@ -105,7 +109,8 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ExpiresInDays *int `json:"expiresInDays"`
+		ExpiresInDays *int   `json:"expiresInDays"`
+		Email         string `json:"email"`
 	}
 	// Strict decoding, but an absent body means "all defaults".
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAuthBodyBytes))
@@ -125,6 +130,28 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 			days = maxInviteDays
 		}
 	}
+	// An optional email turns "mint a code" into "send an invite". It is
+	// validated and its channel checked before anything is minted, so an
+	// address the instance cannot send to never leaves a wasted invite behind.
+	var emailPtr *string
+	email := strings.TrimSpace(req.Email)
+	if email != "" {
+		if err := notify.ValidateAddress(notify.ChannelEmail, email); err != nil {
+			writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "notify: "))
+			return
+		}
+		if !s.notifiers.Configured(notify.ChannelEmail) {
+			writeError(w, http.StatusConflict,
+				"this instance cannot send email; ask the operator to configure it, or generate a code to share yourself")
+			return
+		}
+		// Sending an invite spends the operator's outbound-email budget, so it
+		// is metered per admin like every other send.
+		if !s.allowNotifySend(w, user.ID) {
+			return
+		}
+		emailPtr = &email
+	}
 	code, codeHash, err := auth.NewInviteCode()
 	if err != nil {
 		s.logger.Printf("create invite: %v", err)
@@ -142,18 +169,75 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		CodeHash:   codeHash,
 		CodePrefix: code[:auth.InviteCodePrefixLen],
 		CreatedBy:  user.ID,
+		Email:      emailPtr,
 	}, time.Duration(days)*24*time.Hour)
 	if err != nil {
 		s.logger.Printf("create invite: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]map[string]string{"invite": {
+	out := map[string]any{
 		"id":         inv.ID,
 		"code":       code,
 		"codePrefix": inv.CodePrefix,
 		"expiresAt":  inv.ExpiresAt,
-	}})
+	}
+	if emailPtr != nil {
+		out["email"] = *emailPtr
+		if err := s.sendInviteEmail(r, *emailPtr, code, inv.ExpiresAt); err != nil {
+			// The invite is real and its code is in this response, so a send
+			// failure is reported without undoing it — the admin can still copy
+			// the code and hand it over. The address stays recorded so the list
+			// shows who it was meant for.
+			s.logger.Printf("create invite: emailing %s: %v", notify.Redact(notify.ChannelEmail, *emailPtr), err)
+			out["warning"] = "invite created, but the email could not be sent — copy the code and share it yourself"
+		} else {
+			out["sent"] = true
+		}
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"invite": out})
+}
+
+// sendInviteEmail delivers a minted invite to an address: the code, a join
+// link when this instance knows its own URL, and the expiry.
+func (s *Server) sendInviteEmail(r *http.Request, to, code, expiresAt string) error {
+	ctx, cancel := context.WithTimeout(r.Context(), notify.DefaultTimeout)
+	defer cancel()
+	return s.notifiers.Send(ctx, notify.ChannelEmail, to, notify.Message{
+		Subject: "You're invited to donezo",
+		Body:    inviteEmailBody(code, expiresAt, s.publicURL),
+	})
+}
+
+// inviteEmailBody composes the plain-text invite email. The join link is
+// included only when publicURL is set; the code alone is always enough to
+// register. The code rides in the URL fragment (#/join/…), which browsers do
+// not send to servers, keeping it out of access logs and referrers.
+func inviteEmailBody(code, expiresAt, publicURL string) string {
+	var b strings.Builder
+	b.WriteString("You've been invited to donezo — a place to keep your work and reminders.\n\n")
+	base := strings.TrimSuffix(publicURL, "/")
+	if base != "" {
+		fmt.Fprintf(&b, "Open this link to create your account:\n%s/#/join/%s\n\n", base, code)
+		fmt.Fprintf(&b, "Or go to %s, choose \"I have an invite code\", and enter it manually:\n%s\n\n", base, code)
+	} else {
+		fmt.Fprintf(&b, "Create your account with this invite code:\n%s\n\n", code)
+	}
+	if when := formatInviteExpiry(expiresAt); when != "" {
+		fmt.Fprintf(&b, "The invite expires %s.\n\n", when)
+	}
+	b.WriteString("If you weren't expecting this, you can ignore it — nothing happens until the code is used.")
+	return b.String()
+}
+
+// formatInviteExpiry renders an RFC 3339 expiry as a calm UTC phrase, or ""
+// when it cannot be parsed (in which case the email simply omits the line).
+func formatInviteExpiry(expiresAt string) string {
+	t, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return ""
+	}
+	return t.UTC().Format("2 Jan 2006, 15:04 MST")
 }
 
 // handleListInvites answers the admin invite table: every invite with
@@ -181,6 +265,7 @@ func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
 			UsedBy:     l.UsedByUsername,
 			UsedAt:     l.UsedAt,
 			RevokedAt:  l.RevokedAt,
+			Email:      l.Email,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string][]inviteView{"invites": views})

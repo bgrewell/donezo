@@ -1,11 +1,12 @@
 import * as React from "react";
 import { Check, Copy } from "lucide-react";
-import { Button, Select, cn } from "@grewelltech/console";
+import { Button, Input, Select, cn } from "@grewelltech/console";
 
 import {
   ApiError,
   createInvite,
   fetchInvites,
+  fetchNotifyStatus,
   revokeInvite,
   type CreatedInvite,
   type Invite,
@@ -71,6 +72,10 @@ export function InvitesSection() {
   const [days, setDays] = React.useState(7);
   const [generating, setGenerating] = React.useState(false);
   const [generateError, setGenerateError] = React.useState<string | null>(null);
+  // The recipient for an email invite, and whether this instance can send one.
+  // Null while the channel status is still loading.
+  const [email, setEmail] = React.useState("");
+  const [emailConfigured, setEmailConfigured] = React.useState<boolean | null>(null);
   // The one-time code well. Cleared on close — the code is unrecoverable
   // by design, so it must never linger into a later open.
   const [minted, setMinted] = React.useState<CreatedInvite | null>(null);
@@ -102,6 +107,23 @@ export function InvitesSection() {
     void refresh();
   }, [refresh]);
 
+  // Whether the email invite path is available depends on the instance having
+  // an email channel configured. A failure here just leaves the option off —
+  // the admin can still generate a code to share by hand.
+  React.useEffect(() => {
+    let live = true;
+    void fetchNotifyStatus()
+      .then((channels) => {
+        if (live) setEmailConfigured(channels.some((c) => c.channel === "email" && c.configured));
+      })
+      .catch(() => {
+        if (live) setEmailConfigured(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   // "copied" tick reverts after a beat.
   React.useEffect(() => {
     if (!copied) return;
@@ -109,14 +131,17 @@ export function InvitesSection() {
     return () => window.clearTimeout(t);
   }, [copied]);
 
-  const generate = async () => {
+  // One path mints an invite: with an address it is emailed, without one it is
+  // just a code to copy. Both land in the same one-time code well.
+  const submit = async (toEmail?: string) => {
     if (generating) return;
     setGenerating(true);
     setGenerateError(null);
     try {
-      const invite = await createInvite(days);
+      const invite = await createInvite(days, toEmail);
       setMinted(invite);
       setCopied(false);
+      if (toEmail) setEmail("");
       await refresh();
     } catch (err) {
       setGenerateError(errorText(err));
@@ -167,6 +192,11 @@ export function InvitesSection() {
         className="flex min-h-[2rem] flex-wrap items-center gap-x-3 gap-y-1 rounded-gtc px-2 py-1"
       >
         <span className="font-mono text-[0.78rem] text-gtc-text">{invite.codePrefix}…</span>
+        {invite.email && (
+          <span className="truncate text-[0.72rem] text-gtc-muted" title={invite.email}>
+            {invite.email}
+          </span>
+        )}
         <span
           className={cn(
             "font-mono text-[0.66rem] uppercase tracking-label",
@@ -216,9 +246,9 @@ export function InvitesSection() {
           Invite codes let someone create their own account, with their own spaces.
         </p>
 
-        <div className="flex items-center gap-2">
-          <Button variant="primary" disabled={generating} onClick={() => void generate()}>
-            {generating ? "Generating…" : "Generate code"}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" disabled={generating} onClick={() => void submit()}>
+            {generating ? "Working…" : "Generate code"}
           </Button>
           <Select
             aria-label="Invite expiry"
@@ -233,6 +263,38 @@ export function InvitesSection() {
             ))}
           </Select>
         </div>
+
+        {/* Email path: mint and send in one step. Disabled until the channel
+            status confirms this instance can send email. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@example.com"
+            aria-label="Invite email address"
+            disabled={!emailConfigured || generating}
+            className="!w-64 !py-[7px] !text-[0.78rem]"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && email.trim() && emailConfigured && !generating) {
+                void submit(email.trim());
+              }
+            }}
+          />
+          <Button
+            variant="primary"
+            disabled={generating || !email.trim() || !emailConfigured}
+            onClick={() => void submit(email.trim())}
+          >
+            Send invite
+          </Button>
+        </div>
+        {emailConfigured === false && (
+          <p className="m-0 text-[0.78rem] text-gtc-muted">
+            Set up email delivery in Settings → Reminders to send invites by email. You can still
+            generate a code to share yourself.
+          </p>
+        )}
         {generateError && (
           <p className="m-0 font-mono text-[0.66rem] text-gtc-danger" role="alert">
             ▸ {generateError}
@@ -262,6 +324,15 @@ export function InvitesSection() {
             <p className="m-0 font-mono text-[0.66rem] uppercase tracking-label text-gtc-warn">
               shown only once — copy it now
             </p>
+            {minted.warning ? (
+              <p className="m-0 font-mono text-[0.66rem] text-gtc-danger" role="alert">
+                ▸ {minted.warning}
+              </p>
+            ) : minted.email ? (
+              <p className="m-0 flex items-center gap-1.5 font-mono text-[0.66rem] uppercase tracking-label text-gtc-success">
+                <Check className="h-3 w-3" aria-hidden /> emailed to {minted.email}
+              </p>
+            ) : null}
           </div>
         )}
 

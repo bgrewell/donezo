@@ -1,0 +1,11 @@
+-- Email invites: an admin can now send an invite to an address instead of
+-- only minting a code to hand over out of band.
+--
+-- email records who an invite was sent to, so the admin list can show the
+-- recipient rather than only a code prefix. It is NULL for a code that was
+-- generated without an address (the original flow) and for every invite that
+-- predates this migration — there is nothing to backfill, because those codes
+-- were never emailed anywhere. The address is not a secret and is not part of
+-- claiming: it is a label for the admin, and the code remains the only thing
+-- that redeems the invite.
+ALTER TABLE invites ADD COLUMN email TEXT;
