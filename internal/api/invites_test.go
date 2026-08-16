@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -799,5 +800,36 @@ func TestCreateInviteWithoutEmailStillMintsBareCode(t *testing.T) {
 	listed, _ := f.listInvites(admin)
 	if got := listed[inv.ID].Email; got != nil {
 		t.Errorf("bare invite listed email = %v, want nil", got)
+	}
+}
+
+// TestCreateInviteEmailSendFailureKeepsCode: when the email channel accepts the
+// address but the send itself fails, the invite is still created and its code
+// returned (with a warning), and the recipient is still recorded — so a relay
+// hiccup never loses an invite the admin can hand over by hand.
+func TestCreateInviteEmailSendFailureKeepsCode(t *testing.T) {
+	t.Parallel()
+	email := &recordingSender{channel: notify.ChannelEmail, err: errors.New("relay refused")}
+	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(email)), WithPublicURL("https://donezo.example"))
+	admin := f.setupAdmin("owner")
+
+	inv := f.createInvite(admin, `{"email":"nina@example.com"}`)
+	if inv.Code == "" || !renderedInviteCode.MatchString(inv.Code) {
+		t.Errorf("failed send did not still return a usable code: %+v", inv)
+	}
+	if inv.Sent {
+		t.Errorf("sent = true despite the relay refusing")
+	}
+	if inv.Warning == "" {
+		t.Errorf("a failed send should carry a warning, got none: %+v", inv)
+	}
+	// The invite (with its recipient) survives the send failure.
+	listed, _ := f.listInvites(admin)
+	got := listed[inv.ID]
+	if got.Email == nil || *got.Email != "nina@example.com" {
+		t.Errorf("failed-send invite listed email = %v, want nina@example.com", got.Email)
+	}
+	if got.Status != "active" {
+		t.Errorf("failed-send invite status = %q, want active", got.Status)
 	}
 }
