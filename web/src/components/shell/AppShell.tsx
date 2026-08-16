@@ -14,6 +14,7 @@ import { QuickCapture } from "./QuickCapture";
 import { WelcomeDialog } from "@/components/onboarding/WelcomeDialog";
 import { Tour } from "@/components/onboarding/Tour";
 import { HintChip } from "@/components/onboarding/HintChip";
+import { BlossomCorners } from "./BlossomCorners";
 
 /** Application chrome: nav rail, top bar, workspace, inspector, quick capture.
  *  Also owns hash routing and global keyboard shortcuts. */
@@ -95,6 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SyncErrorBanner />
           <main className="relative min-h-0 flex-1 overflow-hidden">
             {children}
+            <BlossomCorners />
             <HintChip />
           </main>
         </div>
