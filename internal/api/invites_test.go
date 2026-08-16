@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/auth"
+	"github.com/bgrewell/donezo/internal/notify"
 )
 
 // renderedInviteCode matches the documented "dz-XXXXX-XXXXX" form.
@@ -49,6 +51,9 @@ type createdInvite struct {
 	Code       string `json:"code"`
 	CodePrefix string `json:"codePrefix"`
 	ExpiresAt  string `json:"expiresAt"`
+	Email      string `json:"email"`
+	Sent       bool   `json:"sent"`
+	Warning    string `json:"warning"`
 }
 
 // createInvite mints an invite as the cookie's user and parses the 201.
@@ -78,6 +83,7 @@ type listedInvite struct {
 	UsedBy     *string `json:"usedBy"`
 	UsedAt     *string `json:"usedAt"`
 	RevokedAt  *string `json:"revokedAt"`
+	Email      *string `json:"email"`
 }
 
 // listInvites fetches the admin invite list and indexes it by id,
@@ -692,5 +698,138 @@ func TestInviteRouteMethodFallbacks(t *testing.T) {
 		if rec.Header().Get("Allow") == "" {
 			t.Errorf("%s %s: missing Allow header", tt.method, tt.path)
 		}
+	}
+}
+
+// TestCreateInviteWithEmail covers the email path added to invite creation: a
+// valid address is validated, the invite is sent through the email channel
+// with the code and a join link, and the recipient is recorded on the invite.
+func TestCreateInviteWithEmail(t *testing.T) {
+	t.Parallel()
+	email := &recordingSender{channel: notify.ChannelEmail}
+	f := newAuthFixture(t,
+		WithNotifiers(notify.NewRegistry(email)),
+		WithPublicURL("https://donezo.example/"),
+	)
+	admin := f.setupAdmin("owner")
+
+	inv := f.createInvite(admin, `{"email":"nina@example.com"}`)
+	if !inv.Sent {
+		t.Errorf("response did not report the invite as sent: %+v", inv)
+	}
+	if inv.Email != "nina@example.com" {
+		t.Errorf("response email = %q, want nina@example.com", inv.Email)
+	}
+
+	sent := email.deliveries()
+	if len(sent) != 1 {
+		t.Fatalf("delivered %d messages, want 1", len(sent))
+	}
+	if sent[0].to != "nina@example.com" {
+		t.Errorf("delivered to %q, want nina@example.com", sent[0].to)
+	}
+	// The body must carry the code and the join link (fragment form keeps the
+	// code out of server logs and referrers).
+	if !strings.Contains(sent[0].msg.Body, inv.Code) {
+		t.Errorf("email body missing the code:\n%s", sent[0].msg.Body)
+	}
+	wantLink := "https://donezo.example/#/join/" + inv.Code
+	if !strings.Contains(sent[0].msg.Body, wantLink) {
+		t.Errorf("email body missing the join link %q:\n%s", wantLink, sent[0].msg.Body)
+	}
+
+	// The recipient is recorded on the invite listing.
+	listed, _ := f.listInvites(admin)
+	got := listed[inv.ID]
+	if got.Email == nil || *got.Email != "nina@example.com" {
+		t.Errorf("listed invite email = %v, want nina@example.com", got.Email)
+	}
+}
+
+// TestCreateInviteEmailNotConfigured: asking to email an invite on an instance
+// with no email channel is refused up front, and mints nothing.
+func TestCreateInviteEmailNotConfigured(t *testing.T) {
+	t.Parallel()
+	f := newAuthFixture(t) // no notifiers
+	admin := f.setupAdmin("owner")
+
+	rec := f.do(http.MethodPost, "/api/invites", `{"email":"nina@example.com"}`, withCookie(admin))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	if listed, _ := f.listInvites(admin); len(listed) != 0 {
+		t.Errorf("a refused email invite still minted a code: %+v", listed)
+	}
+}
+
+// TestCreateInviteInvalidEmail: a malformed address is a 400 and mints nothing,
+// even when the channel is configured.
+func TestCreateInviteInvalidEmail(t *testing.T) {
+	t.Parallel()
+	email := &recordingSender{channel: notify.ChannelEmail}
+	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(email)))
+	admin := f.setupAdmin("owner")
+
+	rec := f.do(http.MethodPost, "/api/invites", `{"email":"not-an-email"}`, withCookie(admin))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", rec.Code, rec.Body.String())
+	}
+	if got := len(email.deliveries()); got != 0 {
+		t.Errorf("a rejected address still sent %d messages", got)
+	}
+	if listed, _ := f.listInvites(admin); len(listed) != 0 {
+		t.Errorf("an invalid-email invite still minted a code: %+v", listed)
+	}
+}
+
+// TestCreateInviteWithoutEmailStillMintsBareCode: the original code-only path
+// is unchanged — no email field means no send and no recorded recipient.
+func TestCreateInviteWithoutEmailStillMintsBareCode(t *testing.T) {
+	t.Parallel()
+	email := &recordingSender{channel: notify.ChannelEmail}
+	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(email)))
+	admin := f.setupAdmin("owner")
+
+	inv := f.createInvite(admin, "")
+	if inv.Sent || inv.Email != "" {
+		t.Errorf("a bare code reported email state: %+v", inv)
+	}
+	if got := len(email.deliveries()); got != 0 {
+		t.Errorf("a bare code sent %d emails", got)
+	}
+	listed, _ := f.listInvites(admin)
+	if got := listed[inv.ID].Email; got != nil {
+		t.Errorf("bare invite listed email = %v, want nil", got)
+	}
+}
+
+// TestCreateInviteEmailSendFailureKeepsCode: when the email channel accepts the
+// address but the send itself fails, the invite is still created and its code
+// returned (with a warning), and the recipient is still recorded — so a relay
+// hiccup never loses an invite the admin can hand over by hand.
+func TestCreateInviteEmailSendFailureKeepsCode(t *testing.T) {
+	t.Parallel()
+	email := &recordingSender{channel: notify.ChannelEmail, err: errors.New("relay refused")}
+	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(email)), WithPublicURL("https://donezo.example"))
+	admin := f.setupAdmin("owner")
+
+	inv := f.createInvite(admin, `{"email":"nina@example.com"}`)
+	if inv.Code == "" || !renderedInviteCode.MatchString(inv.Code) {
+		t.Errorf("failed send did not still return a usable code: %+v", inv)
+	}
+	if inv.Sent {
+		t.Errorf("sent = true despite the relay refusing")
+	}
+	if inv.Warning == "" {
+		t.Errorf("a failed send should carry a warning, got none: %+v", inv)
+	}
+	// The invite (with its recipient) survives the send failure.
+	listed, _ := f.listInvites(admin)
+	got := listed[inv.ID]
+	if got.Email == nil || *got.Email != "nina@example.com" {
+		t.Errorf("failed-send invite listed email = %v, want nina@example.com", got.Email)
+	}
+	if got.Status != "active" {
+		t.Errorf("failed-send invite status = %q, want active", got.Status)
 	}
 }

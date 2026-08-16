@@ -36,6 +36,10 @@ type Invite struct {
 	// RevokedAt is when an admin revoked the invite, nil if never
 	// revoked.
 	RevokedAt *string
+	// Email is the address the invite was sent to, nil for a code that
+	// was generated without one. A label for the admin, never used to
+	// claim the invite.
+	Email *string
 }
 
 // InviteListing is one row of the admin invite list: invite metadata
@@ -62,6 +66,9 @@ type InviteListing struct {
 	UsedAt *string
 	// RevokedAt is when the invite was revoked, nil if never revoked.
 	RevokedAt *string
+	// Email is the address the invite was sent to, nil if it was only
+	// minted as a code.
+	Email *string
 }
 
 // ErrInviteInvalid is returned by RegisterInvitedUser for every unusable
@@ -99,9 +106,9 @@ func (s *CoreStore) CreateInvite(ctx context.Context, inv Invite, ttl time.Durat
 	inv.ExpiresAt = now.Add(ttl).Format(time.RFC3339)
 	inv.UsedBy, inv.UsedAt, inv.RevokedAt = nil, nil, nil
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO invites (id, code_hash, code_prefix, created_by, created_at, expires_at, used_by, used_at, revoked_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
-		inv.ID, inv.CodeHash, inv.CodePrefix, inv.CreatedBy, inv.CreatedAt, inv.ExpiresAt); err != nil {
+		`INSERT INTO invites (id, code_hash, code_prefix, created_by, created_at, expires_at, used_by, used_at, revoked_at, email)
+		 VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)`,
+		inv.ID, inv.CodeHash, inv.CodePrefix, inv.CreatedBy, inv.CreatedAt, inv.ExpiresAt, inv.Email); err != nil {
 		return Invite{}, fmt.Errorf("store: create invite %q: %w", inv.ID, classifyConstraint(err))
 	}
 	return inv, nil
@@ -113,7 +120,7 @@ func (s *CoreStore) CreateInvite(ctx context.Context, inv Invite, ttl time.Durat
 func (s *CoreStore) ListInvites(ctx context.Context) ([]InviteListing, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT i.id, i.code_prefix, i.created_by, c.username, i.created_at, i.expires_at,
-		        i.used_by, u.username, i.used_at, i.revoked_at
+		        i.used_by, u.username, i.used_at, i.revoked_at, i.email
 		 FROM invites i
 		 JOIN users c ON c.id = i.created_by
 		 LEFT JOIN users u ON u.id = i.used_by
@@ -126,7 +133,7 @@ func (s *CoreStore) ListInvites(ctx context.Context) ([]InviteListing, error) {
 	for rows.Next() {
 		var l InviteListing
 		if err := rows.Scan(&l.ID, &l.CodePrefix, &l.CreatedBy, &l.CreatorUsername, &l.CreatedAt,
-			&l.ExpiresAt, &l.UsedBy, &l.UsedByUsername, &l.UsedAt, &l.RevokedAt); err != nil {
+			&l.ExpiresAt, &l.UsedBy, &l.UsedByUsername, &l.UsedAt, &l.RevokedAt, &l.Email); err != nil {
 			return nil, fmt.Errorf("store: scan invite: %w", err)
 		}
 		listings = append(listings, l)

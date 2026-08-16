@@ -12,11 +12,14 @@ const MIN_PASSWORD_LENGTH = 10;
 export function RegisterScreen({
   onDone,
   onBack,
+  initialCode,
 }: {
   onDone: (user: ApiUser) => void;
   onBack: () => void;
+  /** Prefill the code field, e.g. from an emailed join link. */
+  initialCode?: string;
 }) {
-  const [code, setCode] = React.useState("");
+  const [code, setCode] = React.useState(initialCode ?? "");
   const [username, setUsername] = React.useState("");
   const [displayName, setDisplayName] = React.useState("");
   const [password, setPassword] = React.useState("");

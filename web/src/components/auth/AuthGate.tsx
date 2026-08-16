@@ -31,6 +31,24 @@ function readStoredSpaceId(): string | null {
   }
 }
 
+/** An emailed invite links to #/join/<code>. The code rides in the fragment,
+ *  which the browser never sends to the server, so it stays out of access logs
+ *  and referrers. Returns the code to prefill the register form, or null. */
+function readJoinCode(): string | null {
+  const m = /^#\/join\/([A-Za-z0-9-]+)$/.exec(window.location.hash || "");
+  return m ? m[1] : null;
+}
+
+/** Drop the join fragment from the address bar once it has been read into the
+ *  form, so the single-use code does not linger in history or a later reload. */
+function clearJoinHash() {
+  try {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  } catch {
+    // Best-effort — a stale fragment is harmless, just untidy.
+  }
+}
+
 function storeSpaceId(id: string) {
   try {
     window.localStorage.setItem(ACTIVE_SPACE_STORAGE_KEY, id);
@@ -64,6 +82,9 @@ export function AuthGate({
 }) {
   const [phase, setPhase] = React.useState<Phase>("connecting");
   const [offlineMessage, setOfflineMessage] = React.useState<string | null>(null);
+  // An invite code carried in the URL fragment (#/join/<code>), read once at
+  // mount so an emailed link lands the invitee on a prefilled register form.
+  const [joinCode] = React.useState<string | null>(() => readJoinCode());
   const [user, setUser] = React.useState<ApiUser | null>(null);
   const [spaces, setSpaces] = React.useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = React.useState<string | null>(null);
@@ -123,9 +144,17 @@ export function AuthGate({
     try {
       const status = await fetchAuthStatus();
       if (status.needsSetup) {
+        // A fresh instance has no invites yet, so a join link cannot apply —
+        // first-run setup wins.
         setPhase("setup");
       } else if (!status.authenticated) {
-        setPhase("login");
+        if (joinCode) {
+          // Consume the fragment as we open the prefilled register form.
+          clearJoinHash();
+          setPhase("register");
+        } else {
+          setPhase("login");
+        }
       } else {
         await boot(await fetchMe());
       }
@@ -133,7 +162,7 @@ export function AuthGate({
       setOfflineMessage(authErrorMessage(err));
       setPhase("offline");
     }
-  }, [boot]);
+  }, [boot, joinCode]);
 
   // Once-only: StrictMode double-mounts (mount → cleanup → remount) keep
   // the same refs, so this guard stops the whole status→me→spaces→state
@@ -241,7 +270,13 @@ export function AuthGate({
   if (phase === "register") {
     // Success boots exactly like login — the server already created the
     // member's "main" space, so the zero-spaces auto-create never fires.
-    return <RegisterScreen onDone={(u) => void boot(u)} onBack={() => setPhase("login")} />;
+    return (
+      <RegisterScreen
+        onDone={(u) => void boot(u)}
+        onBack={() => setPhase("login")}
+        initialCode={joinCode ?? undefined}
+      />
+    );
   }
 
   if (!user || !activeSpaceId || !data) return <ConnectingScreen />;
