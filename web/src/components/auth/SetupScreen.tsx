@@ -2,6 +2,7 @@ import * as React from "react";
 import { Button, Field, Input } from "@grewelltech/console";
 
 import { setup, type ApiUser } from "@/api/client";
+import { looksLikeEmail } from "@/lib/email";
 import { AuthScreen, AuthErrorLine, authErrorMessage } from "./AuthScreen";
 
 const MIN_PASSWORD_LENGTH = 10;
@@ -11,19 +12,24 @@ const MIN_PASSWORD_LENGTH = 10;
 export function SetupScreen({ onDone }: { onDone: (user: ApiUser) => void }) {
   const [username, setUsername] = React.useState("");
   const [displayName, setDisplayName] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const passwordShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
-  const ready = username.trim() !== "" && password.length >= MIN_PASSWORD_LENGTH && !busy;
+  const ready =
+    username.trim() !== "" &&
+    looksLikeEmail(email) &&
+    password.length >= MIN_PASSWORD_LENGTH &&
+    !busy;
 
   const submit = async () => {
     if (!ready) return;
     setBusy(true);
     setError(null);
     try {
-      const user = await setup(username.trim(), displayName.trim(), password);
+      const user = await setup(username.trim(), displayName.trim(), password, email.trim());
       onDone(user);
     } catch (err) {
       setError(authErrorMessage(err));
@@ -60,6 +66,16 @@ export function SetupScreen({ onDone }: { onDone: (user: ApiUser) => void }) {
             autoComplete="name"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+        </Field>
+        <Field label="Email" htmlFor="setup-email" hint="Used to reset your password if you forget it.">
+          <Input
+            id="setup-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             onKeyDown={onKeyDown}
           />
         </Field>

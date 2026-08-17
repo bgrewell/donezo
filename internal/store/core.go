@@ -101,6 +101,26 @@ func (s *CoreStore) GetUserByUsername(ctx context.Context, username string) (Use
 	return u, nil
 }
 
+// GetUserByID returns the user with the given id, or ErrNotFound.
+func (s *CoreStore) GetUserByID(ctx context.Context, id int64) (User, error) {
+	var u User
+	var email sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, username, display_name, role, password_hash, created_at, email FROM users WHERE id = ?`,
+		id).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PasswordHash, &u.CreatedAt, &email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, fmt.Errorf("store: user %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("store: get user %d: %w", id, err)
+	}
+	if email.Valid {
+		e := email.String
+		u.Email = &e
+	}
+	return u, nil
+}
+
 // SetUserPassword replaces the stored password hash for the user with
 // the given id. The hash must be non-empty (an encoded PHC string, not
 // a raw password). Returns ErrNotFound if the id does not exist.
@@ -112,6 +132,20 @@ func (s *CoreStore) SetUserPassword(ctx context.Context, id int64, passwordHash 
 		`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
 	if err != nil {
 		return fmt.Errorf("store: set password for user %d: %w", id, err)
+	}
+	return notFoundIfZero(res, "user", strconv.FormatInt(id, 10))
+}
+
+// SetUserEmail sets (nil clears) a user's recovery email. Returns
+// ErrEmailTaken if the address already belongs to another account and
+// ErrNotFound if the id does not exist.
+func (s *CoreStore) SetUserEmail(ctx context.Context, id int64, email *string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET email = ? WHERE id = ?`, email, id)
+	if err != nil {
+		if conflict := userUniqueConflict(err); errors.Is(conflict, ErrEmailTaken) {
+			return ErrEmailTaken
+		}
+		return fmt.Errorf("store: set email for user %d: %w", id, err)
 	}
 	return notFoundIfZero(res, "user", strconv.FormatInt(id, 10))
 }
@@ -161,7 +195,7 @@ const noCredentialedUserGuard = `NOT EXISTS (SELECT 1 FROM users WHERE password_
 // admin, so both paths assign RoleAdmin. Once any user is credentialed
 // (including losing a race against a concurrent call) it returns
 // ErrSetupComplete and writes nothing.
-func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passwordHash string) (User, error) {
+func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passwordHash string, email *string) (User, error) {
 	if username == "" {
 		return User{}, errors.New("store: username is required")
 	}
@@ -175,9 +209,9 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 	// seeded "ben" is claimed by setup as "Ben" rather than falling through to
 	// an insert that the case-folding unique index would then reject.
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET password_hash = ?, display_name = ?, role = ?
+		`UPDATE users SET password_hash = ?, display_name = ?, role = ?, email = ?
 		 WHERE username = ? COLLATE NOCASE AND password_hash = '' AND `+noCredentialedUserGuard,
-		passwordHash, displayName, RoleAdmin, username)
+		passwordHash, displayName, RoleAdmin, email, username)
 	if err != nil {
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
 	}
@@ -186,7 +220,11 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
 	}
 	if n > 0 {
-		return s.GetUserByUsername(ctx, username)
+		u, err := s.GetUserByUsername(ctx, username)
+		if err == nil {
+			u.Email = email
+		}
+		return u, err
 	}
 	// Create path: no claimable row (and possibly no open setup — the
 	// guard decides atomically; when it fails the SELECT yields no row
@@ -197,11 +235,12 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 		Role:         RoleAdmin,
 		PasswordHash: passwordHash,
 		CreatedAt:    s.opts.now(),
+		Email:        email,
 	}
 	res, err = s.db.ExecContext(ctx,
-		`INSERT INTO users (username, display_name, role, password_hash, created_at)
-		 SELECT ?, ?, ?, ?, ? WHERE `+noCredentialedUserGuard,
-		u.Username, u.DisplayName, u.Role, u.PasswordHash, u.CreatedAt)
+		`INSERT INTO users (username, display_name, role, password_hash, created_at, email)
+		 SELECT ?, ?, ?, ?, ?, ? WHERE `+noCredentialedUserGuard,
+		u.Username, u.DisplayName, u.Role, u.PasswordHash, u.CreatedAt, u.Email)
 	if err != nil {
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
 	}

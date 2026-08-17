@@ -20,8 +20,19 @@ import { AuthScreen, AuthErrorLine, ConnectingScreen, authErrorMessage } from ".
 import { LoginScreen } from "./LoginScreen";
 import { RegisterScreen } from "./RegisterScreen";
 import { SetupScreen } from "./SetupScreen";
+import { ForgotPasswordScreen } from "./ForgotPasswordScreen";
+import { ResetPasswordScreen } from "./ResetPasswordScreen";
 
-type Phase = "connecting" | "setup" | "login" | "register" | "booting" | "ready" | "offline";
+type Phase =
+  | "connecting"
+  | "setup"
+  | "login"
+  | "register"
+  | "forgot"
+  | "reset"
+  | "booting"
+  | "ready"
+  | "offline";
 
 function readStoredSpaceId(): string | null {
   try {
@@ -39,9 +50,17 @@ function readJoinCode(): string | null {
   return m ? m[1] : null;
 }
 
-/** Drop the join fragment from the address bar once it has been read into the
- *  form, so the single-use code does not linger in history or a later reload. */
-function clearJoinHash() {
+/** A password-reset email links to #/reset/<token>. Like the join code, the
+ *  token rides in the fragment (never sent to the server). Returns it, or
+ *  null. base64url tokens include _ and -, so the alphabet is wider. */
+function readResetToken(): string | null {
+  const m = /^#\/reset\/([A-Za-z0-9_-]+)$/.exec(window.location.hash || "");
+  return m ? m[1] : null;
+}
+
+/** Drop a join/reset fragment from the address bar once it has been read into
+ *  the form, so the single-use secret does not linger in history or a reload. */
+function clearAuthHash() {
   try {
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
   } catch {
@@ -85,6 +104,9 @@ export function AuthGate({
   // An invite code carried in the URL fragment (#/join/<code>), read once at
   // mount so an emailed link lands the invitee on a prefilled register form.
   const [joinCode] = React.useState<string | null>(() => readJoinCode());
+  // A password-reset token carried in the fragment (#/reset/<token>), read
+  // once at mount so an emailed reset link opens the set-a-new-password form.
+  const [resetToken] = React.useState<string | null>(() => readResetToken());
   const [user, setUser] = React.useState<ApiUser | null>(null);
   const [spaces, setSpaces] = React.useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = React.useState<string | null>(null);
@@ -144,13 +166,16 @@ export function AuthGate({
     try {
       const status = await fetchAuthStatus();
       if (status.needsSetup) {
-        // A fresh instance has no invites yet, so a join link cannot apply —
-        // first-run setup wins.
+        // A fresh instance has no accounts yet, so a join or reset link cannot
+        // apply — first-run setup wins.
         setPhase("setup");
       } else if (!status.authenticated) {
-        if (joinCode) {
-          // Consume the fragment as we open the prefilled register form.
-          clearJoinHash();
+        if (resetToken) {
+          // Consume the fragment as we open the set-a-new-password form.
+          clearAuthHash();
+          setPhase("reset");
+        } else if (joinCode) {
+          clearAuthHash();
           setPhase("register");
         } else {
           setPhase("login");
@@ -162,7 +187,7 @@ export function AuthGate({
       setOfflineMessage(authErrorMessage(err));
       setPhase("offline");
     }
-  }, [boot, joinCode]);
+  }, [boot, joinCode, resetToken]);
 
   // Once-only: StrictMode double-mounts (mount → cleanup → remount) keep
   // the same refs, so this guard stops the whole status→me→spaces→state
@@ -264,7 +289,11 @@ export function AuthGate({
   if (phase === "setup") return <SetupScreen onDone={(u) => void boot(u)} />;
   if (phase === "login") {
     return (
-      <LoginScreen onDone={(u) => void boot(u)} onRegister={() => setPhase("register")} />
+      <LoginScreen
+        onDone={(u) => void boot(u)}
+        onRegister={() => setPhase("register")}
+        onForgot={() => setPhase("forgot")}
+      />
     );
   }
   if (phase === "register") {
@@ -275,6 +304,19 @@ export function AuthGate({
         onDone={(u) => void boot(u)}
         onBack={() => setPhase("login")}
         initialCode={joinCode ?? undefined}
+      />
+    );
+  }
+  if (phase === "forgot") {
+    return <ForgotPasswordScreen onBack={() => setPhase("login")} />;
+  }
+  if (phase === "reset") {
+    // Success issues a session, so it boots exactly like a fresh sign-in.
+    return (
+      <ResetPasswordScreen
+        token={resetToken ?? ""}
+        onDone={(u) => void boot(u)}
+        onBack={() => setPhase("login")}
       />
     );
   }

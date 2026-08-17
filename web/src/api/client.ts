@@ -165,9 +165,10 @@ export async function fetchMe(): Promise<ApiUser> {
 export async function setup(
   username: string,
   displayName: string,
-  password: string
+  password: string,
+  email: string
 ): Promise<ApiUser> {
-  const body = { username, displayName, password };
+  const body = { username, displayName, password, email };
   return (await api.post<{ user: ApiUser }>("/api/auth/setup", body)).user;
 }
 
@@ -177,19 +178,33 @@ export async function login(username: string, password: string): Promise<ApiUser
 
 /** Redeem an invite code into a fresh member account (plus its "main"
  *  space and a session). Every unusable code answers a uniform 403;
- *  a taken username is a 409. */
+ *  a taken username is a 409, a taken email likewise. */
 export async function register(
   code: string,
   username: string,
   displayName: string,
-  password: string
+  password: string,
+  email: string
 ): Promise<ApiUser> {
-  const body = { code, username, displayName, password };
+  const body = { code, username, displayName, password, email };
   return (await api.post<{ user: ApiUser }>("/api/auth/register", body)).user;
 }
 
 export function logout(): Promise<void> {
   return api.post<void>("/api/auth/logout");
+}
+
+/** Request a password-reset email. The server answers the same whether or not
+ *  the address is on file, so this resolves for any syntactically valid email
+ *  and never reveals whether an account exists. */
+export async function forgotPassword(email: string): Promise<void> {
+  await api.post<{ message: string }>("/api/auth/forgot-password", { email });
+}
+
+/** Spend a reset token from an emailed link and set a new password. On success
+ *  the server issues a session, so the caller is logged straight in. */
+export async function resetPassword(token: string, password: string): Promise<ApiUser> {
+  return (await api.post<{ user: ApiUser }>("/api/auth/reset-password", { token, password })).user;
 }
 
 // ─── Invites (admin only) ─────────────────────────────────────────────────

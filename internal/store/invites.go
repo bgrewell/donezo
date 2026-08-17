@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -81,6 +82,27 @@ var ErrInviteInvalid = errors.New("invite code invalid")
 // username already exists. Unlike invite state this is deliberately
 // distinguishable: the registrant has to pick another name.
 var ErrUsernameTaken = errors.New("username taken")
+
+// ErrEmailTaken is returned when creating an account whose email already
+// belongs to another account. Emails are unique so a reset request resolves
+// to at most one account; a registrant who collides has to use another.
+var ErrEmailTaken = errors.New("email taken")
+
+// userUniqueConflict maps a UNIQUE-constraint failure on the users table to
+// the field that collided, so callers can tell "username taken" from "email
+// taken". SQLite names the offending index/column in the driver message, so
+// that is what is inspected; a unique failure that mentions the email is an
+// email collision, and anything else is attributed to the username (the
+// original, always-present constraint). A non-uniqueness error passes through.
+func userUniqueConflict(err error) error {
+	if !errors.Is(classifyConstraint(err), ErrDuplicateID) {
+		return err
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "email") {
+		return ErrEmailTaken
+	}
+	return ErrUsernameTaken
+}
 
 // CreateInvite inserts an invite from inv's identity fields (ID,
 // CodeHash, CodePrefix, CreatedBy), stamping CreatedAt from the store
@@ -232,11 +254,11 @@ func (s *CoreStore) RegisterInvitedUser(ctx context.Context, codeHash string, u 
 
 	// Create the member account.
 	res, err = tx.ExecContext(ctx,
-		`INSERT INTO users (username, display_name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
-		u.Username, u.DisplayName, u.Role, u.PasswordHash, u.CreatedAt)
+		`INSERT INTO users (username, display_name, role, password_hash, created_at, email) VALUES (?, ?, ?, ?, ?, ?)`,
+		u.Username, u.DisplayName, u.Role, u.PasswordHash, u.CreatedAt, u.Email)
 	if err != nil {
-		if errors.Is(classifyConstraint(err), ErrDuplicateID) {
-			return User{}, Space{}, fmt.Errorf("store: register %q: %w", u.Username, ErrUsernameTaken)
+		if conflict := userUniqueConflict(err); errors.Is(conflict, ErrUsernameTaken) || errors.Is(conflict, ErrEmailTaken) {
+			return User{}, Space{}, fmt.Errorf("store: register %q: %w", u.Username, conflict)
 		}
 		return User{}, Space{}, fmt.Errorf("store: register %q: create user: %w", u.Username, err)
 	}

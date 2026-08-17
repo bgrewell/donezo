@@ -13,10 +13,12 @@ export function LoginScreen({
   notice,
   onDone,
   onRegister,
+  onForgot,
 }: {
   notice?: string;
   onDone: (user: ApiUser) => void;
   onRegister?: () => void;
+  onForgot?: () => void;
 }) {
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -73,6 +75,15 @@ export function LoginScreen({
         <Button variant="primary" className="w-full" disabled={!ready} onClick={() => void submit()}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>
+        {onForgot && (
+          <button
+            type="button"
+            onClick={onForgot}
+            className="block w-full rounded-gtc py-0.5 text-center font-mono text-[0.68rem] uppercase tracking-label text-gtc-muted outline-none transition-colors hover:text-gtc-text focus-visible:shadow-gtc-focus"
+          >
+            Forgot password?
+          </button>
+        )}
         {onRegister && (
           <button
             type="button"

@@ -318,6 +318,7 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		Username    string `json:"username"`
 		DisplayName string `json:"displayName"`
 		Password    string `json:"password"`
+		Email       string `json:"email"`
 	}
 	if !s.decodeJSON(w, r, &req) {
 		return
@@ -332,6 +333,11 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	email, err := normalizeSignupEmail(req.Email)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -356,7 +362,7 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		user, sp, err := s.core.RegisterInvitedUser(r.Context(), codeHash,
-			store.User{Username: req.Username, DisplayName: req.DisplayName, PasswordHash: hash},
+			store.User{Username: req.Username, DisplayName: req.DisplayName, PasswordHash: hash, Email: &email},
 			store.Space{ID: spaceID, Name: registerSpaceName, Color: registerSpaceColor})
 		switch {
 		case errors.Is(err, store.ErrInviteInvalid):
@@ -364,6 +370,9 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		case errors.Is(err, store.ErrUsernameTaken):
 			writeError(w, http.StatusConflict, "username is already taken")
+			return
+		case errors.Is(err, store.ErrEmailTaken):
+			writeError(w, http.StatusConflict, "that email is already in use")
 			return
 		case errors.Is(err, store.ErrDuplicateID):
 			continue // space id collision: try a fresh suffix

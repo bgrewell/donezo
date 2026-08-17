@@ -80,6 +80,12 @@ type Server struct {
 	logger           *log.Logger
 	ui               fs.FS
 	version          string
+	// runAsync runs work off the request path. It defaults to a goroutine and
+	// is swapped for a synchronous runner in tests. It exists so the
+	// password-reset request can answer in constant time — the token write and
+	// email send happen after the response, so a matching address is not
+	// betrayed by taking longer than a non-matching one.
+	runAsync func(func())
 }
 
 // ServerOption configures a Server (functional options pattern).
@@ -133,6 +139,13 @@ func WithTrashRetention(d time.Duration) ServerOption {
 // supported state — every other feature works the same either way.
 func WithNotifiers(r *notify.Registry) ServerOption {
 	return func(s *Server) { s.notifiers = r }
+}
+
+// WithSynchronousDispatch runs off-request work (the password-reset send) on
+// the calling goroutine instead of a background one. It exists for tests, so
+// an assertion on what was sent does not race the dispatch.
+func WithSynchronousDispatch() ServerOption {
+	return func(s *Server) { s.runAsync = func(f func()) { f() } }
 }
 
 // WithReminderMaxLateness bounds how overdue a reminder may be and still be
@@ -297,6 +310,9 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 			auth.WithLimiterClock(s.clock),
 		)
 	}
+	if s.runAsync == nil {
+		s.runAsync = func(f func()) { go f() }
+	}
 	if s.llm == nil {
 		s.llm = llm.Disabled{}
 	}
@@ -322,6 +338,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("POST /api/auth/register", s.handleAuthRegister)
+	mux.HandleFunc("POST /api/auth/forgot-password", s.handleForgotPassword)
+	mux.HandleFunc("POST /api/auth/reset-password", s.handleResetPassword)
 	mux.HandleFunc("GET /api/auth/me", s.handleAuthMe)
 	mux.HandleFunc("GET /api/invites", s.handleListInvites)
 	mux.HandleFunc("POST /api/invites", s.handleCreateInvite)
@@ -387,6 +405,8 @@ func (s *Server) Handler() http.Handler {
 		"/api/auth/login":                               http.MethodPost,
 		"/api/auth/logout":                              http.MethodPost,
 		"/api/auth/register":                            http.MethodPost,
+		"/api/auth/forgot-password":                     http.MethodPost,
+		"/api/auth/reset-password":                      http.MethodPost,
 		"/api/auth/me":                                  http.MethodGet,
 		"/api/invites":                                  "GET, POST",
 		"/api/invites/{id}":                             http.MethodDelete,

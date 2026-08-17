@@ -445,7 +445,7 @@ func TestSetupOwner(t *testing.T) {
 			if tt.prep != nil {
 				tt.prep(t, s)
 			}
-			got, err := s.SetupOwner(context.Background(), tt.username, tt.displayName, tt.hash)
+			got, err := s.SetupOwner(context.Background(), tt.username, tt.displayName, tt.hash, nil)
 			switch {
 			case tt.wantComplete:
 				if !errors.Is(err, ErrSetupComplete) {
@@ -490,7 +490,7 @@ func TestSetupOwnerConcurrent(t *testing.T) {
 			if i == 0 {
 				username = "ben" // the claim path races the create path
 			}
-			_, errs[i] = s.SetupOwner(ctx, username, "Racer", "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA")
+			_, errs[i] = s.SetupOwner(ctx, username, "Racer", "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA", nil)
 		}()
 	}
 	wg.Wait()

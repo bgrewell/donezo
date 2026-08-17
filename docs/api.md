@@ -13,10 +13,12 @@ donezo frontend itself).
 | ------------------------------------------------- | --------------------------------------------------------------------- |
 | `GET /api/healthz`                                 | Liveness — public                                                      |
 | `GET /api/auth/status`                             | `{needsSetup, authenticated}` — public                                 |
-| `POST /api/auth/setup`                             | First-run: create the owner + session; `409` after                     |
-| `POST /api/auth/login`                             | `{username, password}` → session cookie + `{user}`                     |
+| `POST /api/auth/setup`                             | First-run: `{username, displayName?, password, email}` → owner + session; `409` after |
+| `POST /api/auth/login`                             | `{username, password}` → session cookie + `{user}`. Username match is case-insensitive |
 | `POST /api/auth/logout`                            | Delete the session, expire the cookie                                  |
-| `POST /api/auth/register`                          | `{code, username, displayName?, password}` → member account + `main` space + session |
+| `POST /api/auth/register`                          | `{code, username, displayName?, password, email}` → member account + `main` space + session. Duplicate username or email → `409` |
+| `POST /api/auth/forgot-password`                   | `{email}` → uniform `200` whether or not it matched (no account-existence oracle); emails a reset link when it resolves to exactly one account |
+| `POST /api/auth/reset-password`                    | `{token, password}` → set the new password, kill every existing session, issue a fresh one; unusable token → uniform `400` |
 | `GET /api/auth/me`                                 | `{user}` (includes `role`) or `401`                                    |
 | `POST /api/invites`                                | Admin: `{expiresInDays?}` (default 7, capped 90) → `201 {invite}` with the code — shown **only here**. Add `{email}` to also send the code to that address (requires an email channel; `409` if unconfigured, `400` if the address is invalid); the response then carries `sent`/`warning` and the recorded `email` |
 | `GET /api/invites`                                 | Admin: all invites with derived `status` (`active`/`used`/`expired`/`revoked`) + usernames + any recipient `email`; never the code |
@@ -130,6 +132,39 @@ on the invite (a label for the admin's list) but plays no part in claiming —
 the code alone still redeems it. The send is metered against the admin's
 per-user outbound budget, and a send failure still returns the code (with a
 `warning`) so it can be shared by hand.
+
+### Account email & password reset
+
+Every account created from now on carries an `email`, collected at setup and
+registration and unique case-insensitively (so an address identifies at most
+one account; a duplicate is a `409`). Usernames are also compared
+case-insensitively — `Bob` and `bob` are one account, and login accepts either
+casing.
+
+A signed-out user who has forgotten their password uses `POST
+/api/auth/forgot-password` with their email. The endpoint resolves the address
+to exactly one account and emails a reset link `<public-url>/#/reset/<token>`.
+A **verified email contact** takes precedence over the account's own (unchallenged)
+`email` field — so members who predate the account-email field can still reset,
+and an unverified account-email claim cannot shadow another account's verified
+address to make the lookup ambiguous. It is not an account-existence oracle:
+the response is the same uniform `200` whether or not the address matched, and
+the lookup + token write + send happen **off the request path** so response
+latency does not leak whether it matched. Nothing is sent for an address that
+resolves to zero or to more than one account. Like the invite link, the token
+rides in the URL fragment (never sent to the server) and is single-use,
+expiring (one hour), and stored only as a SHA-256 hash. Re-requesting within a
+short cooldown keeps the existing link rather than sending another (so the
+endpoint can't email-bomb an inbox); after the cooldown a new request reissues
+and invalidates the old. Reset needs an email channel configured; without one
+the endpoint is a no-op and the UI hides the option.
+
+`POST /api/auth/reset-password` with `{token, password}` spends the token in
+one guarded `UPDATE` (so two racing redemptions cannot both win), sets the new
+password, **deletes every existing session for the account** — cutting off a
+thief who holds a live session — and issues a fresh session. An unknown, used,
+or expired token all answer the same `400`. Both endpoints spend the shared
+login/setup credential rate-limit budget.
 
 ### Staying current
 

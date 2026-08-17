@@ -41,7 +41,7 @@ func newInviteStore(t *testing.T) (*CoreStore, *advClock, User) {
 			t.Errorf("close core store: %v", err)
 		}
 	})
-	admin, err := s.SetupOwner(context.Background(), "admin", "Admin", "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA")
+	admin, err := s.SetupOwner(context.Background(), "admin", "Admin", "$argon2id$v=19$m=8,t=1,p=1$c2FsdA$aGFzaA", nil)
 	if err != nil {
 		t.Fatalf("setup owner: %v", err)
 	}
