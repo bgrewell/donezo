@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,7 +27,8 @@ var renderedInviteCode = regexp.MustCompile(`^dz-[0-9ABCDEFGHJKMNPQRSTVWXYZ]{5}-
 // admin's session cookie.
 func (f *authFixture) setupAdmin(username string) *http.Cookie {
 	f.t.Helper()
-	body := fmt.Sprintf(`{"username":%q,"displayName":"Admin","password":"a very fine password"}`, username)
+	body := fmt.Sprintf(`{"username":%q,"displayName":"Admin","password":"a very fine password","email":%q}`,
+		username, testSignupEmail())
 	rec := f.do(http.MethodPost, "/api/auth/setup", body, nil)
 	if rec.Code != http.StatusOK {
 		f.t.Fatalf("setup status = %d (body %s)", rec.Code, rec.Body.String())
@@ -107,10 +109,20 @@ func (f *authFixture) listInvites(cookie *http.Cookie) (map[string]listedInvite,
 	return byID, rec.Body.String()
 }
 
-// registerBody builds a POST /api/auth/register payload.
+// testSignupEmailSeq guarantees a distinct email per signup across the whole
+// test binary, so account creations never collide on the unique email index
+// unless a test means to.
+var testSignupEmailSeq atomic.Int64
+
+// testSignupEmail returns a fresh, unique signup email.
+func testSignupEmail() string {
+	return fmt.Sprintf("member%d@example.com", testSignupEmailSeq.Add(1))
+}
+
+// registerBody builds a POST /api/auth/register payload with a unique email.
 func registerBody(code, username string) string {
-	return fmt.Sprintf(`{"code":%q,"username":%q,"displayName":"New Member","password":"a very fine password"}`,
-		code, username)
+	return fmt.Sprintf(`{"code":%q,"username":%q,"displayName":"New Member","password":"a very fine password","email":%q}`,
+		code, username, testSignupEmail())
 }
 
 func TestSetupAssignsAdminRole(t *testing.T) {

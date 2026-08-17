@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/bgrewell/donezo/internal/auth"
+	"github.com/bgrewell/donezo/internal/notify"
 	"github.com/bgrewell/donezo/internal/store"
 )
 
@@ -58,6 +59,7 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		Username    string `json:"username"`
 		DisplayName string `json:"displayName"`
 		Password    string `json:"password"`
+		Email       string `json:"email"`
 	}
 	if !s.decodeJSON(w, r, &req) {
 		return
@@ -67,6 +69,11 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := auth.ValidatePassword(req.Password); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	email, err := normalizeSignupEmail(req.Email)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -96,7 +103,7 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	// SetupOwner claims the seeded password-less row when the username
 	// matches, creates the owner otherwise, and refuses — atomically, at
 	// the SQL layer — when any credentialed user already exists.
-	user, err := s.core.SetupOwner(r.Context(), req.Username, req.DisplayName, hash)
+	user, err := s.core.SetupOwner(r.Context(), req.Username, req.DisplayName, hash, &email)
 	switch {
 	case errors.Is(err, store.ErrSetupComplete):
 		// Lost the race against a concurrent setup: same answer as the
@@ -273,6 +280,21 @@ func validateUsername(u string) error {
 		}
 	}
 	return nil
+}
+
+// normalizeSignupEmail trims and validates the recovery email collected when
+// an account is created. It is required — an account without one cannot use
+// password reset — and must be a plausible address (the same check a
+// notification destination passes). The trimmed form is returned for storage.
+func normalizeSignupEmail(raw string) (string, error) {
+	email := strings.TrimSpace(raw)
+	if email == "" {
+		return "", errors.New("an email address is required")
+	}
+	if err := notify.ValidateAddress(notify.ChannelEmail, email); err != nil {
+		return "", errors.New(strings.TrimPrefix(err.Error(), "notify: "))
+	}
+	return email, nil
 }
 
 // requestIsTLS reports whether the request arrived over HTTPS:

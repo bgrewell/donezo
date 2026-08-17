@@ -2,6 +2,7 @@ import * as React from "react";
 import { Button, Field, Input } from "@grewelltech/console";
 
 import { register, type ApiUser } from "@/api/client";
+import { looksLikeEmail } from "@/lib/email";
 import { AuthScreen, AuthErrorLine, authErrorMessage } from "./AuthScreen";
 
 const MIN_PASSWORD_LENGTH = 10;
@@ -22,6 +23,7 @@ export function RegisterScreen({
   const [code, setCode] = React.useState(initialCode ?? "");
   const [username, setUsername] = React.useState("");
   const [displayName, setDisplayName] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -30,6 +32,7 @@ export function RegisterScreen({
   const ready =
     code.trim() !== "" &&
     username.trim() !== "" &&
+    looksLikeEmail(email) &&
     password.length >= MIN_PASSWORD_LENGTH &&
     !busy;
 
@@ -41,7 +44,7 @@ export function RegisterScreen({
       // The code is submitted as typed (trimmed) — the uppercase render
       // below is display-only, and the server matches codes
       // case-insensitively, so a hand-typed lowercase code still claims.
-      const user = await register(code.trim(), username.trim(), displayName.trim(), password);
+      const user = await register(code.trim(), username.trim(), displayName.trim(), password, email.trim());
       onDone(user);
     } catch (err) {
       setError(authErrorMessage(err));
@@ -94,6 +97,16 @@ export function RegisterScreen({
             autoComplete="name"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+        </Field>
+        <Field label="Email" htmlFor="register-email" hint="Used to reset your password if you forget it.">
+          <Input
+            id="register-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             onKeyDown={onKeyDown}
           />
         </Field>

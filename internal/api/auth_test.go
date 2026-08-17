@@ -207,7 +207,7 @@ func TestAuthSetup(t *testing.T) {
 	}{
 		{
 			name:       "creates owner on empty table",
-			body:       `{"username":"alice","displayName":"Alice","password":"a very fine password"}`,
+			body:       `{"username":"alice","displayName":"Alice","password":"a very fine password","email":"alice@example.com"}`,
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, f *authFixture, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -228,7 +228,7 @@ func TestAuthSetup(t *testing.T) {
 		{
 			name:       "claims the seeded password-less user",
 			prep:       func(f *authFixture) { f.seedUser("ben", "Ben") },
-			body:       `{"username":"ben","displayName":"Big Ben","password":"a very fine password"}`,
+			body:       `{"username":"ben","displayName":"Big Ben","password":"a very fine password","email":"ben@example.com"}`,
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, f *authFixture, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -254,7 +254,7 @@ func TestAuthSetup(t *testing.T) {
 		{
 			name: "setup keeps working while only password-less users exist",
 			prep: func(f *authFixture) { f.seedUser("ben", "Ben") },
-			body: `{"username":"alice","displayName":"Alice","password":"a very fine password"}`,
+			body: `{"username":"alice","displayName":"Alice","password":"a very fine password","email":"alice@example.com"}`,
 			// A seeded-but-unclaimed dir is still "first run": a different
 			// username creates the owner alongside the dormant seed user.
 			wantStatus: http.StatusOK,
@@ -262,7 +262,7 @@ func TestAuthSetup(t *testing.T) {
 		{
 			name:       "409 once any user has a password",
 			prep:       func(f *authFixture) { f.credentialUser("ben", "a very fine password") },
-			body:       `{"username":"mallory","displayName":"M","password":"another password"}`,
+			body:       `{"username":"mallory","displayName":"M","password":"another password","email":"mallory@example.com"}`,
 			wantStatus: http.StatusConflict,
 			check: func(t *testing.T, f *authFixture, _ *httptest.ResponseRecorder) {
 				t.Helper()
@@ -358,7 +358,7 @@ func TestAuthSetupConcurrent(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					body := fmt.Sprintf(`{"username":%q,"password":"a very fine password"}`, usernames[i])
+					body := fmt.Sprintf(`{"username":%q,"password":"a very fine password","email":"racer%d@example.com"}`, usernames[i], i)
 					codes[i] = f.do(http.MethodPost, "/api/auth/setup", body, nil).Code
 				}()
 			}
@@ -624,7 +624,7 @@ func TestAuthStatusReflectsState(t *testing.T) {
 		t.Error("seeded dir: needsSetup = false, want true (empty hash must not count)")
 	}
 
-	rec := f.do(http.MethodPost, "/api/auth/setup", `{"username":"ben","displayName":"Ben","password":"a very fine password"}`, nil)
+	rec := f.do(http.MethodPost, "/api/auth/setup", `{"username":"ben","displayName":"Ben","password":"a very fine password","email":"ben@example.com"}`, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("setup status = %d (body %s)", rec.Code, rec.Body.String())
 	}

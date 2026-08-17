@@ -30,6 +30,9 @@ type User struct {
 	// PasswordHash is empty until phase 2 introduces authentication.
 	PasswordHash string `json:"-"`
 	CreatedAt    string `json:"createdAt"`
+	// Email is the account's recovery/contact address, nil for accounts
+	// created before it was collected. Never serialized to the client.
+	Email *string `json:"-"`
 }
 
 // Space is a row in core.db's spaces registry. The space's content lives
