@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { ActivityEntry } from "@/domain/types";
+import type { ActivityEntry, Reminder } from "@/domain/types";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { filteredActivities, visibleProjects } from "@/state/selectors";
 import { todayISO } from "@/lib/time";
@@ -45,6 +45,19 @@ export default function TimelineView() {
     for (const list of map.values()) list.sort((a, b) => a.date.localeCompare(b.date));
     return map;
   }, [acts]);
+
+  const showReminders = state.filters.showReminders;
+  const remindersByProject = React.useMemo(() => {
+    const map = new Map<string, Reminder[]>();
+    if (!showReminders) return map;
+    for (const r of state.reminders) {
+      if (r.done || !r.projectId) continue;
+      const list = map.get(r.projectId);
+      if (list) list.push(r);
+      else map.set(r.projectId, [r]);
+    }
+    return map;
+  }, [state.reminders, showReminders]);
 
   const cfg = ZOOM_CONFIG[zoom];
   const width = totalWidth(zoom);
@@ -191,6 +204,8 @@ export default function TimelineView() {
               index={index}
               zoom={zoom}
               entries={byProject.get(project.id) ?? []}
+              reminders={remindersByProject.get(project.id) ?? []}
+              showReminders={showReminders}
               railCollapsed={railCollapsed}
               onCreate={setDraft}
             />

@@ -3,7 +3,7 @@ import { Flag } from "lucide-react";
 import { cn } from "@grewelltech/console";
 import { format, getISOWeek } from "date-fns";
 
-import type { ActivityEntry, Project, ZoomLevel } from "@/domain/types";
+import type { ActivityEntry, Project, Reminder, ZoomLevel } from "@/domain/types";
 import { diffDays, formatDay, parseDate, startOfMonthISO, startOfWeekISO } from "@/lib/time";
 import { projectColorVar } from "@/lib/projectColors";
 import {
@@ -12,6 +12,7 @@ import {
   DAY_NODE_INSET,
   MONTH_BAR_HEIGHT,
   RANGE_START,
+  REMINDER_BAND,
   ROW_BORDER,
   WEEK_CAPSULE_HEIGHT,
   ZOOM_CONFIG,
@@ -23,6 +24,7 @@ import {
   xForDate,
 } from "./geometry";
 import { ProjectRailCell } from "./ProjectRailCell";
+import { ReminderLane } from "./ReminderLane";
 import { ActivityNode } from "./ActivityNode";
 import { WeekCapsule, MonthBar, effortLabel } from "./AggregateCapsule";
 import { EntriesPopover } from "./EntriesPopover";
@@ -54,6 +56,8 @@ function groupBy(
 export function TimelineRow({
   project,
   entries,
+  reminders,
+  showReminders,
   zoom,
   index,
   railCollapsed,
@@ -61,6 +65,8 @@ export function TimelineRow({
 }: {
   project: Project;
   entries: ActivityEntry[];
+  reminders: Reminder[];
+  showReminders: boolean;
   zoom: ZoomLevel;
   index: number;
   railCollapsed: boolean;
@@ -69,6 +75,7 @@ export function TimelineRow({
   const cfg = ZOOM_CONFIG[zoom];
   const width = totalWidth(zoom);
   const colorVar = projectColorVar(project.color);
+  const withBand = showReminders && reminders.length > 0;
 
   const handleSurfaceClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only truly empty surface — clicks on nodes/capsules are theirs.
@@ -88,30 +95,40 @@ export function TimelineRow({
   return (
     <div
       className="flex"
-      style={{ height: cfg.rowHeight, borderBottom: `1px solid ${ROW_BORDER}` }}
+      style={{
+        height: cfg.rowHeight + (withBand ? REMINDER_BAND : 0),
+        borderBottom: `1px solid ${ROW_BORDER}`,
+      }}
     >
       <ProjectRailCell
         project={project}
         railCollapsed={railCollapsed}
         showFocus={zoom === "day" || zoom === "week"}
       />
-      <div
-        className={cn("relative shrink-0", index % 2 === 0 && "bg-[var(--dz-row-wash)]")}
-        style={{ width, backgroundImage: rowBackgroundImage(zoom) }}
-        onClick={handleSurfaceClick}
-      >
-        {zoom === "day" ? (
-          <DayLane entries={entries} colorVar={colorVar} />
-        ) : zoom === "week" ? (
-          <WeekLane entries={entries} colorVar={colorVar} rowHeight={cfg.rowHeight} />
-        ) : (
-          <MonthLane
-            entries={entries}
-            colorVar={colorVar}
-            rowHeight={cfg.rowHeight}
-            zoom={zoom}
-          />
+      {/* Right side stacks the reminder band above the activity lane, so the
+          lane keeps its own click-to-create surface and node layout. */}
+      <div className="flex shrink-0 flex-col" style={{ width }}>
+        {withBand && (
+          <ReminderLane reminders={reminders} zoom={zoom} colorVar={colorVar} width={width} />
         )}
+        <div
+          className={cn("relative shrink-0", index % 2 === 0 && "bg-[var(--dz-row-wash)]")}
+          style={{ height: cfg.rowHeight, width, backgroundImage: rowBackgroundImage(zoom) }}
+          onClick={handleSurfaceClick}
+        >
+          {zoom === "day" ? (
+            <DayLane entries={entries} colorVar={colorVar} />
+          ) : zoom === "week" ? (
+            <WeekLane entries={entries} colorVar={colorVar} rowHeight={cfg.rowHeight} />
+          ) : (
+            <MonthLane
+              entries={entries}
+              colorVar={colorVar}
+              rowHeight={cfg.rowHeight}
+              zoom={zoom}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

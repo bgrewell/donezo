@@ -35,6 +35,8 @@ export interface Filters {
   types: ActivityType[] | null;
   showPlanned: boolean;
   showCompleted: boolean;
+  /** Overlay reminders (future/overdue) on the timeline as bell markers. */
+  showReminders: boolean;
 }
 
 export interface AppState {
@@ -374,6 +376,7 @@ function initialState(data: SpaceData): AppState {
       types: null,
       showPlanned: false,
       showCompleted: false,
+      showReminders: true,
     },
     quickCaptureOpen: false,
     quickCapturePreset: null,
