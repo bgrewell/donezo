@@ -53,20 +53,29 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "enter a valid email address")
 		return
 	}
-	s.dispatchPasswordReset(r, email)
+	// The lookup, token write and email send run off the request path so the
+	// response time is constant: a matching address (which does DB writes and
+	// an SMTP round trip) must not answer measurably slower than a
+	// non-matching one, or the latency itself becomes the account-existence
+	// oracle the uniform body was written to avoid.
+	s.runAsync(func() { s.dispatchPasswordReset(email) })
 	writeJSON(w, http.StatusOK, map[string]string{"message": forgotPasswordMessage})
 }
 
 // dispatchPasswordReset resolves the address to at most one account and emails
-// it a reset link. Every failure degrades to a log line: the caller answers
-// the same regardless, so nothing here may alter the response.
-func (s *Server) dispatchPasswordReset(r *http.Request, email string) {
+// it a reset link. It runs detached from the request (its own context), and
+// every failure degrades to a log line: the response is already sent, and it
+// was the same regardless, so nothing here may alter it.
+func (s *Server) dispatchPasswordReset(email string) {
 	if !s.notifiers.Configured(notify.ChannelEmail) {
 		// Nothing to send on. The UI hides the option when email is
 		// unconfigured; a direct caller still gets the uniform answer.
 		return
 	}
-	userID, ok, err := s.core.FindUserIDForReset(r.Context(), email)
+	ctx, cancel := context.WithTimeout(context.Background(), notify.DefaultTimeout)
+	defer cancel()
+
+	userID, ok, err := s.core.FindUserIDForReset(ctx, email)
 	if err != nil {
 		s.logger.Printf("forgot password: lookup: %v", err)
 		return
@@ -79,12 +88,16 @@ func (s *Server) dispatchPasswordReset(r *http.Request, email string) {
 		s.logger.Printf("forgot password: token: %v", err)
 		return
 	}
-	if err := s.core.CreatePasswordReset(r.Context(), userID, tokenHash, resetTokenTTL); err != nil {
+	issued, err := s.core.CreatePasswordReset(ctx, userID, tokenHash, resetTokenTTL)
+	if err != nil {
 		s.logger.Printf("forgot password: store token: %v", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), notify.DefaultTimeout)
-	defer cancel()
+	if !issued {
+		// Throttled — a reset link was sent to this account very recently and
+		// still stands. Not resending is the whole point of the cooldown.
+		return
+	}
 	if err := s.notifiers.Send(ctx, notify.ChannelEmail, email, notify.Message{
 		Subject: "Reset your donezo password",
 		Body:    passwordResetEmailBody(token, s.publicURL),

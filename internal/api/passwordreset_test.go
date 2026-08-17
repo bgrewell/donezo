@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/bgrewell/donezo/internal/notify"
 	"github.com/bgrewell/donezo/internal/store"
@@ -41,7 +42,11 @@ var resetLinkToken = regexp.MustCompile(`#/reset/([A-Za-z0-9_-]+)`)
 func newResetFixture(t *testing.T, ownerEmail, ownerPassword string) (*authFixture, *recordingSender) {
 	t.Helper()
 	email := &recordingSender{channel: notify.ChannelEmail}
-	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(email)), WithPublicURL("https://donezo.example"))
+	f := newAuthFixture(t,
+		WithNotifiers(notify.NewRegistry(email)),
+		WithPublicURL("https://donezo.example"),
+		WithSynchronousDispatch(), // so an assertion on what was sent doesn't race the dispatch
+	)
 	body := fmt.Sprintf(`{"username":"owner","displayName":"Owner","password":%q,"email":%q}`, ownerPassword, ownerEmail)
 	if rec := f.do(http.MethodPost, "/api/auth/setup", body, nil); rec.Code != http.StatusOK {
 		t.Fatalf("setup owner: %d (body %s)", rec.Code, rec.Body.String())
@@ -194,4 +199,70 @@ func TestRegisterRejectsDuplicateEmail(t *testing.T) {
 	if listed, _ := f.listInvites(admin); listed[inv2.ID].Status != "active" {
 		t.Errorf("invite after a rejected duplicate-email register = %q, want active", listed[inv2.ID].Status)
 	}
+}
+
+// TestForgotPasswordThrottlesResends: a burst of reset requests for one account
+// sends a single email, so the endpoint can't be turned into an email-bomb.
+func TestForgotPasswordThrottlesResends(t *testing.T) {
+	t.Parallel()
+	f, email := newResetFixture(t, "owner@example.com", "the old password")
+	for i := 0; i < 4; i++ {
+		if rec := f.do(http.MethodPost, "/api/auth/forgot-password", `{"email":"owner@example.com"}`, nil); rec.Code != http.StatusOK {
+			t.Fatalf("request %d = %d, want 200", i, rec.Code)
+		}
+	}
+	if n := len(email.deliveries()); n != 1 {
+		t.Errorf("a burst to one account sent %d reset emails, want 1 (throttled)", n)
+	}
+}
+
+// blockingSender blocks inside Send until released, to prove the reset send
+// runs off the request path.
+type blockingSender struct {
+	called  chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingSender) Channel() notify.Channel { return notify.ChannelEmail }
+func (b *blockingSender) Describe() string        { return "blocking (test)" }
+func (b *blockingSender) Send(_ context.Context, _ string, _ notify.Message) error {
+	b.called <- struct{}{}
+	<-b.release
+	return nil
+}
+
+// TestForgotPasswordSendsOffTheRequestPath: the response returns even while the
+// email send is blocked, so a matching address cannot be told from a
+// non-matching one by response latency (the timing-oracle fix). A synchronous
+// send would hang the request here.
+func TestForgotPasswordSendsOffTheRequestPath(t *testing.T) {
+	t.Parallel()
+	blk := &blockingSender{called: make(chan struct{}, 1), release: make(chan struct{})}
+	// Deliberately NOT WithSynchronousDispatch — this exercises the real
+	// background-goroutine path.
+	f := newAuthFixture(t, WithNotifiers(notify.NewRegistry(blk)), WithPublicURL("https://donezo.example"))
+	if rec := f.do(http.MethodPost, "/api/auth/setup",
+		`{"username":"owner","displayName":"Owner","password":"the old password","email":"owner@example.com"}`, nil); rec.Code != http.StatusOK {
+		t.Fatalf("setup owner: %d (body %s)", rec.Code, rec.Body.String())
+	}
+
+	done := make(chan int, 1)
+	go func() {
+		done <- f.do(http.MethodPost, "/api/auth/forgot-password", `{"email":"owner@example.com"}`, nil).Code
+	}()
+	select {
+	case code := <-done:
+		if code != http.StatusOK {
+			t.Fatalf("forgot-password status = %d, want 200", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("forgot-password blocked on the email send — it is not off the request path")
+	}
+	// The send really is running in the background.
+	select {
+	case <-blk.called:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the reset email send never started")
+	}
+	close(blk.release)
 }

@@ -74,20 +74,36 @@ func TestFindUserIDForReset(t *testing.T) {
 		}
 	})
 
-	t.Run("ambiguous match (two users, same address) returns ok=false", func(t *testing.T) {
+	t.Run("an unverified account-email shadow does not block a verified owner", func(t *testing.T) {
 		t.Parallel()
 		s := newTestCoreStore(t)
-		u1 := credentialedUser(t, s, "dave")
-		shared := "shared@example.com"
-		if err := s.SetUserEmail(ctx, u1.ID, &shared); err != nil {
+		// The attack: an attacker sets their (unverified) account email to a
+		// victim's verified-contact address, hoping to make the reset lookup
+		// ambiguous and lock the victim out. The verified owner must still win.
+		attacker := credentialedUser(t, s, "attacker")
+		shared := "victim-contact@example.com"
+		if err := s.SetUserEmail(ctx, attacker.ID, &shared); err != nil {
 			t.Fatalf("SetUserEmail: %v", err)
 		}
-		u2 := credentialedUser(t, s, "erin")
-		// u2 has the same address as a verified contact — a different account,
-		// same email. The reset must refuse to guess which to send to.
-		verifiedEmailContact(t, s, u2.ID, "ctc-erin", shared)
+		victim := credentialedUser(t, s, "victim")
+		verifiedEmailContact(t, s, victim.ID, "ctc-victim", shared)
+
+		id, ok, err := s.FindUserIDForReset(ctx, shared)
+		if err != nil || !ok || id != victim.ID {
+			t.Fatalf("shadowed lookup = (%d, %v, %v), want the verified victim (%d, true, nil)", id, ok, err, victim.ID)
+		}
+	})
+
+	t.Run("two accounts that both verified the address is genuinely ambiguous", func(t *testing.T) {
+		t.Parallel()
+		s := newTestCoreStore(t)
+		shared := "shared@example.com"
+		a := credentialedUser(t, s, "aaron")
+		b := credentialedUser(t, s, "bianca")
+		verifiedEmailContact(t, s, a.ID, "ctc-a", shared)
+		verifiedEmailContact(t, s, b.ID, "ctc-b", shared)
 		if _, ok, err := s.FindUserIDForReset(ctx, shared); ok || err != nil {
-			t.Fatalf("ambiguous email = (ok %v, err %v), want (false, nil)", ok, err)
+			t.Fatalf("two verified owners = (ok %v, err %v), want (false, nil)", ok, err)
 		}
 	})
 
@@ -128,8 +144,8 @@ func TestPasswordResetTokenLifecycle(t *testing.T) {
 		t.Parallel()
 		s := newTestCoreStore(t)
 		u := credentialedUser(t, s, "alice")
-		if err := s.CreatePasswordReset(ctx, u.ID, "hash-1", time.Hour); err != nil {
-			t.Fatalf("CreatePasswordReset: %v", err)
+		if issued, err := s.CreatePasswordReset(ctx, u.ID, "hash-1", time.Hour); err != nil || !issued {
+			t.Fatalf("CreatePasswordReset = (%v, %v), want (true, nil)", issued, err)
 		}
 		got, err := s.ConsumePasswordReset(ctx, "hash-1")
 		if err != nil || got != u.ID {
@@ -158,7 +174,7 @@ func TestPasswordResetTokenLifecycle(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = s.Close() })
 		u := credentialedUser(t, s, "bob")
-		if err := s.CreatePasswordReset(ctx, u.ID, "hash-exp", time.Minute); err != nil {
+		if _, err := s.CreatePasswordReset(ctx, u.ID, "hash-exp", time.Minute); err != nil {
 			t.Fatalf("CreatePasswordReset: %v", err)
 		}
 		clock.Advance(2 * time.Minute) // past the 1-minute TTL
@@ -167,21 +183,46 @@ func TestPasswordResetTokenLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("a new reset invalidates the previous one", func(t *testing.T) {
+	t.Run("a new reset after the cooldown invalidates the previous one", func(t *testing.T) {
 		t.Parallel()
-		s := newTestCoreStore(t)
-		u := credentialedUser(t, s, "carol")
-		if err := s.CreatePasswordReset(ctx, u.ID, "hash-old", time.Hour); err != nil {
-			t.Fatalf("CreatePasswordReset old: %v", err)
+		clock := newTickingClock()
+		s, err := NewCoreStore(WithDataDir(t.TempDir()), WithClock(clock.Now))
+		if err != nil {
+			t.Fatalf("NewCoreStore: %v", err)
 		}
-		if err := s.CreatePasswordReset(ctx, u.ID, "hash-new", time.Hour); err != nil {
-			t.Fatalf("CreatePasswordReset new: %v", err)
+		t.Cleanup(func() { _ = s.Close() })
+		u := credentialedUser(t, s, "carol")
+		if issued, err := s.CreatePasswordReset(ctx, u.ID, "hash-old", time.Hour); err != nil || !issued {
+			t.Fatalf("CreatePasswordReset old = (%v, %v)", issued, err)
+		}
+		clock.Advance(ResetResendInterval + time.Second) // past the resend cooldown
+		if issued, err := s.CreatePasswordReset(ctx, u.ID, "hash-new", time.Hour); err != nil || !issued {
+			t.Fatalf("CreatePasswordReset new = (%v, %v)", issued, err)
 		}
 		if _, err := s.ConsumePasswordReset(ctx, "hash-old"); !errors.Is(err, ErrResetInvalid) {
 			t.Errorf("old token after re-request err = %v, want ErrResetInvalid", err)
 		}
 		if got, err := s.ConsumePasswordReset(ctx, "hash-new"); err != nil || got != u.ID {
 			t.Errorf("new token consume = (%d, %v), want (%d, nil)", got, err, u.ID)
+		}
+	})
+
+	t.Run("a second request within the cooldown does not reissue", func(t *testing.T) {
+		t.Parallel()
+		s := newTestCoreStore(t)
+		u := credentialedUser(t, s, "dave")
+		if issued, err := s.CreatePasswordReset(ctx, u.ID, "hash-first", time.Hour); err != nil || !issued {
+			t.Fatalf("first CreatePasswordReset = (%v, %v), want (true, nil)", issued, err)
+		}
+		// Immediately again: throttled, no new token, the first still stands.
+		if issued, err := s.CreatePasswordReset(ctx, u.ID, "hash-second", time.Hour); err != nil || issued {
+			t.Fatalf("second CreatePasswordReset = (%v, %v), want (false, nil) — throttled", issued, err)
+		}
+		if _, err := s.ConsumePasswordReset(ctx, "hash-second"); !errors.Is(err, ErrResetInvalid) {
+			t.Errorf("throttled token should not exist, consume err = %v, want ErrResetInvalid", err)
+		}
+		if got, err := s.ConsumePasswordReset(ctx, "hash-first"); err != nil || got != u.ID {
+			t.Errorf("first token should still be valid, consume = (%d, %v)", got, err)
 		}
 	})
 }
