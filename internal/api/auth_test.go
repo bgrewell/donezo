@@ -751,3 +751,43 @@ func TestAuthRateLimiting(t *testing.T) {
 		}
 	})
 }
+
+// TestValidateUsername pins the charset rules a username must satisfy — the
+// gate that keeps confusable, control, and log-forging names out at the one
+// place a username is chosen.
+func TestValidateUsername(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{name: "plain", in: "nina", wantErr: false},
+		{name: "mixed case allowed (folding handles uniqueness)", in: "NinaB", wantErr: false},
+		{name: "punctuation allowed", in: "nina.b_1-x", wantErr: false},
+		{name: "empty", in: "", wantErr: true},
+		{name: "too long", in: strings.Repeat("a", maxUsernameRunes+1), wantErr: true},
+		{name: "internal space", in: "ni na", wantErr: true},
+		{name: "leading space", in: " nina", wantErr: true},
+		{name: "tab", in: "ni\tna", wantErr: true},
+		{name: "newline (log forgery)", in: "nina\nadmin", wantErr: true},
+		{name: "control char", in: "nina\x00", wantErr: true},
+		{name: "zero-width space", in: "bob\u200b", wantErr: true},
+		{name: "zero-width joiner", in: "bo\u200db", wantErr: true},
+		{name: "BOM / zero-width no-break space", in: "nina\ufeff", wantErr: true},
+		{name: "right-to-left override", in: "nina\u202e", wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateUsername(tt.in)
+			if tt.wantErr && err == nil {
+				t.Errorf("validateUsername(%q) = nil, want an error", tt.in)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("validateUsername(%q) = %v, want nil", tt.in, err)
+			}
+		})
+	}
+}
