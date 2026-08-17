@@ -16,6 +16,7 @@ import { relativeFromToday } from "@/lib/time";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { UnfiledNotes } from "./UnfiledNotes";
+import { UnfiledTasks } from "./UnfiledTasks";
 
 /** Master list of all projects, closed ones (done/cancelled) dimmed at the bottom. */
 export function ProjectList() {
@@ -110,8 +111,10 @@ export function ProjectList() {
         </TableBody>
       </Table>
 
-      {/* Notes with no project have nowhere else in the app to render, so
-          they live alongside the project list rather than inside one. */}
+      {/* Tasks and notes with no project have nowhere else in the app to
+          render, so they live alongside the project list rather than inside
+          one — the reachability rule from #25, tasks included. */}
+      <UnfiledTasks />
       <UnfiledNotes />
     </div>
   );

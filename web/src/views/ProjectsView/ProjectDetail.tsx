@@ -515,7 +515,7 @@ function DueChip({ due }: { due: string }) {
  *
  *  The editor and the action group both moved to components/common for #29,
  *  so a task behaves identically here and in Focus. */
-function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }) {
+export function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }) {
   const [editing, setEditing] = React.useState(false);
   const waiting = task.status === "waiting";
 
