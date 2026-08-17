@@ -263,6 +263,14 @@ func validateUsername(u string) error {
 		if unicode.IsControl(r) || unicode.IsSpace(r) {
 			return errors.New("username must not contain spaces or control characters")
 		}
+		// Format/zero-width characters (Cf: U+200B, U+200D, U+FEFF, the
+		// bidi overrides…) render as nothing, so they would let "bob" and
+		// "bob​" be two accounts that look identical — the same
+		// confusable-duplicate problem case-folding usernames exists to
+		// prevent. Reject them at the one place a username is chosen.
+		if unicode.Is(unicode.Cf, r) {
+			return errors.New("username must not contain zero-width or formatting characters")
+		}
 	}
 	return nil
 }

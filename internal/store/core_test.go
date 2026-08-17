@@ -308,3 +308,38 @@ func TestListSpaces(t *testing.T) {
 		t.Errorf("order = [%s, %s], want [alpha, zeta] (by position)", got[0].ID, got[1].ID)
 	}
 }
+
+// TestUsernameCaseInsensitive pins the identity rule: any casing resolves to
+// the same account, and a second account differing only in case is refused.
+func TestUsernameCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	s := newTestCoreStore(t)
+	ctx := context.Background()
+
+	created, err := s.CreateUser(ctx, "Bob", "Bob")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	// Every casing looks up the one account, and stored case is preserved.
+	for _, name := range []string{"Bob", "bob", "BOB", "bOb"} {
+		got, err := s.GetUserByUsername(ctx, name)
+		if err != nil {
+			t.Fatalf("GetUserByUsername(%q): %v", name, err)
+		}
+		if got.ID != created.ID {
+			t.Errorf("GetUserByUsername(%q) = id %d, want %d", name, got.ID, created.ID)
+		}
+		if got.Username != "Bob" {
+			t.Errorf("stored username = %q, want the original case \"Bob\"", got.Username)
+		}
+	}
+
+	// A second account differing only in case is refused by the folding index.
+	if _, err := s.CreateUser(ctx, "bob", "Impostor"); err == nil {
+		t.Fatal("creating \"bob\" alongside \"Bob\" succeeded; want a uniqueness error")
+	}
+	if _, err := s.CreateUser(ctx, "BOB", "Impostor"); err == nil {
+		t.Fatal("creating \"BOB\" alongside \"Bob\" succeeded; want a uniqueness error")
+	}
+}

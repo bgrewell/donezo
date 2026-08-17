@@ -84,11 +84,13 @@ func (s *CoreStore) DeleteUser(ctx context.Context, id int64) error {
 }
 
 // GetUserByUsername returns the user with the given username, or
-// ErrNotFound.
+// ErrNotFound. The match is case-insensitive (COLLATE NOCASE), so any casing
+// of a username resolves to the one account that owns it — the same folding
+// the users.username_nocase unique index enforces on creation.
 func (s *CoreStore) GetUserByUsername(ctx context.Context, username string) (User, error) {
 	var u User
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, username, display_name, role, password_hash, created_at FROM users WHERE username = ?`,
+		`SELECT id, username, display_name, role, password_hash, created_at FROM users WHERE username = ? COLLATE NOCASE`,
 		username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.PasswordHash, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, fmt.Errorf("store: user %q: %w", username, ErrNotFound)
@@ -169,10 +171,12 @@ func (s *CoreStore) SetupOwner(ctx context.Context, username, displayName, passw
 	if passwordHash == "" {
 		return User{}, errors.New("store: password hash is required")
 	}
-	// Claim path: the seeded password-less row, updated in place.
+	// Claim path: the seeded password-less row, updated in place. NOCASE so a
+	// seeded "ben" is claimed by setup as "Ben" rather than falling through to
+	// an insert that the case-folding unique index would then reject.
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE users SET password_hash = ?, display_name = ?, role = ?
-		 WHERE username = ? AND password_hash = '' AND `+noCredentialedUserGuard,
+		 WHERE username = ? COLLATE NOCASE AND password_hash = '' AND `+noCredentialedUserGuard,
 		passwordHash, displayName, RoleAdmin, username)
 	if err != nil {
 		return User{}, fmt.Errorf("store: setup owner %q: %w", username, err)
