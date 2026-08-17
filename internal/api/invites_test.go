@@ -833,3 +833,37 @@ func TestCreateInviteEmailSendFailureKeepsCode(t *testing.T) {
 		t.Errorf("failed-send invite status = %q, want active", got.Status)
 	}
 }
+
+// TestRegisterAndLoginAreCaseInsensitive: a username differing only in case
+// from an existing member is refused, and login accepts any casing of the
+// registered name. This is the account-collision / lockout guard.
+func TestRegisterAndLoginAreCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	f := newAuthFixture(t)
+	admin := f.setupAdmin("owner")
+
+	// Register "nina".
+	inv1 := f.createInvite(admin, "")
+	if rec := f.do(http.MethodPost, "/api/auth/register", registerBody(inv1.Code, "nina"), nil); rec.Code != http.StatusOK {
+		t.Fatalf("register nina = %d (body %s)", rec.Code, rec.Body.String())
+	}
+
+	// A second invite claimed as "Nina" collides and is refused.
+	inv2 := f.createInvite(admin, "")
+	rec := f.do(http.MethodPost, "/api/auth/register", registerBody(inv2.Code, "Nina"), nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("register \"Nina\" alongside \"nina\" = %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	// The rejected collision must not have burned the invite.
+	if listed, _ := f.listInvites(admin); listed[inv2.ID].Status != "active" {
+		t.Errorf("invite %s after a rejected case-collision = %q, want still active", inv2.ID, listed[inv2.ID].Status)
+	}
+
+	// Login accepts any casing of the registered username.
+	for _, name := range []string{"nina", "Nina", "NINA"} {
+		body := fmt.Sprintf(`{"username":%q,"password":"a very fine password"}`, name)
+		if rec := f.do(http.MethodPost, "/api/auth/login", body, nil); rec.Code != http.StatusOK {
+			t.Errorf("login as %q = %d, want 200 (body %s)", name, rec.Code, rec.Body.String())
+		}
+	}
+}

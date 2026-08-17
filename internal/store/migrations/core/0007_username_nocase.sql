@@ -1,0 +1,19 @@
+-- Case-insensitive usernames: "Bob" and "bob" must be the same account, and
+-- login must not care which case you type.
+--
+-- The original users.username UNIQUE is case-SENSITIVE, so it would happily let
+-- "Bob" and "bob" coexist as two accounts — a foothold for impersonation and a
+-- source of "why can't I log in?" confusion. This adds a stricter, overlapping
+-- uniqueness constraint that folds case, so a second registration differing
+-- only in case collides (surfaced to the caller as "username taken"). The
+-- original index stays; it is simply a subset of this one.
+--
+-- Stored case is preserved — a row keeps whatever case it was created with, for
+-- display — while lookups (GetUserByUsername) compare COLLATE NOCASE so any
+-- casing signs into the same account.
+--
+-- If this instance already contains two usernames that differ only in case,
+-- creating this unique index fails and the migration will not apply (the safe
+-- direction: donezo refuses to start rather than silently pick a winner).
+-- Resolve the collision by renaming or removing one of the rows, then restart.
+CREATE UNIQUE INDEX idx_users_username_nocase ON users (username COLLATE NOCASE);
