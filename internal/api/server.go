@@ -372,6 +372,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
 	mux.HandleFunc("GET /api/spaces/{id}/revision", s.handleSpaceRevision)
 	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
+	mux.HandleFunc("POST /api/spaces/{id}/catchall", s.handleEnsureCatchAll)
 	mux.HandleFunc("PATCH /api/spaces/{id}/projects/{pid}", s.handlePatchProject)
 	mux.HandleFunc("DELETE /api/spaces/{id}/projects/{pid}", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/spaces/{id}/activities", s.handleCreateActivity)
@@ -432,6 +433,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/trash/{entity}/{tid}/restore": http.MethodPost,
 		"/api/spaces/{id}/revision":                     http.MethodGet,
 		"/api/spaces/{id}/projects":                     http.MethodPost,
+		"/api/spaces/{id}/catchall":                     http.MethodPost,
 		"/api/spaces/{id}/projects/{pid}":               "PATCH, DELETE",
 		"/api/spaces/{id}/activities":                   http.MethodPost,
 		"/api/spaces/{id}/activities/{aid}":             "PATCH, DELETE",

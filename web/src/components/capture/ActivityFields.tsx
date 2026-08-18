@@ -37,7 +37,18 @@ export function ActivityFields({
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <div className="min-w-[8.5rem] flex-1">
-        <ProjectSelect projects={projects} value={projectId} onChange={onProjectId} required />
+        {/* Not required: an activity with no project in mind is filed under
+            the space's catch-all, so the empty choice reads "Miscellaneous"
+            and is a valid default rather than a prompt to pick. hideCatchall
+            keeps the catch-all from also appearing in the list under its own
+            name — the empty option already points there. */}
+        <ProjectSelect
+          projects={projects}
+          value={projectId}
+          onChange={onProjectId}
+          emptyLabel="Miscellaneous"
+          hideCatchall
+        />
       </div>
       <div className="w-[6.5rem]">
         <Select

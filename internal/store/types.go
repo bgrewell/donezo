@@ -61,6 +61,11 @@ type Project struct {
 	ResumeContext  string   `json:"resumeContext"`
 	WaitingOn      *string  `json:"waitingOn,omitempty"`
 	Tags           []string `json:"tags"`
+	// Catchall marks the space's known "Miscellaneous" project — the home for
+	// activities logged with no project in mind. At most one live catch-all
+	// exists per space; it is created lazily on first use. Omitted from JSON
+	// for ordinary projects.
+	Catchall bool `json:"catchall,omitempty"`
 	// Server-side timestamps; not part of the frontend type.
 	CreatedAt string `json:"-"`
 	UpdatedAt string `json:"-"`

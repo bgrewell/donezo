@@ -154,6 +154,14 @@ export const api = {
 
 // ─── Typed endpoint helpers ───────────────────────────────────────────────
 
+/** POST /api/spaces/:id/catchall — resolve the space's "Miscellaneous"
+ *  catch-all project, creating it lazily on first call. Idempotent; returns
+ *  the project either way. The capture form calls this to get a real project
+ *  id for an activity logged with no project, before adding it optimistically. */
+export function ensureCatchall(spaceId: string): Promise<Project> {
+  return api.post<Project>(`/api/spaces/${encodeURIComponent(spaceId)}/catchall`);
+}
+
 export function fetchAuthStatus(): Promise<AuthStatus> {
   return api.get<AuthStatus>("/api/auth/status");
 }

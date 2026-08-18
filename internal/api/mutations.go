@@ -57,6 +57,25 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// handleEnsureCatchAll returns the space's known catch-all ("Miscellaneous")
+// project, creating it lazily on first request. It is idempotent — repeated
+// calls return the same project — so the web capture form can resolve the
+// project id it needs for an unparented activity before adding the activity
+// optimistically. Not a POST of new data, but a write (it may create), so it
+// lives behind the same owned-live-space gate as the other mutations.
+func (s *Server) handleEnsureCatchAll(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	project, err := s.spaces.GetOrCreateCatchAll(r.Context(), sp.ID)
+	if err != nil {
+		s.writeStoreError(w, "project", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
+}
+
 // handlePatchProject applies a partial update to a project. Any subset
 // of the mutable fields is accepted — including nextAction,
 // altNextActions, resumeContext, status, and waitingOn, which the

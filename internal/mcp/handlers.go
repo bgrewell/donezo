@@ -629,9 +629,9 @@ func toolLogActivity(ctx context.Context, h *Handler, c caller, args json.RawMes
 	if !decodeArgs(args, &a) {
 		return "invalid arguments", true
 	}
-	if strings.TrimSpace(a.ProjectID) == "" {
-		return "project_id is required", true
-	}
+	// project_id is optional: an activity logged with no project in mind is
+	// routed to the space's catch-all ("Miscellaneous") by the store, giving
+	// agents the same zero-decision path a person gets from the capture form.
 	if strings.TrimSpace(a.Title) == "" {
 		return "title is required", true
 	}

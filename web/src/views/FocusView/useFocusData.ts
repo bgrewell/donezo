@@ -80,8 +80,10 @@ export function computeFocusData(state: AppState): FocusData {
   const today = todayISO();
   const horizon = addDaysISO(today, DUE_HORIZON_DAYS);
 
-  // NOW — active project with the most recent non-planned activity.
-  const activeProjects = state.projects.filter((p) => p.status === "active");
+  // NOW — active project with the most recent non-planned activity. The
+  // catch-all is excluded: a chore logged there must never become "the current
+  // thread" or surface as a recently-interrupted project — it has no momentum.
+  const activeProjects = state.projects.filter((p) => p.status === "active" && !p.catchall);
   let nowProject: Project | undefined;
   let nowLastTouched: string | undefined;
   for (const p of activeProjects) {

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Button, Dialog, Input, cn } from "@grewelltech/console";
 
 import type { ActivityType, ItemKind, ProjectColor, ReminderRepeat } from "@/domain/types";
-import { ApiError, api, rewriteWithLLM } from "@/api/client";
+import { ApiError, api, ensureCatchall, rewriteWithLLM } from "@/api/client";
 import { useLLMStatus } from "@/state/useLLMStatus";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
@@ -374,7 +374,7 @@ export function QuickCapture() {
     close();
   };
 
-  const create = () => {
+  const create = async () => {
     if (!raw) return;
     switch (kind) {
       case "task":
@@ -421,13 +421,31 @@ export function QuickCapture() {
         break;
       }
       case "activity": {
-        if (!projectId) return;
         const hours = Number(activityEffort);
+        // No project chosen → file under the space's catch-all. Resolve (and
+        // lazily create) it now, before the optimistic add, so the activity
+        // points at a real project the timeline can render. INGEST_PROJECT
+        // adds the returned catch-all to local state without re-POSTing it.
+        let pid = projectId;
+        if (!pid) {
+          const space = session.activeSpaceId;
+          if (!space) return;
+          try {
+            const catchall = await ensureCatchall(space);
+            dispatch({ type: "INGEST_PROJECT", project: catchall });
+            pid = catchall.id;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (err instanceof ApiError && err.status === 401) session.sessionExpired();
+            setCaptureNote(`capture failed — ${message}`);
+            return;
+          }
+        }
         dispatch({
           type: "ADD_ACTIVITY",
           entry: {
             id: newId("act"),
-            projectId,
+            projectId: pid,
             date: activityDate || todayISO(),
             type: activityType,
             title: raw,
@@ -473,17 +491,14 @@ export function QuickCapture() {
     !raw ||
     crossSpace ||
     noLiveTarget ||
-    (kind === "activity" && !projectId) ||
     (kind === "reminder" && !remindAt);
   const createTitle = noLiveTarget
     ? "All spaces are archived — unarchive one to capture"
     : crossSpace
       ? "Cross-space capture goes to the inbox — classify it there"
-      : kind === "activity" && !projectId
-        ? "Activity needs a project"
-        : kind === "reminder" && !remindAt
-          ? "Reminder needs a time"
-          : undefined;
+      : kind === "reminder" && !remindAt
+        ? "Reminder needs a time"
+        : undefined;
 
   // Enter rules, dialog-wide (document-level so chips, swatches, and the
   // panel itself are covered — after a mouse pick focus rests on a chip):

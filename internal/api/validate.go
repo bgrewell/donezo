@@ -222,9 +222,11 @@ func validateProjectCreate(p store.Project) error {
 
 // validateActivityCreate checks a POST activities body.
 func validateActivityCreate(a store.ActivityEntry) error {
+	// projectId is intentionally not required: an activity logged with no
+	// project in mind is routed to the space's catch-all ("Miscellaneous") by
+	// the store, so an empty projectId is a valid "file it under chores".
 	return firstError(
 		entityID("id", a.ID),
-		required("projectId", a.ProjectID),
 		isoDate("date", a.Date),
 		oneOf("type", a.Type, activityTypes),
 		required("title", a.Title),
