@@ -2,6 +2,7 @@ import { format } from "date-fns";
 
 import { formatDay, parseDate } from "@/lib/time";
 import { useFocusData } from "./useFocusData";
+import { HorizonStrip } from "./HorizonStrip";
 import { NowSection } from "./NowSection";
 import { NextActionPanel } from "./NextActionPanel";
 import { TimeSensitiveSection } from "./TimeSensitiveSection";
@@ -43,6 +44,7 @@ export default function FocusView() {
           </p>
         </header>
 
+        <HorizonStrip horizon={data.horizon} />
         <NowSection project={data.nowProject} lastTouched={data.nowLastTouched} />
         <NextActionPanel project={data.nowProject} />
         <TimeSensitiveSection rows={data.timeSensitive} />
