@@ -223,6 +223,16 @@ export function ControlsBar({ visibleWidth }: { visibleWidth: number }) {
 
         <button
           type="button"
+          aria-pressed={filters.showReminders}
+          onClick={() =>
+            dispatch({ type: "SET_FILTERS", patch: { showReminders: !filters.showReminders } })
+          }
+          className={cn(triggerBase, filters.showReminders ? triggerActive : triggerIdle)}
+        >
+          Reminders
+        </button>
+        <button
+          type="button"
           aria-pressed={filters.showPlanned}
           onClick={() =>
             dispatch({ type: "SET_FILTERS", patch: { showPlanned: !filters.showPlanned } })

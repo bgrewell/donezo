@@ -11,10 +11,17 @@ import {
 
 import type { ZoomLevel } from "@/domain/types";
 
-/** First rendered timeline day (a Monday). */
-export const RANGE_START = "2026-02-23";
-/** Last rendered timeline day (inclusive, a Sunday). */
-export const RANGE_END = "2026-09-06";
+// The rendered timeline window: one year either side of today, snapped to
+// whole weeks (start a Monday, end a Sunday) so the week columns stay aligned
+// and the day count is a multiple of 7. Computed once at load from today so the
+// window follows real time rather than drifting off a fixed date — before this
+// it was hardcoded to a 2026 window, which would let "today" slide off the edge
+// as time passed. (The helpers below are hoisted function declarations, so they
+// are callable here.)
+/** First rendered timeline day (a Monday, ~1 year before today). */
+export const RANGE_START = startOfWeekISO(addMonthsISO(todayISO(), -12));
+/** Last rendered timeline day (inclusive; a Sunday, ~1 year after today). */
+export const RANGE_END = addDaysISO(startOfWeekISO(addMonthsISO(todayISO(), 12)), 6);
 
 /** Parse an ISO yyyy-MM-dd string as a local date. */
 export function parseDate(iso: string): Date {

@@ -16,17 +16,19 @@ import {
   addMonthsISO,
   diffDays,
   parseDate,
+  startOfMonthISO,
 } from "@/lib/time";
 
 // The rendered range lives in lib/time (the reducer clamps anchors against
 // it); re-exported here so timeline modules keep one import site.
 export { RANGE_END, RANGE_START };
 
-/** First day of the first rendered month column (month/quarter zooms). */
-const MONTH_RANGE_START = "2026-02-01";
+/** First day of the first rendered month column (month/quarter zooms) — the
+ *  first of RANGE_START's month, so month columns line up with the range. */
+const MONTH_RANGE_START = startOfMonthISO(RANGE_START);
 
-const DAY_COUNT = diffDays(RANGE_END, RANGE_START) + 1; // 196
-const WEEK_COUNT = DAY_COUNT / 7; // 28
+const DAY_COUNT = diffDays(RANGE_END, RANGE_START) + 1; // ~2 years of days
+const WEEK_COUNT = DAY_COUNT / 7; // whole weeks (RANGE spans Monday…Sunday)
 
 export interface ZoomConfig {
   /** Uniform column width, px. */
@@ -50,6 +52,9 @@ export const DAY_NODE_GAP = 2;
 export const DAY_NODE_INSET = 2;
 /** Week-zoom aggregate capsule height (px). */
 export const WEEK_CAPSULE_HEIGHT = 30;
+/** Reminder band reserved at the top of a row when the reminder layer is on
+ *  (px). Activities shift down by this so bells and capsules never collide. */
+export const REMINDER_BAND = 17;
 /** Month/quarter density bar height (px). */
 export const MONTH_BAR_HEIGHT = 10;
 
