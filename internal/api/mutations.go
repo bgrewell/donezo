@@ -45,6 +45,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &p) {
 		return
 	}
+	// catchall is a system-reserved flag: only GetOrCreateCatchAll may set it,
+	// so a client cannot plant an arbitrary project as the space's permanent
+	// catch-all through the public create path.
+	p.Catchall = false
 	if err := validateProjectCreate(p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -749,6 +749,15 @@ func validateConversion(c store.Conversion) error {
 	case "reminder":
 		return validateReminderCreate(*c.Reminder)
 	case "activity":
+		// Conversions insert the activity directly (ConvertInboxItem /
+		// ConvertNote), bypassing CreateActivity's catch-all routing, so they
+		// still require an explicit project — otherwise an empty projectId would
+		// pass here and fail deeper on the NOT NULL foreign key with a
+		// misleading "does not match an existing project". Routing convert to
+		// the catch-all is a deliberate later change.
+		if err := required("projectId", c.Activity.ProjectID); err != nil {
+			return err
+		}
 		return validateActivityCreate(*c.Activity)
 	default:
 		return validateProjectCreate(*c.Project)

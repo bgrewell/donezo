@@ -109,6 +109,9 @@ export function QuickCapture() {
   // Transient "captured to <space> inbox" confirmation for cross-space saves.
   const [captureNote, setCaptureNote] = React.useState<string | null>(null);
   const [capturePending, setCapturePending] = React.useState(false);
+  // True while create() is mid-flight — guards the one async submit path
+  // (unparented activity → ensureCatchall) against a double Enter/click.
+  const creatingRef = React.useRef(false);
   // Optional model-backed tidy-up of the typed text. Capture works
   // exactly as before when no model is configured, or when this is
   // simply not used — it is a flourish, never a step.
@@ -375,7 +378,12 @@ export function QuickCapture() {
   };
 
   const create = async () => {
-    if (!raw) return;
+    // Reentrancy guard: the activity path awaits ensureCatchall, a yield point
+    // where a second Enter/click would otherwise dispatch a duplicate activity
+    // (the server dedupes the catch-all project, but not the activity row).
+    if (!raw || creatingRef.current) return;
+    creatingRef.current = true;
+    try {
     switch (kind) {
       case "task":
         dispatch({
@@ -485,6 +493,9 @@ export function QuickCapture() {
     }
     reset();
     close();
+    } finally {
+      creatingRef.current = false;
+    }
   };
 
   const createDisabled =
@@ -678,6 +689,7 @@ export function QuickCapture() {
               onDate={setActivityDate}
               effort={activityEffort}
               onEffort={setActivityEffort}
+              catchAllFallback
             />
           </div>
           <div className={cn("col-start-1 row-start-1", kind !== "project" && "invisible")}>
