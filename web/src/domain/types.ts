@@ -81,6 +81,10 @@ export interface Project {
   /** Who/what is being waited on, when status is waiting or blocked. */
   waitingOn?: string;
   tags: string[];
+  /** The space's known catch-all ("Miscellaneous") — where activities logged
+   *  with no project in mind land. Created lazily; at most one per space. It is
+   *  a real project but treated quietly: sorted last, kept out of momentum. */
+  catchall?: boolean;
 }
 
 export interface ActivityLink {

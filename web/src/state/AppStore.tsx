@@ -79,6 +79,7 @@ export type AppAction =
   | { type: "OPEN_PROJECT"; projectId: string }
   | { type: "CLOSE_PROJECT" }
   | { type: "ADD_PROJECT"; project: Project }
+  | { type: "INGEST_PROJECT"; project: Project }
   | { type: "UPDATE_PROJECT"; id: string; patch: Partial<Project> }
   | {
       /** Delete a project and everything it owns, mirroring the server
@@ -176,6 +177,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, selectedProjectId: null };
     case "ADD_PROJECT":
       return { ...state, projects: [...state.projects, action.project] };
+    case "INGEST_PROJECT":
+      // A project the server already created (the lazily-made catch-all),
+      // added to local state so a freshly-filed activity has a home to render
+      // in. Local-only: syncAction has no case for it, so it is never re-POSTed.
+      return state.projects.some((p) => p.id === action.project.id)
+        ? state
+        : { ...state, projects: [...state.projects, action.project] };
     case "UPDATE_PROJECT":
       return {
         ...state,

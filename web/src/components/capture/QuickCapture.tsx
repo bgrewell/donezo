@@ -2,7 +2,7 @@ import * as React from "react";
 import { Button, Dialog, Input, cn } from "@grewelltech/console";
 
 import type { ActivityType, ItemKind, ProjectColor, ReminderRepeat } from "@/domain/types";
-import { ApiError, api, rewriteWithLLM } from "@/api/client";
+import { ApiError, api, ensureCatchall, rewriteWithLLM } from "@/api/client";
 import { useLLMStatus } from "@/state/useLLMStatus";
 import { useAppDispatch, useAppState } from "@/state/AppStore";
 import { isClosedProject } from "@/state/selectors";
@@ -109,6 +109,9 @@ export function QuickCapture() {
   // Transient "captured to <space> inbox" confirmation for cross-space saves.
   const [captureNote, setCaptureNote] = React.useState<string | null>(null);
   const [capturePending, setCapturePending] = React.useState(false);
+  // True while create() is mid-flight — guards the one async submit path
+  // (unparented activity → ensureCatchall) against a double Enter/click.
+  const creatingRef = React.useRef(false);
   // Optional model-backed tidy-up of the typed text. Capture works
   // exactly as before when no model is configured, or when this is
   // simply not used — it is a flourish, never a step.
@@ -374,8 +377,13 @@ export function QuickCapture() {
     close();
   };
 
-  const create = () => {
-    if (!raw) return;
+  const create = async () => {
+    // Reentrancy guard: the activity path awaits ensureCatchall, a yield point
+    // where a second Enter/click would otherwise dispatch a duplicate activity
+    // (the server dedupes the catch-all project, but not the activity row).
+    if (!raw || creatingRef.current) return;
+    creatingRef.current = true;
+    try {
     switch (kind) {
       case "task":
         dispatch({
@@ -421,13 +429,31 @@ export function QuickCapture() {
         break;
       }
       case "activity": {
-        if (!projectId) return;
         const hours = Number(activityEffort);
+        // No project chosen → file under the space's catch-all. Resolve (and
+        // lazily create) it now, before the optimistic add, so the activity
+        // points at a real project the timeline can render. INGEST_PROJECT
+        // adds the returned catch-all to local state without re-POSTing it.
+        let pid = projectId;
+        if (!pid) {
+          const space = session.activeSpaceId;
+          if (!space) return;
+          try {
+            const catchall = await ensureCatchall(space);
+            dispatch({ type: "INGEST_PROJECT", project: catchall });
+            pid = catchall.id;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (err instanceof ApiError && err.status === 401) session.sessionExpired();
+            setCaptureNote(`capture failed — ${message}`);
+            return;
+          }
+        }
         dispatch({
           type: "ADD_ACTIVITY",
           entry: {
             id: newId("act"),
-            projectId,
+            projectId: pid,
             date: activityDate || todayISO(),
             type: activityType,
             title: raw,
@@ -467,23 +493,23 @@ export function QuickCapture() {
     }
     reset();
     close();
+    } finally {
+      creatingRef.current = false;
+    }
   };
 
   const createDisabled =
     !raw ||
     crossSpace ||
     noLiveTarget ||
-    (kind === "activity" && !projectId) ||
     (kind === "reminder" && !remindAt);
   const createTitle = noLiveTarget
     ? "All spaces are archived — unarchive one to capture"
     : crossSpace
       ? "Cross-space capture goes to the inbox — classify it there"
-      : kind === "activity" && !projectId
-        ? "Activity needs a project"
-        : kind === "reminder" && !remindAt
-          ? "Reminder needs a time"
-          : undefined;
+      : kind === "reminder" && !remindAt
+        ? "Reminder needs a time"
+        : undefined;
 
   // Enter rules, dialog-wide (document-level so chips, swatches, and the
   // panel itself are covered — after a mouse pick focus rests on a chip):
@@ -663,6 +689,7 @@ export function QuickCapture() {
               onDate={setActivityDate}
               effort={activityEffort}
               onEffort={setActivityEffort}
+              catchAllFallback
             />
           </div>
           <div className={cn("col-start-1 row-start-1", kind !== "project" && "invisible")}>

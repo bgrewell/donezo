@@ -334,8 +334,30 @@ func TestCaptureToInbox(t *testing.T) {
 func TestLogActivity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	if _, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","title":"x"}`); !isErr {
-		t.Error("missing project_id should be isError")
+	// No project_id files the activity under the space's lazily-created
+	// catch-all ("Miscellaneous") rather than erroring — the zero-decision
+	// path a person gets from the capture form.
+	{
+		text, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","title":"tidied the lab bench"}`)
+		if isErr {
+			t.Fatalf("log_activity without project: %s", text)
+		}
+		var misc struct {
+			Activity struct {
+				ProjectID string `json:"projectId"`
+			} `json:"activity"`
+		}
+		parseToolJSON(t, text, &misc)
+		catch, err := f.spaces.GetOrCreateCatchAll(context.Background(), "sandbox")
+		if err != nil {
+			t.Fatalf("catch-all: %v", err)
+		}
+		if !catch.Catchall || catch.Name != "Miscellaneous" {
+			t.Errorf("catch-all project = %+v", catch)
+		}
+		if misc.Activity.ProjectID != catch.ID {
+			t.Errorf("no-project activity filed under %q, want catch-all %q", misc.Activity.ProjectID, catch.ID)
+		}
 	}
 	if _, isErr := f.callTool(t, f.rw, "log_activity", `{"space_id":"sandbox","project_id":"loom","title":"x","type":"bogus"}`); !isErr {
 		t.Error("bad type should be isError")

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -171,12 +172,16 @@ func (s *SpaceStore) insertProject(ctx context.Context, ex execer, p Project) (P
 	}
 	now := s.opts.now()
 	p.CreatedAt, p.UpdatedAt = now, now
+	catchall := int64(0)
+	if p.Catchall {
+		catchall = 1
+	}
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO projects (id, name, color, purpose, outcome, current_focus, next_action,
-		   alt_next_actions, status, resume_context, waiting_on, tags, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   alt_next_actions, status, resume_context, waiting_on, tags, catchall, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction,
-		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, p.CreatedAt, p.UpdatedAt); err != nil {
+		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, catchall, p.CreatedAt, p.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("store: create project %q: %w", p.ID, classifyConstraint(err))
 	}
 	return p, nil
@@ -186,12 +191,14 @@ func (s *SpaceStore) insertProject(ctx context.Context, ex execer, p Project) (P
 func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var alt, tags string
+	var catchall int64
 	err := row.Scan(&p.ID, &p.Name, &p.Color, &p.Purpose, &p.Outcome, &p.CurrentFocus,
 		&p.NextAction, &alt, &p.Status, &p.ResumeContext, &p.WaitingOn, &tags,
-		&p.CreatedAt, &p.UpdatedAt)
+		&catchall, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return Project{}, err
 	}
+	p.Catchall = catchall != 0
 	if p.AltNextActions, err = unmarshalList[string](alt); err != nil {
 		return Project{}, err
 	}
@@ -202,7 +209,7 @@ func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 }
 
 const projectColumns = `id, name, color, purpose, outcome, current_focus, next_action,
-	alt_next_actions, status, resume_context, waiting_on, tags, created_at, updated_at`
+	alt_next_actions, status, resume_context, waiting_on, tags, catchall, created_at, updated_at`
 
 // GetProject returns one project by id, or ErrNotFound.
 func (s *SpaceStore) GetProject(ctx context.Context, spaceID, id string) (Project, error) {
@@ -330,6 +337,17 @@ func (s *SpaceStore) CreateActivity(ctx context.Context, spaceID string, a Activ
 	db, err := s.db(ctx, spaceID)
 	if err != nil {
 		return ActivityEntry{}, err
+	}
+	// An activity with no project in mind lands in the space's known catch-all
+	// ("Miscellaneous"), created lazily here — so the fact still points at a
+	// project (the rule the timeline and Reflect rely on) without forcing a
+	// filing decision at capture time.
+	if strings.TrimSpace(a.ProjectID) == "" {
+		catch, err := s.getOrCreateCatchAll(ctx, db)
+		if err != nil {
+			return ActivityEntry{}, err
+		}
+		a.ProjectID = catch.ID
 	}
 	return s.insertActivity(ctx, db, a)
 }

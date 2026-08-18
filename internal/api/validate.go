@@ -222,9 +222,11 @@ func validateProjectCreate(p store.Project) error {
 
 // validateActivityCreate checks a POST activities body.
 func validateActivityCreate(a store.ActivityEntry) error {
+	// projectId is intentionally not required: an activity logged with no
+	// project in mind is routed to the space's catch-all ("Miscellaneous") by
+	// the store, so an empty projectId is a valid "file it under chores".
 	return firstError(
 		entityID("id", a.ID),
-		required("projectId", a.ProjectID),
 		isoDate("date", a.Date),
 		oneOf("type", a.Type, activityTypes),
 		required("title", a.Title),
@@ -747,6 +749,15 @@ func validateConversion(c store.Conversion) error {
 	case "reminder":
 		return validateReminderCreate(*c.Reminder)
 	case "activity":
+		// Conversions insert the activity directly (ConvertInboxItem /
+		// ConvertNote), bypassing CreateActivity's catch-all routing, so they
+		// still require an explicit project — otherwise an empty projectId would
+		// pass here and fail deeper on the NOT NULL foreign key with a
+		// misleading "does not match an existing project". Routing convert to
+		// the catch-all is a deliberate later change.
+		if err := required("projectId", c.Activity.ProjectID); err != nil {
+			return err
+		}
 		return validateActivityCreate(*c.Activity)
 	default:
 		return validateProjectCreate(*c.Project)

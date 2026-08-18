@@ -307,7 +307,10 @@ func (s *SpaceStore) RestoreItem(ctx context.Context, spaceID, entity, id string
 		r, err := tx.ExecContext(ctx,
 			`UPDATE `+t+` SET deleted_at = NULL, delete_batch = NULL WHERE delete_batch = ?`, batch)
 		if err != nil {
-			return 0, fmt.Errorf("store: restore batch %q: %s: %w", batch, t, err)
+			// classifyConstraint so a collision with the partial unique index —
+			// restoring a catch-all when a newer live one already exists —
+			// surfaces as ErrDuplicateID (a clean 409), not a raw 500.
+			return 0, fmt.Errorf("store: restore batch %q: %s: %w", batch, t, classifyConstraint(err))
 		}
 		n, err := r.RowsAffected()
 		if err != nil {

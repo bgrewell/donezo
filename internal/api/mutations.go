@@ -45,6 +45,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &p) {
 		return
 	}
+	// catchall is a system-reserved flag: only GetOrCreateCatchAll may set it,
+	// so a client cannot plant an arbitrary project as the space's permanent
+	// catch-all through the public create path.
+	p.Catchall = false
 	if err := validateProjectCreate(p); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -55,6 +59,25 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// handleEnsureCatchAll returns the space's known catch-all ("Miscellaneous")
+// project, creating it lazily on first request. It is idempotent — repeated
+// calls return the same project — so the web capture form can resolve the
+// project id it needs for an unparented activity before adding the activity
+// optimistically. Not a POST of new data, but a write (it may create), so it
+// lives behind the same owned-live-space gate as the other mutations.
+func (s *Server) handleEnsureCatchAll(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	project, err := s.spaces.GetOrCreateCatchAll(r.Context(), sp.ID)
+	if err != nil {
+		s.writeStoreError(w, "project", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, project)
 }
 
 // handlePatchProject applies a partial update to a project. Any subset

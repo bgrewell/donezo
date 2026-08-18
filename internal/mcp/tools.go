@@ -319,17 +319,18 @@ func buildTools() []tool {
 			title: "Log activity",
 			description: "Record a PAST fact that happened on a project — it appears on the timeline. Use this " +
 				"for work already done, decisions made, meetings held. NEVER use it for future or intended work " +
-				"(use create_task for that). Requires an existing project_id.",
+				"(use create_task for that). project_id is optional: omit it for a small chore or one-off that " +
+				"belongs to no project and it is filed under the space's catch-all \"Miscellaneous\" project.",
 			write: true,
 			inputSchema: objectSchema(map[string]any{
 				"space_id":     strProp("The space the project lives in."),
-				"project_id":   strProp("The project this happened on (must already exist)."),
+				"project_id":   strProp("Optional project this happened on (must already exist if given). Omit to file it under the space's catch-all \"Miscellaneous\" project."),
 				"title":        strProp("Short description of what happened."),
 				"details":      strProp("Optional longer detail."),
 				"type":         enumProp("Optional activity type (defaults to work).", activityTypes),
 				"date":         strProp("Optional yyyy-MM-dd date it happened (defaults to today)."),
 				"effort_hours": numProp("Optional rough effort in hours."),
-			}, "space_id", "project_id", "title"),
+			}, "space_id", "title"),
 			handler: toolLogActivity,
 		},
 		{

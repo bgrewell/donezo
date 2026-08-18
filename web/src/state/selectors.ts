@@ -14,7 +14,9 @@ export function projectById(state: AppState, id: string | undefined | null): Pro
   return state.projects.find((p) => p.id === id);
 }
 
-/** Projects visible under the current filters (rail + timeline rows). */
+/** Projects visible under the current filters (rail + timeline rows). The
+ *  catch-all sorts last: it is a real project but a bucket of unrelated
+ *  chores, so it should never sit at the top as if it were a live thread. */
 export function visibleProjects(state: AppState): Project[] {
   let list = state.projects;
   if (!state.filters.showCompleted) list = list.filter((p) => !isClosedProject(p));
@@ -22,7 +24,8 @@ export function visibleProjects(state: AppState): Project[] {
     const allowed = new Set(state.filters.projectIds);
     list = list.filter((p) => allowed.has(p.id));
   }
-  return list;
+  // Stable partition: keep insertion order, but push the catch-all to the end.
+  return [...list].sort((a, b) => Number(a.catchall ?? false) - Number(b.catchall ?? false));
 }
 
 /** Activities visible under the current filters (planned layer, types). */

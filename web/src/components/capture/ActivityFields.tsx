@@ -6,8 +6,14 @@ import { ACTIVITY_TYPES, ACTIVITY_TYPE_IDS } from "@/components/common/activityT
 import { ProjectSelect } from "./ProjectSelect";
 import { QuietLabel } from "./chips";
 
-/** Tailored fields for an ACTIVITY capture: project (required), type,
- *  date, and optional effort hours. */
+/** Tailored fields for an ACTIVITY capture: project, type, date, and optional
+ *  effort hours.
+ *
+ *  `catchAllFallback` distinguishes the two callers: quick capture sets it, so
+ *  an activity with no project is filed under the space's catch-all (the empty
+ *  choice reads "Miscellaneous"). Note conversion leaves it off — that path
+ *  inserts the activity directly, without catch-all routing, so it still needs
+ *  an explicit project and the empty choice stays a "pick one" prompt. */
 export function ActivityFields({
   projects,
   projectId,
@@ -18,6 +24,7 @@ export function ActivityFields({
   onDate,
   effort,
   onEffort,
+  catchAllFallback = false,
 }: {
   projects: Project[];
   projectId: string;
@@ -30,6 +37,8 @@ export function ActivityFields({
   /** Raw hours text; empty = not logged. */
   effort: string;
   onEffort: (effort: string) => void;
+  /** When set, no project means the catch-all; otherwise a project is required. */
+  catchAllFallback?: boolean;
 }) {
   // Generated, not fixed: see TaskFields — these mount outside quick capture
   // now, and a duplicate id would misdirect the label.
@@ -37,7 +46,18 @@ export function ActivityFields({
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
       <div className="min-w-[8.5rem] flex-1">
-        <ProjectSelect projects={projects} value={projectId} onChange={onProjectId} required />
+        {/* With the catch-all fallback the empty choice reads "Miscellaneous"
+            (a valid default) and hideCatchall keeps the catch-all out of the
+            list, since the empty option already points there. Without it (note
+            conversion) the select stays a required "pick a project" prompt. */}
+        <ProjectSelect
+          projects={projects}
+          value={projectId}
+          onChange={onProjectId}
+          required={!catchAllFallback}
+          emptyLabel={catchAllFallback ? "Miscellaneous" : undefined}
+          hideCatchall={catchAllFallback}
+        />
       </div>
       <div className="w-[6.5rem]">
         <Select
