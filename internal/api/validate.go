@@ -212,6 +212,9 @@ func decodeNullable[T any](field, want string, raw json.RawMessage, dst **T) err
 
 // validateProjectCreate checks a POST projects body.
 func validateProjectCreate(p store.Project) error {
+	if p.Position < 0 {
+		return errors.New("position must not be negative")
+	}
 	return firstError(
 		entityID("id", p.ID),
 		required("name", p.Name),
@@ -315,6 +318,7 @@ type projectPatch struct {
 	ResumeContext  *string         `json:"resumeContext"`
 	WaitingOn      json.RawMessage `json:"waitingOn"`
 	Tags           *[]string       `json:"tags"`
+	Position       *int            `json:"position"`
 
 	waitingOn *string // decoded by validate
 }
@@ -335,6 +339,9 @@ func (p *projectPatch) validate() error {
 		if err := oneOf("status", *p.Status, projectStatuses); err != nil {
 			return err
 		}
+	}
+	if p.Position != nil && *p.Position < 0 {
+		return errors.New("position must not be negative")
 	}
 	return decodeNullable("waitingOn", "string", p.WaitingOn, &p.waitingOn)
 }
@@ -373,6 +380,9 @@ func (p *projectPatch) apply(cur *store.Project) error {
 	}
 	if p.Tags != nil {
 		cur.Tags = *p.Tags
+	}
+	if p.Position != nil {
+		cur.Position = *p.Position
 	}
 	return nil
 }

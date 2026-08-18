@@ -82,6 +82,13 @@ export type AppAction =
   | { type: "INGEST_PROJECT"; project: Project }
   | { type: "UPDATE_PROJECT"; id: string; patch: Partial<Project> }
   | {
+      /** Atomic drag-reorder: `order` lists project ids in their new order and
+       *  each becomes that project's `position`. One request, not N patches,
+       *  so a partial failure can't leave the list half-reordered. */
+      type: "REORDER_PROJECTS";
+      order: string[];
+    }
+  | {
       /** Delete a project and everything it owns, mirroring the server
        *  cascade: activities/tasks/notes go with it; inbox suggestions and
        *  reminders are kept but detached. */
@@ -189,6 +196,15 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         projects: patchById(state.projects, action.id, action.patch),
       };
+    case "REORDER_PROJECTS": {
+      const pos = new Map(action.order.map((id, i) => [id, i] as const));
+      return {
+        ...state,
+        projects: state.projects.map((p) =>
+          pos.has(p.id) ? { ...p, position: pos.get(p.id) } : p
+        ),
+      };
+    }
     case "REMOVE_PROJECT": {
       const pid = action.projectId;
       // Mirror the server cascade exactly: owned content is deleted,

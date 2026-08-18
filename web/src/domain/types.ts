@@ -85,6 +85,9 @@ export interface Project {
    *  with no project in mind land. Created lazily; at most one per space. It is
    *  a real project but treated quietly: sorted last, kept out of momentum. */
   catchall?: boolean;
+  /** Manual sort order (ascending; ties break by creation). Set one past the
+   *  current max on create; a drag in the Projects list rewrites it. */
+  position?: number;
 }
 
 export interface ActivityLink {

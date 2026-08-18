@@ -66,6 +66,10 @@ type Project struct {
 	// exists per space; it is created lazily on first use. Omitted from JSON
 	// for ordinary projects.
 	Catchall bool `json:"catchall,omitempty"`
+	// Position orders projects in the list and rail (ascending; ties break by
+	// insertion order). Assigned one past the current max on create; a drag
+	// rewrites it. Omitted from JSON when zero (the first slot).
+	Position int `json:"position,omitempty"`
 	// Server-side timestamps; not part of the frontend type.
 	CreatedAt string `json:"-"`
 	UpdatedAt string `json:"-"`

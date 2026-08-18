@@ -61,6 +61,27 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// handleReorderProjects applies a drag-reorder atomically: the body's ordered
+// id list becomes the projects' positions (index = position) in one
+// transaction, so the whole move lands or none of it does.
+func (s *Server) handleReorderProjects(w http.ResponseWriter, r *http.Request) {
+	sp, ok := s.ownedLiveSpace(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Order []string `json:"order"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	if err := s.spaces.ReorderProjects(r.Context(), sp.ID, body.Order); err != nil {
+		s.writeStoreError(w, "project", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleEnsureCatchAll returns the space's known catch-all ("Miscellaneous")
 // project, creating it lazily on first request. It is idempotent — repeated
 // calls return the same project — so the web capture form can resolve the

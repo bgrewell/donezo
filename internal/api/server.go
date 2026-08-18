@@ -373,6 +373,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/spaces/{id}/revision", s.handleSpaceRevision)
 	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
 	mux.HandleFunc("POST /api/spaces/{id}/catchall", s.handleEnsureCatchAll)
+	mux.HandleFunc("PATCH /api/spaces/{id}/projects/reorder", s.handleReorderProjects)
 	mux.HandleFunc("PATCH /api/spaces/{id}/projects/{pid}", s.handlePatchProject)
 	mux.HandleFunc("DELETE /api/spaces/{id}/projects/{pid}", s.handleDeleteProject)
 	mux.HandleFunc("POST /api/spaces/{id}/activities", s.handleCreateActivity)
@@ -434,19 +435,22 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/revision":                     http.MethodGet,
 		"/api/spaces/{id}/projects":                     http.MethodPost,
 		"/api/spaces/{id}/catchall":                     http.MethodPost,
-		"/api/spaces/{id}/projects/{pid}":               "PATCH, DELETE",
-		"/api/spaces/{id}/activities":                   http.MethodPost,
-		"/api/spaces/{id}/activities/{aid}":             "PATCH, DELETE",
-		"/api/spaces/{id}/tasks":                        http.MethodPost,
-		"/api/spaces/{id}/tasks/{tid}":                  http.MethodPatch,
-		"/api/spaces/{id}/notes":                        http.MethodPost,
-		"/api/spaces/{id}/notes/{nid}":                  "PATCH, DELETE",
-		"/api/spaces/{id}/notes/{nid}/convert":          http.MethodPost,
-		"/api/spaces/{id}/reminders":                    http.MethodPost,
-		"/api/spaces/{id}/reminders/{rid}":              http.MethodPatch,
-		"/api/spaces/{id}/inbox":                        http.MethodPost,
-		"/api/spaces/{id}/inbox/{iid}":                  http.MethodPatch,
-		"/api/spaces/{id}/inbox/{iid}/convert":          http.MethodPost,
+		// No bare-path 405 entry for projects/reorder: it would match all
+		// methods and conflict with the more-specific "PATCH .../projects/{pid}"
+		// wildcard. A wrong method on reorder falls through to that row's 405.
+		"/api/spaces/{id}/projects/{pid}":      "PATCH, DELETE",
+		"/api/spaces/{id}/activities":          http.MethodPost,
+		"/api/spaces/{id}/activities/{aid}":    "PATCH, DELETE",
+		"/api/spaces/{id}/tasks":               http.MethodPost,
+		"/api/spaces/{id}/tasks/{tid}":         http.MethodPatch,
+		"/api/spaces/{id}/notes":               http.MethodPost,
+		"/api/spaces/{id}/notes/{nid}":         "PATCH, DELETE",
+		"/api/spaces/{id}/notes/{nid}/convert": http.MethodPost,
+		"/api/spaces/{id}/reminders":           http.MethodPost,
+		"/api/spaces/{id}/reminders/{rid}":     http.MethodPatch,
+		"/api/spaces/{id}/inbox":               http.MethodPost,
+		"/api/spaces/{id}/inbox/{iid}":         http.MethodPatch,
+		"/api/spaces/{id}/inbox/{iid}/convert": http.MethodPost,
 	}
 	for path, methods := range allowed {
 		methods := methods // capture (golangci-lint predates Go 1.22 loopvar)

@@ -153,6 +153,16 @@ func (s *SpaceStore) CreateProject(ctx context.Context, spaceID string, p Projec
 	if err != nil {
 		return Project{}, err
 	}
+	// A caller that leaves position at 0 gets appended past the current max, so
+	// a new project lands at the end of the list rather than jumping to the
+	// front. The web sets this itself for the optimistic add; this covers MCP
+	// and any other server-side creator.
+	if p.Position == 0 {
+		if err := db.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(position)+1, 0) FROM projects`).Scan(&p.Position); err != nil {
+			return Project{}, fmt.Errorf("store: create project %q: next position: %w", p.ID, err)
+		}
+	}
 	return s.insertProject(ctx, db, p)
 }
 
@@ -178,10 +188,10 @@ func (s *SpaceStore) insertProject(ctx context.Context, ex execer, p Project) (P
 	}
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO projects (id, name, color, purpose, outcome, current_focus, next_action,
-		   alt_next_actions, status, resume_context, waiting_on, tags, catchall, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   alt_next_actions, status, resume_context, waiting_on, tags, catchall, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction,
-		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, catchall, p.CreatedAt, p.UpdatedAt); err != nil {
+		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, catchall, p.Position, p.CreatedAt, p.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("store: create project %q: %w", p.ID, classifyConstraint(err))
 	}
 	return p, nil
@@ -194,7 +204,7 @@ func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 	var catchall int64
 	err := row.Scan(&p.ID, &p.Name, &p.Color, &p.Purpose, &p.Outcome, &p.CurrentFocus,
 		&p.NextAction, &alt, &p.Status, &p.ResumeContext, &p.WaitingOn, &tags,
-		&catchall, &p.CreatedAt, &p.UpdatedAt)
+		&catchall, &p.Position, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return Project{}, err
 	}
@@ -209,7 +219,7 @@ func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 }
 
 const projectColumns = `id, name, color, purpose, outcome, current_focus, next_action,
-	alt_next_actions, status, resume_context, waiting_on, tags, catchall, created_at, updated_at`
+	alt_next_actions, status, resume_context, waiting_on, tags, catchall, position, created_at, updated_at`
 
 // GetProject returns one project by id, or ErrNotFound.
 func (s *SpaceStore) GetProject(ctx context.Context, spaceID, id string) (Project, error) {
@@ -283,9 +293,37 @@ func execUpdateProject(ctx context.Context, ex execer, p Project) (sql.Result, e
 	return ex.ExecContext(ctx,
 		`UPDATE projects SET name = ?, color = ?, purpose = ?, outcome = ?, current_focus = ?,
 		   next_action = ?, alt_next_actions = ?, status = ?, resume_context = ?, waiting_on = ?,
-		   tags = ?, updated_at = ? WHERE id = ?`,
+		   tags = ?, position = ?, updated_at = ? WHERE id = ?`,
 		p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction, alt, p.Status,
-		p.ResumeContext, p.WaitingOn, tags, p.UpdatedAt, p.ID)
+		p.ResumeContext, p.WaitingOn, tags, p.Position, p.UpdatedAt, p.ID)
+}
+
+// ReorderProjects assigns each id in order its slice index as position, in one
+// transaction, so a drag-reorder lands atomically rather than as N independent
+// per-row PATCHes (a partial failure would otherwise leave the list visibly
+// inconsistent). Ids the space does not hold are ignored — their UPDATE no-ops.
+func (s *SpaceStore) ReorderProjects(ctx context.Context, spaceID string, order []string) error {
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: reorder projects: begin: %w", err)
+	}
+	defer rollbackQuietly(tx)
+	now := s.opts.now()
+	for i, id := range order {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE projects SET position = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+			i, now, id); err != nil {
+			return fmt.Errorf("store: reorder projects: %q: %w", id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: reorder projects: commit: %w", err)
+	}
+	return nil
 }
 
 // DeleteProject removes a project by id. Returns ErrNotFound if absent.
@@ -307,7 +345,7 @@ func (s *SpaceStore) ListProjects(ctx context.Context, spaceID string) ([]Projec
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE deleted_at IS NULL ORDER BY rowid`)
+	rows, err := db.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE deleted_at IS NULL ORDER BY position, rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list projects: %w", err)
 	}

@@ -472,6 +472,11 @@ export function QuickCapture() {
       case "project": {
         const slug = slugify(raw);
         const id = !slug || state.projects.some((p) => p.id === slug) ? newId(slug || "proj") : slug;
+        // Append past the current max so a new project lands at the end of the
+        // list, matching the server (CreateProject does the same). Setting it
+        // here keeps the optimistic order right before the sync round-trips.
+        const nextPosition =
+          state.projects.reduce((max, p) => Math.max(max, p.position ?? 0), 0) + 1;
         dispatch({
           type: "ADD_PROJECT",
           project: {
@@ -486,6 +491,7 @@ export function QuickCapture() {
             status: "active",
             resumeContext: "",
             tags: [],
+            position: nextPosition,
           },
         });
         break;
