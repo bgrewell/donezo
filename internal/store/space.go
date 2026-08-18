@@ -298,6 +298,34 @@ func execUpdateProject(ctx context.Context, ex execer, p Project) (sql.Result, e
 		p.ResumeContext, p.WaitingOn, tags, p.Position, p.UpdatedAt, p.ID)
 }
 
+// ReorderProjects assigns each id in order its slice index as position, in one
+// transaction, so a drag-reorder lands atomically rather than as N independent
+// per-row PATCHes (a partial failure would otherwise leave the list visibly
+// inconsistent). Ids the space does not hold are ignored — their UPDATE no-ops.
+func (s *SpaceStore) ReorderProjects(ctx context.Context, spaceID string, order []string) error {
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: reorder projects: begin: %w", err)
+	}
+	defer rollbackQuietly(tx)
+	now := s.opts.now()
+	for i, id := range order {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE projects SET position = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+			i, now, id); err != nil {
+			return fmt.Errorf("store: reorder projects: %q: %w", id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: reorder projects: commit: %w", err)
+	}
+	return nil
+}
+
 // DeleteProject removes a project by id. Returns ErrNotFound if absent.
 func (s *SpaceStore) DeleteProject(ctx context.Context, spaceID, id string) error {
 	db, err := s.db(ctx, spaceID)

@@ -64,6 +64,8 @@ export function syncAction(spaceId: string, action: AppAction): Promise<unknown>
       return api.post(`${base}/projects`, action.project);
     case "UPDATE_PROJECT":
       return api.patch(`${base}/projects/${action.id}`, patchBody(action.patch, CLEARABLE.project));
+    case "REORDER_PROJECTS":
+      return api.patch(`${base}/projects/reorder`, { order: action.order });
     case "REMOVE_PROJECT":
       // The store already applied the optimistic local cascade; the
       // server's returned counts are not surfaced (kept simple).

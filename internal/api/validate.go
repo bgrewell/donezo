@@ -212,6 +212,9 @@ func decodeNullable[T any](field, want string, raw json.RawMessage, dst **T) err
 
 // validateProjectCreate checks a POST projects body.
 func validateProjectCreate(p store.Project) error {
+	if p.Position < 0 {
+		return errors.New("position must not be negative")
+	}
 	return firstError(
 		entityID("id", p.ID),
 		required("name", p.Name),

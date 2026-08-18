@@ -31,7 +31,12 @@ import { CSS } from "@dnd-kit/utilities";
 
 import type { Project } from "@/domain/types";
 import { useAppDispatch, useAppState, type AppState } from "@/state/AppStore";
-import { isClosedProject, latestActivityDate, openTaskCount } from "@/state/selectors";
+import {
+  compareProjectOrder,
+  isClosedProject,
+  latestActivityDate,
+  openTaskCount,
+} from "@/state/selectors";
 import { relativeFromToday } from "@/lib/time";
 import { ProjectMark } from "@/components/common/ProjectMark";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -158,16 +163,10 @@ export function ProjectList() {
   const state = useAppState();
   const dispatch = useAppDispatch();
 
-  // Display order: catch-all last, then closed last, then manual position.
+  // Display order: catch-all last, then closed last, then manual position —
+  // the same comparator the timeline rail uses, so a drag reorders both.
   const ordered = React.useMemo(
-    () =>
-      [...state.projects].sort((a, b) => {
-        const byCatchall = Number(a.catchall ?? false) - Number(b.catchall ?? false);
-        if (byCatchall) return byCatchall;
-        const byClosed = Number(isClosedProject(a)) - Number(isClosedProject(b));
-        if (byClosed) return byClosed;
-        return (a.position ?? 0) - (b.position ?? 0);
-      }),
+    () => [...state.projects].sort(compareProjectOrder),
     [state.projects]
   );
   const draggable = ordered.filter((p) => !p.catchall && !isClosedProject(p));
@@ -187,15 +186,15 @@ export function ProjectList() {
     const oldIndex = draggable.findIndex((p) => p.id === active.id);
     const newIndex = draggable.findIndex((p) => p.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    // Renumber the active set to its new order; closed projects keep their
-    // relative order but sit after it, so positions stay globally consistent
-    // (the rail reads the same order). Only PATCH rows whose position moved.
+    // The active set in its new order, then closed (kept after it). One atomic
+    // reorder renumbers them server-side to their indices — not N independent
+    // PATCHes, so a partial failure can't leave the list half-reordered. The
+    // catch-all is untouched and stays pinned last.
     const reordered = arrayMove(draggable, oldIndex, newIndex);
     const closed = ordered.filter((p) => !p.catchall && isClosedProject(p));
-    [...reordered, ...closed].forEach((p, i) => {
-      if ((p.position ?? 0) !== i) {
-        dispatch({ type: "UPDATE_PROJECT", id: p.id, patch: { position: i } });
-      }
+    dispatch({
+      type: "REORDER_PROJECTS",
+      order: [...reordered, ...closed].map((p) => p.id),
     });
   };
 
@@ -236,7 +235,14 @@ export function ProjectList() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
+            // dnd-kit's screen-reader live region is a <div>; render it on
+            // <body> instead of inside <tbody>, which only permits <tr>.
+            accessibility={{ container: document.body }}
+          >
             <SortableContext
               items={draggable.map((p) => p.id)}
               strategy={verticalListSortingStrategy}
