@@ -1,12 +1,15 @@
 import * as React from "react";
 
-import type { ActivityEntry, Project, TaskItem } from "@/domain/types";
+import type { ActivityEntry, Project, ReminderRepeat, TaskItem } from "@/domain/types";
 import { useAppState, type AppState } from "@/state/AppStore";
 import { latestActivityDate, projectById } from "@/state/selectors";
 import { addDaysISO, diffDays, todayISO } from "@/lib/time";
 
 /** How many days ahead still count as "time sensitive". */
 const DUE_HORIZON_DAYS = 7;
+/** How many days ahead the Focus "now" strip plots. A little further than the
+ *  time-sensitive list so the strip adds runway, not just a picture of it. */
+export const HORIZON_DAYS = 14;
 /** Staleness window (days since last entry) for "recently interrupted". */
 const INTERRUPT_MIN_DAYS = 3;
 const INTERRUPT_MAX_DAYS = 14;
@@ -25,6 +28,21 @@ export interface DueRow {
    *  Acting on the row has to act on both, or completing the task simply
    *  un-hides the reminder and the row appears not to have changed. */
   mirrors?: string;
+}
+
+/** A reminder plotted on the Focus "now" strip — an upcoming bell ahead of
+ *  "now", or an overdue one that slipped behind it. */
+export interface HorizonMarker {
+  id: string;
+  title: string;
+  /** ISO yyyy-MM-dd it resurfaces. */
+  due: string;
+  /** Whole days from today; negative means overdue. */
+  offset: number;
+  /** Due date is in the past and still undone. */
+  overdue: boolean;
+  project?: Project;
+  repeat?: ReminderRepeat;
 }
 
 /** A task with status "waiting", with its project resolved. */
@@ -55,6 +73,9 @@ export interface FocusData {
   nowLastTouched?: string;
   /** Due/overdue tasks plus upcoming reminders, soonest first. */
   timeSensitive: DueRow[];
+  /** Reminders to plot on the "now" strip: overdue (offset < 0) through
+   *  +HORIZON_DAYS, soonest first. Empty when there is nothing to plot. */
+  horizon: HorizonMarker[];
   waitingTasks: WaitingTaskRow[];
   /** Projects with status waiting or blocked. */
   waitingProjects: Project[];
@@ -153,6 +174,28 @@ export function computeFocusData(state: AppState): FocusData {
     (a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title)
   );
 
+  // HORIZON — reminders to plot on the "now" strip: everything overdue plus
+  // anything within the next HORIZON_DAYS. Reminders-only (a bell is a moment
+  // to hit); due-dated tasks are a later, differently-shaped marker. No task
+  // mirroring here — the strip is a picture of when, not a second action list.
+  const horizonMarkers: HorizonMarker[] = [];
+  for (const r of state.reminders) {
+    if (r.done) continue;
+    const due = r.remindAt.slice(0, 10);
+    const offset = diffDays(due, today);
+    if (offset > HORIZON_DAYS) continue;
+    horizonMarkers.push({
+      id: r.id,
+      title: r.text,
+      due,
+      offset,
+      overdue: offset < 0,
+      project: projectById(state, r.projectId),
+      repeat: r.repeat,
+    });
+  }
+  horizonMarkers.sort((a, b) => a.offset - b.offset || a.title.localeCompare(b.title));
+
   // WAITING ON — waiting tasks plus waiting/blocked projects.
   const waitingTasks: WaitingTaskRow[] = state.tasks
     .filter((t) => t.status === "waiting")
@@ -185,6 +228,7 @@ export function computeFocusData(state: AppState): FocusData {
     nowProject,
     nowLastTouched,
     timeSensitive: dedupedTimeSensitive,
+    horizon: horizonMarkers,
     waitingTasks,
     waitingProjects,
     interrupted,
