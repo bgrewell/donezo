@@ -46,6 +46,36 @@ func (s *CoreStore) UserForVerifiedContact(ctx context.Context, channel, address
 	}
 }
 
+// LatestDeliveredReminder returns the space's most recently delivered reminder
+// that is still live and not done — the one an inbound "remind me again" reply
+// most plausibly means to snooze — with its notified_at so the caller can pick
+// the newest across a user's spaces. ok is false when the space has none.
+func (s *SpaceStore) LatestDeliveredReminder(ctx context.Context, spaceID string) (Reminder, string, bool, error) {
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return Reminder{}, "", false, err
+	}
+	var r Reminder
+	var done, repeatEvery *int64
+	var repeatUnit *string
+	var notifiedAt string
+	err = db.QueryRowContext(ctx,
+		`SELECT id, text, details, remind_at, project_id, done, repeat_every, repeat_unit, notified_at
+		 FROM reminders
+		 WHERE notified_at IS NOT NULL AND deleted_at IS NULL AND (done IS NULL OR done = 0)
+		 ORDER BY notified_at DESC LIMIT 1`).
+		Scan(&r.ID, &r.Text, &r.Details, &r.RemindAt, &r.ProjectID, &done, &repeatEvery, &repeatUnit, &notifiedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Reminder{}, "", false, nil
+	}
+	if err != nil {
+		return Reminder{}, "", false, fmt.Errorf("store: latest delivered reminder: %w", err)
+	}
+	r.Done = intPtrToBool(done)
+	r.Repeat = columnsToRepeat(repeatEvery, repeatUnit)
+	return r, notifiedAt, true, nil
+}
+
 // SpacesForUser returns a user's non-archived spaces, by position — the set an
 // inbound message can name a project in.
 func (s *CoreStore) SpacesForUser(ctx context.Context, userID int64) ([]Space, error) {

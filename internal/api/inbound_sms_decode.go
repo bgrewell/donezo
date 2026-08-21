@@ -89,6 +89,24 @@ func (s *Server) actOnDecoded(
 	ctx context.Context, user store.User, loc *time.Location,
 	d decodedSMS, refs []projectRef, body string,
 ) (string, bool) {
+	// Snooze targets the reminder they most recently received, not a project, so
+	// it is resolved before the project/space machinery below.
+	if d.Action == "snooze" {
+		at, ok := normalizeRemindAt(d.RemindAt)
+		if !ok {
+			return "", false
+		}
+		target, spaceID, ok := s.latestDeliveredReminder(ctx, user.ID)
+		if !ok {
+			return "", false // nothing to snooze — capture raw instead
+		}
+		if err := s.spaces.RescheduleReminder(ctx, spaceID, target.ID, at); err != nil {
+			s.logger.Printf("inbound sms: snooze: %v", err)
+			return "", false
+		}
+		return "Snoozed — I'll remind you again " + reminderWhen(at) + ": " + target.Text, true
+	}
+
 	title := strings.TrimSpace(d.Title)
 	if title == "" {
 		title = body
@@ -175,6 +193,29 @@ func (s *Server) actOnDecoded(
 	default:
 		return "", false // note / none — capture raw instead
 	}
+}
+
+// latestDeliveredReminder finds, across a user's spaces, the reminder most
+// recently delivered to them that is still live — the target of a snooze reply.
+// notified_at is an ISO instant, so a lexicographic max is a chronological max.
+func (s *Server) latestDeliveredReminder(ctx context.Context, userID int64) (store.Reminder, string, bool) {
+	spaces, err := s.core.SpacesForUser(ctx, userID)
+	if err != nil {
+		return store.Reminder{}, "", false
+	}
+	var best store.Reminder
+	var bestSpace, bestNotified string
+	found := false
+	for _, sp := range spaces {
+		r, notifiedAt, ok, err := s.spaces.LatestDeliveredReminder(ctx, sp.ID)
+		if err != nil || !ok {
+			continue
+		}
+		if !found || notifiedAt > bestNotified {
+			best, bestSpace, bestNotified, found = r, sp.ID, notifiedAt, true
+		}
+	}
+	return best, bestSpace, found
 }
 
 // userLocation is the zone the message's times are read in: the user's own if

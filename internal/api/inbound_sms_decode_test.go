@@ -105,4 +105,36 @@ func TestInboundSMSDecode(t *testing.T) {
 			t.Errorf("created a reminder for a non-existent project: %+v", rems)
 		}
 	})
+
+	t.Run("snooze re-arms the last delivered reminder", func(t *testing.T) {
+		h, spaces, ctx := setup(t, `{"action":"snooze","remind_at":"2026-08-22T09:00"}`)
+		rem, err := spaces.CreateReminder(ctx, "sandbox", store.Reminder{
+			ID: "rem-x", Text: "check the thing", RemindAt: "2026-08-21T10:00:00",
+		})
+		if err != nil {
+			t.Fatalf("create reminder: %v", err)
+		}
+		if err := spaces.MarkReminderNotified(ctx, "sandbox", rem.ID); err != nil {
+			t.Fatalf("mark notified: %v", err)
+		}
+		rec := send(t, h, "remind me again tomorrow morning")
+		if !strings.Contains(rec.Body.String(), "Snoozed") {
+			t.Fatalf("reply = %s", rec.Body)
+		}
+		rems, _ := spaces.ListReminders(ctx, "sandbox")
+		if len(rems) != 1 || rems[0].RemindAt != "2026-08-22T09:00:00" {
+			t.Errorf("reminder after snooze = %+v", rems)
+		}
+	})
+
+	t.Run("snooze with nothing delivered falls back", func(t *testing.T) {
+		h, spaces, ctx := setup(t, `{"action":"snooze","remind_at":"2026-08-22T09:00"}`)
+		rec := send(t, h, "remind me again")
+		if !strings.Contains(rec.Body.String(), "Saved to your donezo inbox") {
+			t.Fatalf("reply = %s", rec.Body)
+		}
+		if items, _ := spaces.ListInboxItems(ctx, "sandbox"); len(items) != 1 {
+			t.Errorf("inbox = %d, want 1", len(items))
+		}
+	})
 }

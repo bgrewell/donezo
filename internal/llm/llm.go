@@ -159,6 +159,9 @@ var PromptDecodeSMS = Prompt{
 			" (\"later this afternoon\", \"in 2 hours\", \"tomorrow 9am\") to an absolute local date-time from the" +
 			" given current time and zone. Afternoon means about 5pm, morning about 9am, evening about 7pm, unless they say otherwise.",
 		"- \"task\": a to-do to add. It may carry a due date but no specific time.",
+		"- \"snooze\": they only want reminding again later about the reminder they most recently received" +
+			" — \"remind me again\", \"snooze\", a bare \"in 2 hours\" with no new thing to remember." +
+			" Resolve the new time into remind_at and leave title and project empty.",
 		"- \"note\": a thought to keep, with no time and no clear to-do.",
 		"- \"none\": you cannot tell what they want.",
 		"If the text clearly refers to one of the listed projects, put its exact name in \"project\"; otherwise leave it empty.",
