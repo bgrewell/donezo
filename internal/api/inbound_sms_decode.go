@@ -40,6 +40,11 @@ func (s *Server) decodeInboundSMS(ctx context.Context, user store.User, body str
 	if _, disabled := client.(llm.Disabled); disabled {
 		return "", false
 	}
+	// Cap what we send the model, matching the polish path. An over-long body
+	// (a real SMS is far shorter) just falls back to raw capture.
+	if err := llm.CheckInput(body); err != nil {
+		return "", false
+	}
 	prompt, ok := s.promptSet().ByID("decode-sms")
 	if !ok {
 		return "", false
