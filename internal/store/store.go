@@ -31,6 +31,12 @@ var ErrDuplicateID = errors.New("duplicate id")
 // does not exist — a foreign key violation, e.g. an unknown project id.
 var ErrInvalidReference = errors.New("invalid reference")
 
+// ErrAmbiguousContact is returned when a contact address is verified by more
+// than one user (a shared number). An inbound message from it cannot be
+// attributed to a single person, so the caller must refuse to act rather than
+// guess whose account to touch.
+var ErrAmbiguousContact = errors.New("ambiguous contact")
+
 // classifyConstraint maps SQLite constraint violations onto the store's
 // sentinel errors so callers can distinguish duplicate ids and broken
 // references from other database faults. Any other error passes through

@@ -231,6 +231,7 @@ func serve(cfg config.Config, core *store.CoreStore, spaces *store.SpaceStore) e
 		api.WithTrashRetention(cfg.TrashRetention()),
 		api.WithReminderMaxLateness(cfg.ReminderMaxLateness()),
 		api.WithPublicURL(cfg.PublicURL),
+		api.WithTwilioAuthToken(cfg.TwilioAuthToken),
 		api.WithOperator(cfg.OperatorName, cfg.SupportEmail),
 	}
 	// Reminder delivery is optional in exactly the way the model is: with
