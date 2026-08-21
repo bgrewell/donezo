@@ -46,6 +46,32 @@ func (s *CoreStore) UserForVerifiedContact(ctx context.Context, channel, address
 	}
 }
 
+// SpacesForUser returns a user's non-archived spaces, by position — the set an
+// inbound message can name a project in.
+func (s *CoreStore) SpacesForUser(ctx context.Context, userID int64) ([]Space, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, user_id, name, color, position, archived_at, created_at
+		 FROM spaces WHERE user_id = ? AND archived_at IS NULL
+		 ORDER BY position, id`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("store: spaces for user: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Space
+	for rows.Next() {
+		var sp Space
+		var archivedAt sql.NullString
+		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Color, &sp.Position, &archivedAt, &sp.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: spaces for user: scan: %w", err)
+		}
+		if archivedAt.Valid {
+			sp.ArchivedAt = &archivedAt.String
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
 // FirstLiveSpace returns a user's first non-archived space by position — the
 // default target when an inbound message names no project of its own. Returns
 // ErrNotFound when the user has no live space.

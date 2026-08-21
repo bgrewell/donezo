@@ -92,6 +92,13 @@ func (s *Server) handleInboundSMS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try to decode the message into a reminder or task. On any doubt it
+	// returns false and we fall back to capturing the raw text to the inbox.
+	if reply, done := s.decodeInboundSMS(r.Context(), user, body); done {
+		writeTwiML(w, reply)
+		return
+	}
+
 	space, err := s.core.FirstLiveSpace(r.Context(), user.ID)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
