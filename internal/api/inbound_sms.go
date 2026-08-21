@@ -20,6 +20,11 @@ const (
 	defaultInboundSMSWindow = time.Minute
 )
 
+// maxInboundSMSBytes caps the one unauthenticated POST body. A real SMS is at
+// most ~1600 characters; anything near this is a mistake or an attempt to make
+// us buffer megabytes on a public endpoint.
+const maxInboundSMSBytes = 16 << 10
+
 // WithTwilioAuthToken supplies the Twilio account auth token used to validate
 // the X-Twilio-Signature on inbound SMS. Without it (or without a public URL)
 // the inbound webhook is not registered — inbound texting stays off.
@@ -36,6 +41,7 @@ func WithTwilioAuthToken(token string) ServerOption {
 // withheld: a bad signature is a flat 403, and an unknown or shared number gets
 // an empty (but 200) TwiML so Twilio does not retry and nothing is disclosed.
 func (s *Server) handleInboundSMS(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxInboundSMSBytes)
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid form")
 		return
@@ -76,26 +82,29 @@ func (s *Server) handleInboundSMS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Every path that does not actually capture something replies with the same
+	// silent empty-200 as an unknown number, so a signed probe — an empty body,
+	// or a verified-but-spaceless account — cannot be told apart from an
+	// unrecognized one. Only a real capture, a side-effecting action rather than
+	// a free oracle, gets a confirmation.
 	if body == "" {
-		writeTwiML(w, "Send a note and I'll save it to your donezo inbox.")
+		writeTwiML(w, "")
 		return
 	}
 
 	space, err := s.core.FirstLiveSpace(r.Context(), user.ID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeTwiML(w, "You have no space yet — create one in the app, then text me.")
-			return
+		if !errors.Is(err, store.ErrNotFound) {
+			s.logger.Printf("inbound sms: default space for user %d: %v", user.ID, err)
 		}
-		s.logger.Printf("inbound sms: default space for user %d: %v", user.ID, err)
-		writeTwiML(w, "Something went wrong saving that — try again shortly.")
+		writeTwiML(w, "")
 		return
 	}
 
 	id, err := store.NewID("inb")
 	if err != nil {
 		s.logger.Printf("inbound sms: id: %v", err)
-		writeTwiML(w, "Something went wrong saving that — try again shortly.")
+		writeTwiML(w, "")
 		return
 	}
 	capturedAt := s.clock().In(s.location).Format("2006-01-02T15:04:05")
@@ -106,7 +115,7 @@ func (s *Server) handleInboundSMS(w http.ResponseWriter, r *http.Request) {
 		Status:     "pending",
 	}); err != nil {
 		s.logger.Printf("inbound sms: capture to inbox: %v", err)
-		writeTwiML(w, "Something went wrong saving that — try again shortly.")
+		writeTwiML(w, "")
 		return
 	}
 
