@@ -76,6 +76,9 @@ type Server struct {
 	// smsLimiter caps inbound SMS per sending number, so a stuck or hostile
 	// sender cannot spend the model/DB budget or flood the inbox.
 	smsLimiter *auth.RateLimiter
+	// clarify holds the one open "which project?" question per sending number,
+	// so a follow-up text can complete an otherwise-ambiguous action.
+	clarify *clarifyStore
 	// operatorName and supportEmail identify who runs this instance, for the
 	// published policy pages. Both empty leaves those pages unserved.
 	operatorName string
@@ -324,6 +327,9 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 			auth.WithWindow(defaultInboundSMSWindow),
 			auth.WithLimiterClock(s.clock),
 		)
+	}
+	if s.clarify == nil {
+		s.clarify = newClarifyStore(clarifyTTL)
 	}
 	if s.runAsync == nil {
 		s.runAsync = func(f func()) { go f() }

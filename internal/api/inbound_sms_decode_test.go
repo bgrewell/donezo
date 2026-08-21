@@ -95,14 +95,39 @@ func TestInboundSMSDecode(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown project falls back rather than guessing", func(t *testing.T) {
-		h, spaces, ctx := setup(t, `{"action":"reminder","title":"x","project":"Ghost","remind_at":"2026-08-21T17:00"}`)
-		rec := send(t, h, "remind me about x for Ghost")
-		if !strings.Contains(rec.Body.String(), "Saved to your donezo inbox") {
-			t.Fatalf("reply = %s", rec.Body)
+	t.Run("clarifies an unplaceable project, then completes on the reply", func(t *testing.T) {
+		h, spaces, ctx := setup(t, `{"action":"reminder","title":"look into X","project":"Ghost","remind_at":"2026-08-21T17:00"}`)
+		// Names a project we don't have -> ask which, and don't create yet.
+		rec := send(t, h, "remind me at 5 to look into X for Ghost")
+		if !strings.Contains(rec.Body.String(), "Which project") {
+			t.Fatalf("expected a clarify question, got %s", rec.Body)
 		}
 		if rems, _ := spaces.ListReminders(ctx, "sandbox"); len(rems) != 0 {
-			t.Errorf("created a reminder for a non-existent project: %+v", rems)
+			t.Fatalf("created before clarifying: %+v", rems)
+		}
+		// The reply names a real project -> completes it, no model call needed.
+		rec = send(t, h, "Loom")
+		if !strings.Contains(rec.Body.String(), "Reminder set") || !strings.Contains(rec.Body.String(), "Loom") {
+			t.Fatalf("answer reply = %s", rec.Body)
+		}
+		rems, _ := spaces.ListReminders(ctx, "sandbox")
+		if len(rems) != 1 || rems[0].Text != "look into X" || rems[0].ProjectID == nil || *rems[0].ProjectID != "loom" {
+			t.Errorf("reminder after clarify = %+v", rems)
+		}
+	})
+
+	t.Run("answering none files it with no project", func(t *testing.T) {
+		h, spaces, ctx := setup(t, `{"action":"task","title":"do Y","project":"Ghost"}`)
+		if rec := send(t, h, "task to do Y in Ghost"); !strings.Contains(rec.Body.String(), "Which project") {
+			t.Fatalf("expected clarify, got %s", rec.Body)
+		}
+		rec := send(t, h, "none")
+		if !strings.Contains(rec.Body.String(), "Task added") {
+			t.Fatalf("answer reply = %s", rec.Body)
+		}
+		tasks, _ := spaces.ListTasks(ctx, "sandbox")
+		if len(tasks) != 1 || tasks[0].Title != "do Y" || tasks[0].ProjectID != nil {
+			t.Errorf("task after 'none' = %+v", tasks)
 		}
 	})
 

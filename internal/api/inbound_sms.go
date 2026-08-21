@@ -92,9 +92,19 @@ func (s *Server) handleInboundSMS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try to decode the message into a reminder or task. On any doubt it
-	// returns false and we fall back to capturing the raw text to the inbox.
-	if reply, done := s.decodeInboundSMS(r.Context(), user, body); done {
+	// Is this the answer to a pending "which project?" question?
+	if reply, done := s.resolveClarify(r.Context(), user, from, body); done {
+		writeTwiML(w, reply)
+		return
+	}
+
+	// Decode the message into a reminder/task/snooze — or a clarifying question
+	// when it names a project we can't place. On any doubt, fall back to
+	// capturing the raw text to the inbox.
+	if reply, pending, done := s.decodeInboundSMS(r.Context(), user, body); done {
+		if pending != nil {
+			s.clarify.put(from, *pending, s.clock())
+		}
 		writeTwiML(w, reply)
 		return
 	}

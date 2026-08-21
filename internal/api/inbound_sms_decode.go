@@ -35,24 +35,24 @@ type projectRef struct {
 // Any model, parse, or validation problem is a quiet false: an inbound text
 // must never fail loudly or act on a half-understood command, so the worst case
 // is always the safe fallback of capturing it to the inbox verbatim.
-func (s *Server) decodeInboundSMS(ctx context.Context, user store.User, body string) (string, bool) {
+func (s *Server) decodeInboundSMS(ctx context.Context, user store.User, body string) (string, *pendingClarify, bool) {
 	client := s.llmClient()
 	if _, disabled := client.(llm.Disabled); disabled {
-		return "", false
+		return "", nil, false
 	}
 	// Cap what we send the model, matching the polish path. An over-long body
 	// (a real SMS is far shorter) just falls back to raw capture.
 	if err := llm.CheckInput(body); err != nil {
-		return "", false
+		return "", nil, false
 	}
 	prompt, ok := s.promptSet().ByID("decode-sms")
 	if !ok {
-		return "", false
+		return "", nil, false
 	}
 
 	spaces, err := s.core.SpacesForUser(ctx, user.ID)
 	if err != nil || len(spaces) == 0 {
-		return "", false
+		return "", nil, false
 	}
 	var refs []projectRef
 	for _, sp := range spaces {
@@ -76,48 +76,51 @@ func (s *Server) decodeInboundSMS(ctx context.Context, user store.User, body str
 	raw, err := client.Complete(cctx, prompt.System(), input)
 	if err != nil {
 		s.logger.Printf("inbound sms: decode: %v", err)
-		return "", false
+		return "", nil, false
 	}
 
 	var d decodedSMS
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &d); err != nil {
-		return "", false
+		return "", nil, false
 	}
 	return s.actOnDecoded(ctx, user, loc, d, refs, body)
 }
 
-// actOnDecoded validates the model's action and creates the corresponding row,
-// returning a confirmation. It falls back (false) rather than guessing: a named
-// project that does not exist, a reminder with no valid time, or an
-// unsupported action all defer to raw capture.
+// actOnDecoded turns a decoded message into an action. It returns:
+//   - (confirmation, nil, true)   — created something;
+//   - (question, pending, true)   — needs the sender to say which project;
+//   - ("", nil, false)            — couldn't; fall back to raw inbox capture.
+//
+// It never guesses: a reminder with no valid time, or a named project that
+// doesn't exist and can't be clarified, defers to the fallback.
 func (s *Server) actOnDecoded(
 	ctx context.Context, user store.User, loc *time.Location,
 	d decodedSMS, refs []projectRef, body string,
-) (string, bool) {
+) (string, *pendingClarify, bool) {
 	// Snooze targets the reminder they most recently received, not a project, so
 	// it is resolved before the project/space machinery below.
 	if d.Action == "snooze" {
 		at, ok := normalizeRemindAt(d.RemindAt)
 		if !ok {
-			return "", false
+			return "", nil, false
 		}
 		target, spaceID, ok := s.latestDeliveredReminder(ctx, user.ID)
 		if !ok {
-			return "", false // nothing to snooze — capture raw instead
+			return "", nil, false // nothing to snooze — capture raw instead
 		}
 		if err := s.spaces.RescheduleReminder(ctx, spaceID, target.ID, at); err != nil {
 			s.logger.Printf("inbound sms: snooze: %v", err)
-			return "", false
+			return "", nil, false
 		}
-		return "Snoozed — I'll remind you again " + reminderWhen(at) + ": " + target.Text, true
+		return "Snoozed — I'll remind you again " + reminderWhen(at) + ": " + target.Text, nil, true
 	}
 
-	title := strings.TrimSpace(d.Title)
-	if title == "" {
-		title = body
+	if d.Title = strings.TrimSpace(d.Title); d.Title == "" {
+		d.Title = body
 	}
 
-	// Resolve a named project to one we actually have; don't invent one.
+	// Resolve a named project to one we actually have; don't invent one. When it
+	// names one we lack but could offer alternatives, ask instead of guessing.
 	var proj *projectRef
 	if name := strings.TrimSpace(d.Project); name != "" {
 		for i := range refs {
@@ -127,11 +130,29 @@ func (s *Server) actOnDecoded(
 			}
 		}
 		if proj == nil {
-			return "", false
+			if len(refs) > 0 && (d.Action == "reminder" || d.Action == "task") {
+				pending := &pendingClarify{userID: user.ID, action: d, options: refs, createdAt: s.clock()}
+				return clarifyQuestion(d.Title, refs), pending, true
+			}
+			return "", nil, false
 		}
 	}
 
-	// The space follows the project; with none, the user's default space.
+	reply, ok := s.completeAction(ctx, user, loc, proj, d)
+	if !ok {
+		return "", nil, false
+	}
+	return reply, nil, true
+}
+
+// completeAction creates the reminder or task described by d in the space that
+// follows proj (or the user's default space when proj is nil), returning a
+// confirmation. It is the shared tail of both the direct decode and a resolved
+// clarification. false means the create could not be made and the caller should
+// fall back.
+func (s *Server) completeAction(
+	ctx context.Context, user store.User, loc *time.Location, proj *projectRef, d decodedSMS,
+) (string, bool) {
 	var spaceID string
 	var projectID *string
 	if proj != nil {
@@ -154,7 +175,7 @@ func (s *Server) actOnDecoded(
 		if err != nil {
 			return "", false
 		}
-		rem := store.Reminder{ID: id, Text: title, RemindAt: at, ProjectID: projectID}
+		rem := store.Reminder{ID: id, Text: d.Title, RemindAt: at, ProjectID: projectID}
 		if d.Repeat != nil && d.Repeat.Validate() == nil {
 			rem.Repeat = d.Repeat
 		}
@@ -162,7 +183,7 @@ func (s *Server) actOnDecoded(
 			s.logger.Printf("inbound sms: create reminder: %v", err)
 			return "", false
 		}
-		reply := "Reminder set — " + reminderWhen(at) + projectSuffix(proj) + ": " + title
+		reply := "Reminder set — " + reminderWhen(at) + projectSuffix(proj) + ": " + d.Title
 		if rem.Repeat != nil {
 			reply += " (repeats)"
 		}
@@ -182,14 +203,14 @@ func (s *Server) actOnDecoded(
 			return "", false
 		}
 		t := store.TaskItem{
-			ID: id, ProjectID: projectID, Title: title, Status: "open",
+			ID: id, ProjectID: projectID, Title: d.Title, Status: "open",
 			Due: due, CreatedAt: s.clock().In(loc).Format("2006-01-02"),
 		}
 		if _, err := s.spaces.CreateTask(ctx, spaceID, t); err != nil {
 			s.logger.Printf("inbound sms: create task: %v", err)
 			return "", false
 		}
-		reply := "Task added" + projectSuffix(proj) + ": " + title
+		reply := "Task added" + projectSuffix(proj) + ": " + d.Title
 		if due != nil {
 			reply += " (due " + *due + ")"
 		}
