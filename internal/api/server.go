@@ -68,6 +68,14 @@ type Server struct {
 	// publicURL is where this instance is reachable, for the link in a
 	// delivered reminder. Empty leaves the link out.
 	publicURL string
+	// twilioAuthToken validates the X-Twilio-Signature on inbound SMS. Empty
+	// (or no publicURL) leaves the inbound webhook unregistered — inbound
+	// texting is off unless Twilio is configured and the instance is publicly
+	// reachable, both of which it needs anyway.
+	twilioAuthToken string
+	// smsLimiter caps inbound SMS per sending number, so a stuck or hostile
+	// sender cannot spend the model/DB budget or flood the inbox.
+	smsLimiter *auth.RateLimiter
 	// operatorName and supportEmail identify who runs this instance, for the
 	// published policy pages. Both empty leaves those pages unserved.
 	operatorName string
@@ -310,6 +318,13 @@ func NewServer(core *store.CoreStore, spaces *store.SpaceStore, opts ...ServerOp
 			auth.WithLimiterClock(s.clock),
 		)
 	}
+	if s.smsLimiter == nil {
+		s.smsLimiter = auth.NewRateLimiter(
+			auth.WithLimit(defaultInboundSMSLimit),
+			auth.WithWindow(defaultInboundSMSWindow),
+			auth.WithLimiterClock(s.clock),
+		)
+	}
 	if s.runAsync == nil {
 		s.runAsync = func(f func()) { go f() }
 	}
@@ -354,6 +369,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /privacy", s.handlePrivacy)
 	mux.HandleFunc("GET /terms", s.handleTerms)
 	mux.HandleFunc("GET /sms-opt-in", s.handleSMSOptIn)
+	// Inbound SMS webhook — only when Twilio is configured and the instance is
+	// publicly reachable (both required to validate the request signature and
+	// for Twilio to reach us at all). Public path: it self-authenticates via
+	// the X-Twilio-Signature, not the session cookie.
+	if s.twilioAuthToken != "" && s.publicURL != "" {
+		mux.HandleFunc("POST /sms", s.handleInboundSMS)
+	}
 	mux.HandleFunc("GET /api/admin/usage", s.handleUsageStats)
 	mux.HandleFunc("GET /api/notify/status", s.handleNotifyStatus)
 	mux.HandleFunc("GET /api/notify/contacts", s.handleListContacts)
