@@ -649,17 +649,28 @@ func (s *SpaceStore) UpdateTask(ctx context.Context, spaceID string, t TaskItem)
 	if err != nil {
 		return TaskItem{}, err
 	}
-	before, err := getTaskRow(ctx, db, t.ID)
+	// The status read and the write share a transaction: stamping depends on
+	// whether the task was already done, and a change landing between the two
+	// would make that answer stale.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskItem{}, fmt.Errorf("store: update task %q: begin: %w", t.ID, err)
+	}
+	defer rollbackQuietly(tx)
+	before, err := getTaskRow(ctx, tx, t.ID)
 	if err != nil {
 		return TaskItem{}, err
 	}
 	stampTaskCompletion(&t, before.Status == "done", s.opts.now())
-	res, err := execUpdateTask(ctx, db, t)
+	res, err := execUpdateTask(ctx, tx, t)
 	if err != nil {
 		return TaskItem{}, fmt.Errorf("store: update task %q: %w", t.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "task", t.ID); err != nil {
 		return TaskItem{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return TaskItem{}, fmt.Errorf("store: update task %q: commit: %w", t.ID, err)
 	}
 	return t, nil
 }

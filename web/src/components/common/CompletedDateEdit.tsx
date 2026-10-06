@@ -48,6 +48,11 @@ export function CompletedDateEdit({
   const day = completedAt ? localDayOfInstant(completedAt) : "";
   const [editing, setEditing] = React.useState(false);
   const [value, setValue] = React.useState(day);
+  // The day the picker opened on. Save is judged against THIS, not the live
+  // prop: the freshness poll can move the prop under an open picker (another
+  // device's correction), and an untouched draft must not write the old day
+  // back over it. Same rule as TaskEditor's seeded snapshot.
+  const [opened, setOpened] = React.useState(day);
   const today = todayISO();
 
   if (editing) {
@@ -79,7 +84,7 @@ export function CompletedDateEdit({
           size="sm"
           variant="primary"
           disabled={!value || value > today}
-          onClick={() => (value === day ? setEditing(false) : commit(completionOf(value, today)))}
+          onClick={() => (value === opened ? setEditing(false) : commit(completionOf(value, today)))}
         >
           Save
         </Button>
@@ -99,6 +104,7 @@ export function CompletedDateEdit({
       type="button"
       onClick={() => {
         setValue(day);
+        setOpened(day);
         setEditing(true);
       }}
       title={
