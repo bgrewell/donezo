@@ -120,6 +120,9 @@ type Totals struct {
 	// EstimatedCompletions counts the tasks and projects completed in the
 	// period whose date is an estimate (completedSource inferred).
 	EstimatedCompletions int `json:"estimatedCompletions"`
+	// ActivitiesWithoutEffort counts activities with no effort estimate at
+	// all — not ones estimated at zero — so Hours undercounts their time.
+	ActivitiesWithoutEffort int `json:"activitiesWithoutEffort"`
 }
 
 // ProjectSummary is one project's share of the period.
@@ -390,6 +393,8 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 		if a.EffortHours != nil {
 			ps.Hours += *a.EffortHours
 			tot.Hours += *a.EffortHours
+		} else {
+			tot.ActivitiesWithoutEffort++
 		}
 		days[a.ProjectID][a.Date] = true
 		allDays[a.Date] = true
@@ -485,7 +490,12 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 		if a.Activities+a.TasksCompleted != b.Activities+b.TasksCompleted {
 			return a.Activities+a.TasksCompleted > b.Activities+b.TasksCompleted
 		}
-		return a.Name < b.Name
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		// Names need not be unique, and with ItemLimit the order decides
+		// which projects are kept, so it must not depend on map iteration.
+		return a.ID < b.ID
 	})
 	tot.ActiveDays = len(allDays)
 	tot.Hours = round2(tot.Hours)
@@ -591,8 +601,14 @@ func notes(s Summary) []string {
 			"%d completion date(s) here are estimates, reconstructed for items finished before donezo recorded the moment.",
 			inferred))
 	}
-	if s.Totals.Activities > 0 && s.Totals.Hours == 0 {
+	switch n := s.Totals.ActivitiesWithoutEffort; {
+	case n == 0:
+	case n == s.Totals.Activities:
 		out = append(out, "No effort estimates were logged, so hours are not a measure of this period.")
+	default:
+		out = append(out, fmt.Sprintf(
+			"%d of %d activities have no effort estimate, so hours undercount the time spent.",
+			n, s.Totals.Activities))
 	}
 	return out
 }

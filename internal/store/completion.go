@@ -131,9 +131,10 @@ func listProjectStatusChanges(ctx context.Context, q querier) ([]ProjectStatusCh
 	return out, nil
 }
 
-// SummarySnapshot is everything a work summary reads — the space's state, its
-// project status history, and when it began recording completions — taken in
-// one transaction, so the three agree. Read separately, a status change
+// SummarySnapshot is everything a work summary reads — the space's projects,
+// activities and tasks, its project status history, and when it began
+// recording completions — taken in one transaction, so they agree. The rest
+// of SpaceState is left empty. Read separately, a status change
 // landing between them could pair a project still "active" in the state with
 // a history that says it went blocked.
 func (s *SpaceStore) SummarySnapshot(ctx context.Context, spaceID string) (SpaceState, []ProjectStatusChange, string, error) {
@@ -156,15 +157,9 @@ func (s *SpaceStore) SummarySnapshot(ctx context.Context, spaceID string) (Space
 	if st.Tasks, err = listTasks(ctx, tx); err != nil {
 		return SpaceState{}, nil, "", err
 	}
-	if st.Notes, err = listNotes(ctx, tx); err != nil {
-		return SpaceState{}, nil, "", err
-	}
-	if st.Reminders, err = listReminders(ctx, tx); err != nil {
-		return SpaceState{}, nil, "", err
-	}
-	if st.Inbox, err = listInboxItems(ctx, tx); err != nil {
-		return SpaceState{}, nil, "", err
-	}
+	// Notes, reminders and inbox items play no part in a summary; reading
+	// them would be three more scans for data that is thrown away.
+	st.Notes, st.Reminders, st.Inbox = []NoteItem{}, []Reminder{}, []InboxItem{}
 	changes, err := listProjectStatusChanges(ctx, tx)
 	if err != nil {
 		return SpaceState{}, nil, "", err

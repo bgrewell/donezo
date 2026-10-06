@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -118,7 +119,8 @@ func TestBuildDefaults(t *testing.T) {
 	want := Totals{
 		Activities: 4, Hours: 4, ActiveDays: 4, TasksCompleted: 3, ProjectsCompleted: 1,
 		ByType: map[string]int{"work": 2, "decision": 1, "meeting": 1}, UndatedDone: 1,
-		EstimatedCompletions: 2, // t6 and iso
+		EstimatedCompletions:    2, // t6 and iso
+		ActivitiesWithoutEffort: 1, // a2
 	}
 	if !reflect.DeepEqual(s.Totals, want) {
 		t.Errorf("totals = %+v\nwant     %+v", s.Totals, want)
@@ -380,6 +382,63 @@ func TestBuildItemLimit(t *testing.T) {
 	}
 	if none := build(t, Options{}); find(t, none, "loom").ItemsOmitted != 0 {
 		t.Error("omitted without a limit")
+	}
+}
+
+// The effort note is about estimates that are missing, not hours that add
+// up to zero: an explicit zero is an estimate.
+func TestBuildEffortNote(t *testing.T) {
+	t.Parallel()
+	mk := func(hours ...*float64) Input {
+		in := Input{State: store.SpaceState{Projects: []store.Project{{ID: "p", Name: "P", Status: "active"}}}}
+		for i, h := range hours {
+			in.State.Activities = append(in.State.Activities, store.ActivityEntry{
+				ID: fmt.Sprintf("a%d", i), ProjectID: "p", Date: "2026-10-06", Type: "work", Title: "x", EffortHours: h,
+			})
+		}
+		return in
+	}
+	for _, tt := range []struct {
+		name string
+		in   Input
+		want string // "" for no effort note
+	}{
+		{"all estimated", mk(ptr(1.0), ptr(2.0)), ""},
+		{"estimated at zero", mk(ptr(0.0)), ""},
+		{"some missing", mk(ptr(1.0), nil), "1 of 2 activities have no effort estimate"},
+		{"none estimated", mk(nil, nil), "No effort estimates were logged"},
+	} {
+		s, err := Build(tt.in, week(t), Options{}, fixtureNow, time.UTC)
+		if err != nil {
+			t.Fatalf("%s: Build: %v", tt.name, err)
+		}
+		notes := strings.Join(s.Notes, " ")
+		hasEffortNote := strings.Contains(notes, "effort estimate")
+		if (tt.want == "") == hasEffortNote || (tt.want != "" && !strings.Contains(notes, tt.want)) {
+			t.Errorf("%s: notes = %q, want %q", tt.name, notes, tt.want)
+		}
+	}
+}
+
+// Projects that tie on everything, name included, still come out in one
+// order — by id — so a capped result keeps the same ones every time.
+func TestBuildOrderIsDeterministic(t *testing.T) {
+	t.Parallel()
+	in := Input{State: store.SpaceState{}}
+	for _, id := range []string{"p3", "p1", "p2"} {
+		in.State.Projects = append(in.State.Projects, store.Project{ID: id, Name: "Same", Status: "active"})
+		in.State.Activities = append(in.State.Activities, store.ActivityEntry{
+			ID: "a-" + id, ProjectID: id, Date: "2026-10-06", Type: "work", Title: "x", EffortHours: ptr(1.0),
+		})
+	}
+	for i := 0; i < 20; i++ {
+		s, err := Build(in, week(t), Options{ItemLimit: 2}, fixtureNow, time.UTC)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if got := strings.Join(projectIDs(s), ","); got != "p1,p2" {
+			t.Fatalf("run %d: projects = %s, want p1,p2", i, got)
+		}
 	}
 }
 
