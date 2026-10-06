@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bgrewell/donezo/internal/store"
 )
@@ -439,6 +440,37 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			method: http.MethodPatch, path: "/api/spaces/sandbox/tasks/tsk-1",
 			body: `{"status":"done","completedAt":"2999-01-01T00:00:00Z"}`, wantStatus: http.StatusBadRequest,
 			wantInBody: "completedAt must not be in the future",
+		},
+		{
+			// Within the old day of slack, which let work land in tomorrow's
+			// reporting period.
+			name:   "patch completedAt hours ahead is 400",
+			seed:   []step{{http.MethodPost, "/api/spaces/sandbox/tasks", taskBody}},
+			method: http.MethodPatch, path: "/api/spaces/sandbox/tasks/tsk-1",
+			body: fmt.Sprintf(`{"status":"done","completedAt":%q}`,
+				time.Now().Add(2*time.Hour).UTC().Format(time.RFC3339)),
+			wantStatus: http.StatusBadRequest, wantInBody: "completedAt must not be in the future",
+		},
+		{
+			name:   "create task cannot claim its completion provenance",
+			method: http.MethodPost, path: "/api/spaces/sandbox/tasks",
+			body: `{"id":"tsk-1","title":"Do it","status":"done","createdAt":"2026-07-26",` +
+				`"completedAt":"2026-07-20T14:00:00Z","completedSource":"recorded"}`,
+			wantStatus: http.StatusBadRequest, wantInBody: "completedSource is set by the server",
+		},
+		{
+			name:   "create task with a completion date is the person's",
+			method: http.MethodPost, path: "/api/spaces/sandbox/tasks",
+			body: `{"id":"tsk-1","title":"Do it","status":"done","createdAt":"2026-07-26",` +
+				`"completedAt":"2026-07-20T14:00:00Z"}`,
+			wantStatus: http.StatusCreated,
+			wantInBody: `"completedAt":"2026-07-20T14:00:00Z","completedSource":"manual"`,
+		},
+		{
+			name:   "create project cannot claim its completion provenance",
+			method: http.MethodPost, path: "/api/spaces/sandbox/projects",
+			body:       strings.Replace(projectBody, `"tags":[]`, `"tags":[],"completedSource":"inferred"`, 1),
+			wantStatus: http.StatusBadRequest, wantInBody: "completedSource is set by the server",
 		},
 		{
 			name:   "patch project completedAt while active is 400",

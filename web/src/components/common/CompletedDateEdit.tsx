@@ -2,7 +2,17 @@ import * as React from "react";
 import { Button, Input, cn } from "@grewelltech/console";
 
 import type { CompletedSource } from "@/domain/types";
-import { formatDay, instantOfLocalDay, localDayOfInstant, todayISO } from "@/lib/time";
+import { formatDay, instantOfLocalDay, localDayOfInstant, nowInstant, todayISO } from "@/lib/time";
+
+/** The instant for a picked day: local noon, or now when the day is today
+ *  and noon has not come yet — the server refuses completion times in the
+ *  future. Instants in this form compare correctly as strings. */
+function completionOf(day: string, today: string): string {
+  const noon = instantOfLocalDay(day);
+  if (day !== today) return noon;
+  const now = nowInstant();
+  return noon < now ? noon : now;
+}
 
 const META = "font-mono text-[0.64rem] uppercase tracking-label";
 
@@ -69,7 +79,7 @@ export function CompletedDateEdit({
           size="sm"
           variant="primary"
           disabled={!value || value > today}
-          onClick={() => (value === day ? setEditing(false) : commit(instantOfLocalDay(value)))}
+          onClick={() => (value === day ? setEditing(false) : commit(completionOf(value, today)))}
         >
           Save
         </Button>

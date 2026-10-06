@@ -345,11 +345,28 @@ func (s *SpaceStore) DeleteProject(ctx context.Context, spaceID, id string) erro
 	if err != nil {
 		return err
 	}
-	res, err := db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: delete project %q: begin: %w", id, err)
+	}
+	defer rollbackQuietly(tx)
+	// Status history is about the project and nothing else; it goes with it,
+	// as it does on purge.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM project_status_changes WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("store: delete project %q: status history: %w", id, err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("store: delete project %q: %w", id, err)
 	}
-	return notFoundIfZero(res, "project", id)
+	if err := notFoundIfZero(res, "project", id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: delete project %q: commit: %w", id, err)
+	}
+	return nil
 }
 
 // ListProjects returns all projects in insertion order.

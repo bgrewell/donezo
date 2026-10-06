@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // The rules for completed_at live here, applied by the store on every write
@@ -49,6 +50,26 @@ func stampCompletion(isDone, wasDone bool, at, src *string, now string) (*string
 		return at, &s
 	}
 	return at, src
+}
+
+// completionSkew is how far ahead of the server's clock a completion time
+// may be and still be taken as "now": room for a client clock that runs a
+// little fast, not for anything finished tomorrow.
+const completionSkew = 5 * time.Minute
+
+// CompletionInstant checks a completion time set by a person and returns it
+// in the stored form, an RFC 3339 UTC instant. A time in the future is
+// refused (ok false) — a summary must never find work in a period that has
+// not happened yet — except within completionSkew of now, which is clamped to
+// now. Shared by the API and MCP so both draw the line in the same place.
+func CompletionInstant(t, now time.Time) (string, bool) {
+	if t.After(now.Add(completionSkew)) {
+		return "", false
+	}
+	if t.After(now) {
+		t = now
+	}
+	return t.UTC().Format(time.RFC3339), true
 }
 
 // logProjectStatus appends to project_status_changes when a project's status

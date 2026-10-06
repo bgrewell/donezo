@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // migrationsBefore hides every space migration at or after version max, so a
@@ -322,6 +323,49 @@ func TestProjectCompletionAndStatusHistory(t *testing.T) {
 	}
 	if _, err := s.EmptyTrash(ctx, testSpace); err != nil {
 		t.Fatalf("EmptyTrash with status history: %v", err)
+	}
+}
+
+// The direct delete has to take a project's status history with it, or the
+// foreign key refuses to delete a project that has nothing else attached.
+func TestDeleteProjectWithStatusHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	mustCreateProject(t, s, "p1")
+	if _, err := s.PatchProject(ctx, testSpace, "p1", func(p *Project) error { p.Status = "paused"; return nil }); err != nil {
+		t.Fatalf("PatchProject: %v", err)
+	}
+	if err := s.DeleteProject(ctx, testSpace, "p1"); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if _, err := s.GetProject(ctx, testSpace, "p1"); err == nil {
+		t.Error("project still there after DeleteProject")
+	}
+}
+
+func TestCompletionInstant(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		t      time.Time
+		want   string
+		wantOK bool
+	}{
+		{"past, normalized to UTC", time.Date(2026, 7, 20, 9, 0, 0, 0, time.FixedZone("x", 2*3600)), "2026-07-20T07:00:00Z", true},
+		{"now", now, "2026-07-26T12:00:00Z", true},
+		{"just ahead clamps to now", now.Add(2 * time.Minute), "2026-07-26T12:00:00Z", true},
+		{"hours ahead", now.Add(2 * time.Hour), "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := CompletionInstant(tt.t, now)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("CompletionInstant(%v) = %q, %v; want %q, %v", tt.t, got, ok, tt.want, tt.wantOK)
+			}
+		})
 	}
 }
 

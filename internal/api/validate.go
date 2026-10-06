@@ -38,8 +38,6 @@ var (
 	taskStatuses = []string{"open", "waiting", "someday", "done"}
 	// itemKinds mirrors ItemKind.
 	itemKinds = []string{"task", "note", "reminder", "activity", "project"}
-	// completedSources mirrors CompletedSource.
-	completedSources = []string{store.CompletedRecorded, store.CompletedInferred, store.CompletedManual}
 	// inboxStatuses mirrors InboxItem["status"].
 	inboxStatuses = []string{"pending", "converted", "dismissed"}
 	// themeIDs mirrors THEMES in web/src/lib/themes.ts.
@@ -182,9 +180,8 @@ func isoDateTime(field, v string) error {
 // completedInstant validates and normalizes a completion time in place: it
 // must be RFC 3339 with a zone (a completion is an instant, not a wall-clock
 // time, so a bare local datetime would be ambiguous), it is stored as UTC so
-// stored values compare as strings, and it may not be in the future — beyond
-// a day of slack for clocks and zones — because nothing has been finished
-// tomorrow.
+// stored values compare as strings, and it may not be in the future — see
+// store.CompletionInstant.
 func completedInstant(field string, v *string) error {
 	if v == nil {
 		return nil
@@ -193,10 +190,22 @@ func completedInstant(field string, v *string) error {
 	if err != nil {
 		return fmt.Errorf("%s must be an RFC 3339 instant like 2026-07-26T09:00:00Z", field)
 	}
-	if t.After(time.Now().Add(24 * time.Hour)) {
+	out, ok := store.CompletionInstant(t, time.Now())
+	if !ok {
 		return fmt.Errorf("%s must not be in the future", field)
 	}
-	*v = t.UTC().Format(time.RFC3339)
+	*v = out
+	return nil
+}
+
+// serverOwnedSource refuses a client-supplied completedSource. Provenance is
+// the server's to record: a completion time the client supplies is the
+// person's own and becomes manual, exactly as on PATCH — otherwise a create
+// could backdate a completion and label it recorded.
+func serverOwnedSource(src *string) error {
+	if src != nil {
+		return errors.New("completedSource is set by the server; send completedAt alone")
+	}
 	return nil
 }
 
@@ -250,7 +259,7 @@ func validateProjectCreate(p store.Project) error {
 		oneOf("color", p.Color, projectColors),
 		oneOf("status", p.Status, projectStatuses),
 		completedInstant("completedAt", p.CompletedAt),
-		optionalOneOf("completedSource", p.CompletedSource, completedSources),
+		serverOwnedSource(p.CompletedSource),
 	)
 }
 
@@ -278,7 +287,7 @@ func validateTaskCreate(t store.TaskItem) error {
 		isoDate("createdAt", t.CreatedAt),
 		optionalNonEmpty("projectId", t.ProjectID),
 		completedInstant("completedAt", t.CompletedAt),
-		optionalOneOf("completedSource", t.CompletedSource, completedSources),
+		serverOwnedSource(t.CompletedSource),
 	); err != nil {
 		return err
 	}

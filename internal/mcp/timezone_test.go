@@ -252,6 +252,56 @@ func TestUpdateTaskCompletedAtIsTheCallersDay(t *testing.T) {
 	}
 }
 
+// Local noon is built as a wall-clock time, not midnight plus twelve hours:
+// on a daylight-saving day those differ by an hour, and the web picker (which
+// sets the hour) would store a different instant for the same day. Days after
+// today are refused; today before noon is clamped to now.
+func TestCompletedAtArgLocalDay(t *testing.T) {
+	t.Parallel()
+	la, err := time.LoadLocation(losAngeles)
+	if err != nil {
+		t.Fatalf("load %s: %v", losAngeles, err)
+	}
+	now := eveningClock() // 2026-07-25 20:30 in Los Angeles
+	morning := time.Date(2026, 7, 25, 9, 15, 0, 0, la)
+	tests := []struct {
+		name, arg string
+		now       time.Time
+		want      string // "" with wantErr
+		wantErr   bool
+	}{
+		{"spring forward", "2026-03-08", now, "2026-03-08T19:00:00Z", false},
+		{"fall back", "2025-11-02", now, "2025-11-02T20:00:00Z", false},
+		{"today after noon", laDay, now, "2026-07-25T19:00:00Z", false},
+		{"today before noon is now", laDay, morning, "2026-07-25T16:15:00Z", false},
+		{"tomorrow", "2026-07-26", now, "", true},
+		{"instant an hour ahead", now.Add(time.Hour).UTC().Format(time.RFC3339), now, "", true},
+		{"instant a minute ahead is now", now.Add(time.Minute).UTC().Format(time.RFC3339), now, "2026-07-26T03:30:00Z", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, bad := completedAtArg(tt.arg, la, tt.now)
+			if tt.wantErr {
+				if bad == "" {
+					t.Errorf("completedAtArg(%q) = %v, want refused", tt.arg, deref(got))
+				}
+				return
+			}
+			if bad != "" || got == nil || *got != tt.want {
+				t.Errorf("completedAtArg(%q) = %q (%s), want %q", tt.arg, deref(got), bad, tt.want)
+			}
+		})
+	}
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // East of Greenwich the error runs the other way: the same instant is already
 // tomorrow. A fix that just subtracted an offset would pass the Los Angeles
 // cases and fail here.

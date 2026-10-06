@@ -645,23 +645,33 @@ func validDate(v string) bool {
 
 // completedAtArg turns a completed_at argument into the stored form. A bare
 // date is the caller's local day, recorded at local noon so it stays on that
-// day whatever zone it is later read in; an instant is normalized to UTC; ""
-// is "unknown" and yields nil. Returns an error message for anything else,
-// including a time in the future.
+// day whatever zone it is later read in — or at now, when that day is today
+// and noon has not come yet. A date after today, or an instant in the future,
+// is refused. "" is "unknown" and yields nil. Returns an error message for
+// anything it cannot accept.
 func completedAtArg(v string, loc *time.Location, now time.Time) (*string, string) {
 	if v == "" {
 		return nil, ""
 	}
 	var t time.Time
 	if d, err := time.ParseInLocation("2006-01-02", v, loc); err == nil {
-		t = d.Add(12 * time.Hour)
+		if v > now.In(loc).Format("2006-01-02") {
+			return nil, "completed_at must not be in the future"
+		}
+		// time.Date, not midnight plus twelve hours: on a daylight-saving
+		// day that lands at 11:00 or 13:00, and the same day set from the
+		// web would store a different instant.
+		t = time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, loc)
+		if t.After(now) {
+			t = now
+		}
 	} else if t, err = time.Parse(time.RFC3339, v); err != nil {
 		return nil, "completed_at must be a yyyy-MM-dd date or an RFC 3339 instant"
 	}
-	if t.After(now.Add(24 * time.Hour)) {
+	out, ok := store.CompletionInstant(t, now)
+	if !ok {
 		return nil, "completed_at must not be in the future"
 	}
-	out := t.UTC().Format(time.RFC3339)
 	return &out, ""
 }
 
