@@ -37,6 +37,7 @@ is a summary, not the source of truth:
 | `get_project`         | read  | Full detail for one project — purpose, outcome, resume context, open tasks, recent activity.    |
 | `search`              | read  | Full-text search across a space's projects, activities, tasks, notes, reminders, and inbox.     |
 | `get_timeline`        | read  | Activities in a date range, chronological — for reflection: what actually happened.             |
+| `summarize_work`      | read  | What got done over a period — preset or custom — grouped by project, with hours, completions, status changes and stalls. |
 | `list_inbox`          | read  | A space's pending raw captures — things captured but not yet classified.                        |
 | `list_tasks`          | read  | Tasks in a space, optionally narrowed to one project or status. Defaults to open.               |
 | `list_notes`          | read  | Notes in a space, optionally narrowed to one project.                                           |

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/store"
+	"github.com/bgrewell/donezo/internal/summary"
 )
 
 // This file holds the tool handlers. Each resolves the target space to one
@@ -363,6 +364,68 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	}
 	if truncated {
 		out["note"] = fmt.Sprintf("some result groups were truncated to %d items; refine your query for more", maxItems)
+	}
+	return jsonText(out), false
+}
+
+func toolSummarizeWork(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID         string   `json:"space_id"`
+		Period          string   `json:"period"`
+		From            string   `json:"from"`
+		To              string   `json:"to"`
+		WeekStart       string   `json:"week_start"`
+		ProjectIDs      []string `json:"project_ids"`
+		Types           []string `json:"types"`
+		Tags            []string `json:"tags"`
+		IncludePlanned  bool     `json:"include_planned"`
+		IncludeCatchall *bool    `json:"include_catchall"`
+		Compare         bool     `json:"compare"`
+		Detail          string   `json:"detail"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	weekStart, err := summary.ParseWeekStart(a.WeekStart)
+	if err != nil {
+		return err.Error(), true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	loc := h.callerLocation(ctx, c)
+	now := h.clock()
+	period, err := summary.ResolvePeriod(a.Period, a.From, a.To, weekStart, now, loc)
+	if err != nil {
+		return err.Error(), true
+	}
+	st, err := h.spaces.State(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp summarize: %v", err)
+		return "internal error", true
+	}
+	changes, err := h.spaces.ListProjectStatusChanges(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp summarize: %v", err)
+		return "internal error", true
+	}
+	since, err := h.spaces.CompletionsRecordedSince(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp summarize: %v", err)
+		return "internal error", true
+	}
+	out, err := summary.Build(summary.Input{State: st, StatusChanges: changes, RecordedSince: since}, period, summary.Options{
+		ProjectIDs:      a.ProjectIDs,
+		Types:           a.Types,
+		Tags:            a.Tags,
+		IncludePlanned:  a.IncludePlanned,
+		ExcludeCatchall: a.IncludeCatchall != nil && !*a.IncludeCatchall,
+		Compare:         a.Compare,
+		Detail:          a.Detail,
+	}, now, loc)
+	if err != nil {
+		return err.Error(), true
 	}
 	return jsonText(out), false
 }

@@ -45,6 +45,7 @@ donezo frontend itself).
 | `POST /api/spaces/{id}/archive` / `/unarchive`     | Stamp / clear `archivedAt` → `{space}`                                 |
 | `GET /api/spaces/{id}/state`                       | Full space content (projects, activities, tasks, notes, reminders, inbox) |
 | `GET /api/spaces/{id}/revision`                    | `{revision}` — a counter that moves whenever anything in the space changes. Answered from memory without touching the space database; this is the endpoint clients poll |
+| `GET /api/spaces/{id}/summary`                     | What got done over a period — see *Work summaries*. Allowed on an archived space |
 | `POST /api/spaces/{id}/projects`                   | Create a project → `201`                                               |
 | `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`, `completedAt`) |
 | `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional → `200 {deleted}` with per-table counts. Moves the project and the activities/tasks/notes it owns to the trash as one batch; reminders and inbox items keep their project link and read as unfiled until it is restored or purged |
@@ -317,6 +318,13 @@ A `PATCH` with `completedAt` corrects it and makes the source `manual`. It must 
 
 Items finished before these fields existed were dated once, by migration, as `inferred`: a done task from the activity logged when it was checked off (same project, same title ignoring case and spacing, dated on or after the task's creation — earliest unclaimed first), a completed project from its latest milestone or else its `updatedAt`. A task with no such activity is left undated rather than guessed. The counts are recorded in the space's `meta` table under `completion_backfill`. Every project status change from then on is also logged, in `project_status_changes`.
 
+**Work summaries.** `GET /api/spaces/{id}/summary` (and the MCP tool `summarize_work`) report what got done over a period, read in the user's own time zone.
+
+- **Period:** `period` is one of `today`, `yesterday`, `this_week`, `last_week`, `last_7_days`, `this_month`, `last_month`, `last_30_days`, `this_quarter`, `last_quarter`, `year_to_date`, `last_year`; or give `from` and `to` (inclusive `yyyy-MM-dd`, at most 3660 days) instead. "This" periods run to today. With neither, the default is `last_week` on the first day of a week and `this_week` otherwise. `weekStart` is `monday` (default), `sunday` or `saturday`.
+- **Filters:** `projects`, `types` and `tags` take comma-separated lists. A tag matches an activity's own tags or its project's; types filter activities only. `planned=1` counts planned activities, which are left out by default; `catchall=0` leaves out the Miscellaneous project.
+- **Shape:** `detail` is `headline` (counts and hours), `items` (default; one line per activity and completed task) or `full` (adds details and links). `compare=1` adds the previous period of the same length, totals only.
+- **Result:** the resolved `period`; `totals` (activities, hours, active days, tasks and projects completed, counts by type, undated done tasks); `projects`, busiest first with the catch-all last, each with its numbers, items, completed tasks, status changes and the stretches it spent waiting or blocked; `unfiledTasksCompleted`; `previous`; and `notes`, which say where the record is incomplete — undated completions, estimated dates, no effort logged — so a gap in the record is not read as idle time. Undated done tasks were all finished before the space began recording completion times (migration 0008), so they are counted, and noted, only for periods that start on or before that day.
+
 **Which day it is.** A calendar date — an activity's `date`, a task's `due`, a `createdAt` — means "the day it was where the person was". An instant (`createdAt`/`updatedAt` timestamps, `capturedAt`) does not, and stays UTC.
 
 The web app resolves dates in the browser's zone, so it has always been right. Writes that arrive without a browser — an agent over MCP — have to be told, and until they were, the server used UTC: every entry logged after 17:00 Pacific landed on tomorrow, and the browser and MCP disagreed about the date for that whole window ([#39](https://github.com/bgrewell/donezo/issues/39)).
@@ -460,6 +468,7 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `get_project` | read | Full project incl. `resumeContext`, open tasks, last 10 activities. |
 | `search` | read | Case-insensitive substring across projects/activities/tasks/notes/reminders/inbox (same matching as the web UI). |
 | `get_timeline` | read | Activities in a date range, chronological — for reflection. |
+| `summarize_work` | read | `period` (preset) or `from`/`to`, `week_start`, `project_ids`, `types`, `tags`, `include_planned`, `include_catchall`, `compare`, `detail`; same result as `GET .../summary`. |
 | `list_inbox` | read | Pending raw captures. |
 | `list_tasks` | read | Tasks, optionally filtered by `project_id` and `status` (defaults to `open`). |
 | `list_notes` | read | Notes, optionally filtered by `project_id`. |

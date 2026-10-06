@@ -302,6 +302,61 @@ func deref(p *string) string {
 	return *p
 }
 
+// summarize_work reads periods in the caller's zone, and is a read tool — a
+// read-only token can call it. At eveningClock it is still Saturday
+// 2026-07-25 in Los Angeles, so "today" holds what was just logged there,
+// where UTC would already be on Sunday.
+func TestSummarizeWorkInTheCallersTimezone(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, WithClock(eveningClock), WithLocation(time.UTC))
+	f.setTimezone(t, losAngeles)
+	if text, isErr := f.callTool(t, f.rw, "log_activity",
+		`{"space_id":"sandbox","project_id":"loom","title":"evening work","effort_hours":1.5}`); isErr {
+		t.Fatalf("log_activity: %s", text)
+	}
+
+	text, isErr := f.callTool(t, f.ro, "summarize_work", `{"space_id":"sandbox","period":"today","compare":true}`)
+	if isErr {
+		t.Fatalf("summarize_work: %s", text)
+	}
+	var got struct {
+		Period struct {
+			From, To, Timezone string
+		} `json:"period"`
+		Totals struct {
+			Activities int     `json:"activities"`
+			Hours      float64 `json:"hours"`
+		} `json:"totals"`
+		Projects []struct {
+			ID    string `json:"id"`
+			Items []struct {
+				Title string `json:"title"`
+			} `json:"items"`
+		} `json:"projects"`
+		Previous *struct{} `json:"previous"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Period.From != laDay || got.Period.Timezone != losAngeles {
+		t.Errorf("period = %+v, want %s in %s", got.Period, laDay, losAngeles)
+	}
+	if got.Totals.Activities != 1 || got.Totals.Hours != 1.5 || len(got.Projects) != 1 ||
+		len(got.Projects[0].Items) != 1 || got.Projects[0].Items[0].Title != "evening work" || got.Previous == nil {
+		t.Errorf("summary = %s", text)
+	}
+
+	for _, tc := range []struct{ args, want string }{
+		{`{"space_id":"sandbox","period":"fortnight"}`, "period must be one of"},
+		{`{"space_id":"sandbox","from":"2026-07-01"}`, "needs both"},
+		{`{"space_id":"sandbox","detail":"verbose"}`, "detail must be one of"},
+		{`{"space_id":"sandbox","project_ids":["ghost"]}`, "not found"},
+		{`{"space_id":"sandbox","week_start":"friday"}`, "week start must be"},
+	} {
+		if text, isErr := f.callTool(t, f.ro, "summarize_work", tc.args); !isErr || !strings.Contains(text, tc.want) {
+			t.Errorf("%s: isErr=%v text=%s, want %q", tc.args, isErr, text, tc.want)
+		}
+	}
+}
+
 // East of Greenwich the error runs the other way: the same instant is already
 // tomorrow. A fix that just subtracted an offset would pass the Los Angeles
 // cases and fail here.

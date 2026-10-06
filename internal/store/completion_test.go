@@ -377,3 +377,19 @@ func deref(p *string) string {
 }
 
 func equalPtr(a, b *string) bool { return deref(a) == deref(b) && (a == nil) == (b == nil) }
+
+// A space records when it began stamping completions — the moment migration
+// 0008 ran on it, by the store clock — so a summary can tell which periods
+// undated done tasks could belong to.
+func TestCompletionsRecordedSince(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	if err := s.EnsureSpace(ctx, testSpace); err != nil {
+		t.Fatalf("EnsureSpace: %v", err)
+	}
+	got, err := s.CompletionsRecordedSince(ctx, testSpace)
+	if err != nil || got != fixedNow {
+		t.Errorf("CompletionsRecordedSince = %q, %v; want %q", got, err, fixedNow)
+	}
+}

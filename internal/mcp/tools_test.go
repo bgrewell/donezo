@@ -54,6 +54,7 @@ func TestReadToolsForeignSpaceNotFound(t *testing.T) {
 		{"list_notes", `{"space_id":"private"}`},
 		{"list_reminders", `{"space_id":"private"}`},
 		{"list_trash", `{"space_id":"private"}`},
+		{"summarize_work", `{"space_id":"private"}`},
 		{"get_space_overview", `{"space_id":"nope"}`},
 		{"list_notes", `{"space_id":"nope"}`},
 	} {

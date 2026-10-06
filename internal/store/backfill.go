@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -63,6 +64,33 @@ func backfillCompletions(ctx context.Context, tx *sql.Tx, now string) error {
 
 // completionBackfillKey is the meta key holding backfillCompletions' counts.
 const completionBackfillKey = "completion_backfill"
+
+// CompletionsRecordedSince returns when this space began recording
+// completion times — the moment migration 0008 ran on it, an RFC 3339 UTC
+// instant — or "" if that is unknown. Every task finished since then was
+// stamped, so a done task with no completion date was finished before it;
+// a summary uses this to keep such tasks out of later periods.
+func (s *SpaceStore) CompletionsRecordedSince(ctx context.Context, spaceID string) (string, error) {
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return "", err
+	}
+	var raw string
+	err = db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, completionBackfillKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: read %s: %w", completionBackfillKey, err)
+	}
+	var report struct {
+		At string `json:"at"`
+	}
+	if err := json.Unmarshal([]byte(raw), &report); err != nil {
+		return "", nil // unreadable is unknown, not an error worth failing a read over
+	}
+	return report.At, nil
+}
 
 // Completion sources: how a completed_at came to be.
 const (
