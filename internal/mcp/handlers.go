@@ -557,6 +557,20 @@ func toolListReminders(ctx context.Context, h *Handler, c caller, args json.RawM
 
 // optString returns a pointer to v when non-empty, else nil, for optional
 // nullable columns.
+// errCompletedAtStatus aborts a patch that sets a completion time on
+// something not finished; the handler reports it in its own words.
+var errCompletedAtStatus = errors.New("completed_at on an unfinished item")
+
+// manualSource is the completedSource for a completion time the caller set:
+// manual when there is one, none when it was cleared.
+func manualSource(at *string) *string {
+	if at == nil {
+		return nil
+	}
+	src := store.CompletedManual
+	return &src
+}
+
 func optString(v string) *string {
 	if v == "" {
 		return nil
@@ -766,6 +780,7 @@ func toolCompleteTask(ctx context.Context, h *Handler, c caller, args json.RawMe
 			Source:    "manual",
 			Tags:      []string{},
 			Links:     []store.ActivityLink{},
+			TaskID:    &updated.ID,
 		})
 		if err != nil {
 			// The completion already committed; report the log failure but
@@ -1175,6 +1190,7 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 		Outcome        *string   `json:"outcome"`
 		Color          *string   `json:"color"`
 		Tags           *[]string `json:"tags"`
+		CompletedAt    *string   `json:"completed_at"`
 	}
 	if !decodeArgs(args, &a) {
 		return "invalid arguments", true
@@ -1194,6 +1210,13 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 	sp, msg, ok := h.ownedLiveSpace(ctx, c, a.SpaceID)
 	if !ok {
 		return msg, true
+	}
+	var completedAt *string
+	if a.CompletedAt != nil {
+		var bad string
+		if completedAt, bad = completedAtArg(*a.CompletedAt, h.callerLocation(ctx, c), h.clock()); bad != "" {
+			return bad, true
+		}
 	}
 	updated, err := h.spaces.PatchProject(ctx, sp.ID, a.ProjectID, func(p *store.Project) error {
 		if a.NextAction != nil {
@@ -1229,8 +1252,17 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 		if a.Tags != nil {
 			p.Tags = *a.Tags
 		}
+		if a.CompletedAt != nil {
+			if completedAt != nil && p.Status != "completed" {
+				return errCompletedAtStatus
+			}
+			p.CompletedAt, p.CompletedSource = completedAt, manualSource(completedAt)
+		}
 		return nil
 	})
+	if errors.Is(err, errCompletedAtStatus) {
+		return "completed_at can only be set on a completed project", true
+	}
 	if err != nil {
 		return h.storeErrText("project", err), true
 	}
@@ -1302,6 +1334,8 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 		Due       *string `json:"due"`
 		ProjectID *string `json:"project_id"`
 		WaitingOn *string `json:"waiting_on"`
+		// CompletedAt corrects the completion time; see completedAtArg.
+		CompletedAt *string `json:"completed_at"`
 	}
 	if !decodeArgs(args, &a) {
 		return "invalid arguments", true
@@ -1323,6 +1357,13 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 	if !ok {
 		return msg, true
 	}
+	var completedAt *string
+	if a.CompletedAt != nil {
+		var bad string
+		if completedAt, bad = completedAtArg(*a.CompletedAt, h.callerLocation(ctx, c), h.clock()); bad != "" {
+			return bad, true
+		}
+	}
 	updated, err := h.spaces.PatchTask(ctx, sp.ID, a.TaskID, func(t *store.TaskItem) error {
 		if a.Title != nil {
 			t.Title = *a.Title
@@ -1342,8 +1383,17 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 		if a.WaitingOn != nil {
 			t.WaitingOn = optString(*a.WaitingOn)
 		}
+		if a.CompletedAt != nil {
+			if completedAt != nil && t.Status != "done" {
+				return errCompletedAtStatus
+			}
+			t.CompletedAt, t.CompletedSource = completedAt, manualSource(completedAt)
+		}
 		return nil
 	})
+	if errors.Is(err, errCompletedAtStatus) {
+		return "completed_at can only be set on a done task", true
+	}
 	if err != nil {
 		return h.storeErrText("task", err), true
 	}

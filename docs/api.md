@@ -46,17 +46,17 @@ donezo frontend itself).
 | `GET /api/spaces/{id}/state`                       | Full space content (projects, activities, tasks, notes, reminders, inbox) |
 | `GET /api/spaces/{id}/revision`                    | `{revision}` — a counter that moves whenever anything in the space changes. Answered from memory without touching the space database; this is the endpoint clients poll |
 | `POST /api/spaces/{id}/projects`                   | Create a project → `201`                                               |
-| `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`) |
+| `PATCH /api/spaces/{id}/projects/{pid}`            | Any subset of mutable fields (incl. `nextAction`, `altNextActions`, `resumeContext`, `status`, `waitingOn`, `completedAt`) |
 | `DELETE /api/spaces/{id}/projects/{pid}`           | Transactional → `200 {deleted}` with per-table counts. Moves the project and the activities/tasks/notes it owns to the trash as one batch; reminders and inbox items keep their project link and read as unfiled until it is restored or purged |
 | `GET /api/spaces/{id}/trash`                       | Any user: what is currently trashed → `200 {trash}` |
 | `POST /api/spaces/{id}/trash/{entity}/{tid}/restore` | Restore an item and its whole delete batch → `200 {restored}` |
 | `DELETE /api/spaces/{id}/trash/{entity}/{tid}`     | Permanently remove an item and its batch → `200 {purged}` |
 | `POST /api/spaces/{id}/trash/empty`                | Permanently remove everything trashed → `200 {purged}` |
 | `POST /api/spaces/{id}/activities`                 | Create an activity entry → `201`                                       |
-| `PATCH /api/spaces/{id}/activities/{aid}`          | Partial update                                                         |
+| `PATCH /api/spaces/{id}/activities/{aid}`          | Partial update (incl. `taskId`, the task a check-off activity records; `null` unlinks it) |
 | `DELETE /api/spaces/{id}/activities/{aid}`         | Delete → `204`                                                         |
 | `POST /api/spaces/{id}/tasks`                      | Create a task → `201`                                                  |
-| `PATCH /api/spaces/{id}/tasks/{tid}`               | Partial update                                                         |
+| `PATCH /api/spaces/{id}/tasks/{tid}`               | Partial update (incl. `completedAt` — see *When things were finished*)  |
 | `POST /api/spaces/{id}/notes`                      | Create a note → `201`                                                  |
 | `PATCH /api/spaces/{id}/notes/{nid}`               | Partial update: `{title?, body?, projectId?, createdAt?}` → `200`. `projectId: null` detaches the note; an emptied `body` is allowed, matching the create route |
 | `DELETE /api/spaces/{id}/notes/{nid}`              | Delete a note → `204`. A note owns nothing, so this is a plain delete rather than a cascade |
@@ -311,6 +311,12 @@ Note what a soft cascade does **not** do: reminders and inbox items are left alo
 
 `--trash-retention-days` / `DONEZOD_TRASH_RETENTION_DAYS` sets how long an item stays restorable (default 30; `0` disables the sweep and leaves the trash to be emptied by hand). The sweep runs at startup and then daily — startup matters more than the interval, since an instance stopped and started every day would otherwise never reach the first tick. Archived spaces are skipped: they are deliberately frozen.
 
+**When things were finished.** Tasks and projects carry `completedAt`, an RFC 3339 UTC instant, and `completedSource`: `recorded`, `inferred` or `manual`. The server stamps `completedAt` (as `recorded`) when a task's status becomes `done` or a project's becomes `completed`, and clears both when it moves away again; cancelled is not completed. Clients never send the source.
+
+A `PATCH` with `completedAt` corrects it and makes the source `manual`. It must carry a zone, may not be in the future, and is only accepted while the item is finished (`400` otherwise). `null` clears it to "unknown" — and it stays unknown: an item that is already finished is never re-stamped, so clearing a wrong date does not swap it for today's.
+
+Items finished before these fields existed were dated once, by migration, as `inferred`: a done task from the activity logged when it was checked off (same project, same title ignoring case and spacing, dated on or after the task's creation — earliest unclaimed first), a completed project from its latest milestone or else its `updatedAt`. A task with no such activity is left undated rather than guessed. The counts are recorded in the space's `meta` table under `completion_backfill`. Every project status change from then on is also logged, in `project_status_changes`.
+
 **Which day it is.** A calendar date — an activity's `date`, a task's `due`, a `createdAt` — means "the day it was where the person was". An instant (`createdAt`/`updatedAt` timestamps, `capturedAt`) does not, and stays UTC.
 
 The web app resolves dates in the browser's zone, so it has always been right. Writes that arrive without a browser — an agent over MCP — have to be told, and until they were, the server used UTC: every entry logged after 17:00 Pacific landed on tomorrow, and the browser and MCP disagreed about the date for that whole window ([#39](https://github.com/bgrewell/donezo/issues/39)).
@@ -461,15 +467,15 @@ its `space_id` to a space the caller owns (foreign/unknown spaces read as
 | `capture_to_inbox` | write | Zero-decision capture into any owned space — the default when classification is uncertain. |
 | `log_activity` | write | Record a PAST fact on a project (timeline); never for future work. |
 | `create_task` | write | A FUTURE possibility with a lifecycle. `details` carries the long form. |
-| `complete_task` | write | Mark done; with `log_activity` (default true) also logs today's activity from the task title. |
+| `complete_task` | write | Mark done; with `log_activity` (default true) also logs today's activity from the task title, linked to the task by `taskId`. |
 | `create_note` | write | Durable reference text. |
 | `create_reminder` | write | A time-bound nudge (`remind_at` ISO datetime). `details` carries the long form. |
 | `create_project` | write | A stream of work; only `name` required, `color` defaults to blue and `status` to active. |
 | `classify_inbox_item` | write | Atomically convert a pending capture into a task/note/reminder/activity/project. A multi-line capture splits: first line to the short field, the rest to `details`. |
 | `convert_note` | write | Convert a note into a `task`/`reminder`/`activity`, deleting the note. Fields default from the note, and its body becomes the new item's `details` — nothing is lost. |
 | `dismiss_inbox_item` | write | Mark a pending capture `dismissed` (kept, not deleted); errors if it is already triaged. |
-| `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`). |
-| `update_task` | write | `title`, `details`, `status`, `due`, `project_id`, `waiting_on`; empty string clears an optional field. |
+| `update_project` | write | Designations (`nextAction`, `altNextActions`, `currentFocus`, `resumeContext`, `status`, `waitingOn`) and descriptive fields (`name`, `purpose`, `outcome`, `color`, `tags`), plus `completed_at` to correct a completion date. |
+| `update_task` | write | `title`, `details`, `status`, `due`, `project_id`, `waiting_on`, `completed_at`; empty string clears an optional field. `completed_at` takes a `yyyy-MM-dd` (the caller's local day, stored at local noon) or an RFC 3339 instant. |
 | `update_note` | write | `title`, `body`, `project_id`; empty `project_id` detaches. |
 | `update_activity` | write | `title`, `details`, `type`, `date`, `effort_hours` (0 clears), `project_id`. |
 | `update_reminder` | write | `text`, `details`, `remind_at`, `done`, `project_id`. |

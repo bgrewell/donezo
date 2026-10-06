@@ -40,6 +40,7 @@ func (s *SpaceStore) PatchProject(ctx context.Context, spaceID, id string, apply
 	if err != nil {
 		return Project{}, err
 	}
+	fromStatus := p.Status
 	if err := apply(&p); err != nil {
 		return Project{}, err
 	}
@@ -51,8 +52,12 @@ func (s *SpaceStore) PatchProject(ctx context.Context, spaceID, id string, apply
 		p.Tags = []string{}
 	}
 	p.UpdatedAt = s.opts.now()
+	stampProjectCompletion(&p, fromStatus == "completed", p.UpdatedAt)
 	if _, err := execUpdateProject(ctx, tx, p); err != nil {
 		return Project{}, fmt.Errorf("store: patch project %q: %w", id, classifyConstraint(err))
+	}
+	if err := logProjectStatus(ctx, tx, id, fromStatus, p.Status, p.UpdatedAt); err != nil {
+		return Project{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Project{}, fmt.Errorf("store: patch project %q: commit: %w", id, err)
@@ -122,10 +127,12 @@ func (s *SpaceStore) PatchTask(ctx context.Context, spaceID, id string, apply fu
 	if err != nil {
 		return TaskItem{}, err
 	}
+	wasDone := t.Status == "done"
 	if err := apply(&t); err != nil {
 		return TaskItem{}, err
 	}
 	t.ID = id
+	stampTaskCompletion(&t, wasDone, s.opts.now())
 	if _, err := execUpdateTask(ctx, tx, t); err != nil {
 		return TaskItem{}, fmt.Errorf("store: patch task %q: %w", id, classifyConstraint(err))
 	}
@@ -317,6 +324,7 @@ func (s *SpaceStore) ConvertInboxItem(ctx context.Context, spaceID, id string, c
 	}
 	switch conv.Kind {
 	case "task":
+		stampTaskCompletion(conv.Task, false, s.opts.now())
 		_, err = insertTask(ctx, tx, *conv.Task)
 	case "note":
 		_, err = insertNote(ctx, tx, *conv.Note)
@@ -325,6 +333,7 @@ func (s *SpaceStore) ConvertInboxItem(ctx context.Context, spaceID, id string, c
 	case "activity":
 		_, err = s.insertActivity(ctx, tx, *conv.Activity)
 	case "project":
+		stampProjectCompletion(conv.Project, false, s.opts.now())
 		_, err = s.insertProject(ctx, tx, *conv.Project)
 	}
 	if err != nil {
@@ -396,6 +405,7 @@ func (s *SpaceStore) ConvertNote(ctx context.Context, spaceID, id string, conv C
 
 	switch conv.Kind {
 	case "task":
+		stampTaskCompletion(conv.Task, false, s.opts.now())
 		_, err = insertTask(ctx, tx, *conv.Task)
 	case "reminder":
 		_, err = insertReminder(ctx, tx, *conv.Reminder)

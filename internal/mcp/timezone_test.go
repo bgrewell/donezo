@@ -204,6 +204,54 @@ func TestCompleteTaskLogsInTheCallersTimezone(t *testing.T) {
 	}
 }
 
+// A completed_at given as a bare date is the caller's local day, recorded at
+// their local noon — so it reads back as that day in their zone, which an
+// instant at UTC midnight would not for anyone west of Greenwich.
+func TestUpdateTaskCompletedAtIsTheCallersDay(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, WithClock(eveningClock), WithLocation(time.UTC))
+	f.setTimezone(t, losAngeles)
+	loom := "loom"
+	if _, err := f.spaces.CreateTask(context.Background(), "sandbox", store.TaskItem{
+		ID: "tsk-c", ProjectID: &loom, Title: "fix it", Status: "open", CreatedAt: "2026-06-01",
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	call := func(args string) (string, bool) {
+		t.Helper()
+		return f.callTool(t, f.rw, "update_task", `{"space_id":"sandbox","task_id":"tsk-c",`+args+`}`)
+	}
+	read := func() store.TaskItem {
+		t.Helper()
+		task, err := f.spaces.GetTask(context.Background(), "sandbox", "tsk-c")
+		if err != nil {
+			t.Fatalf("get task: %v", err)
+		}
+		return task
+	}
+
+	if text, isErr := call(`"completed_at":"2026-07-01"`); !isErr || !strings.Contains(text, "only be set on a done task") {
+		t.Errorf("open task: isErr=%v text=%s", isErr, text)
+	}
+	if text, isErr := call(`"status":"done","completed_at":"2026-07-01"`); isErr {
+		t.Fatalf("update_task: %s", text)
+	}
+	if got := read(); got.CompletedAt == nil || *got.CompletedAt != "2026-07-01T19:00:00Z" ||
+		got.CompletedSource == nil || *got.CompletedSource != store.CompletedManual {
+		t.Errorf("completed = %v/%v, want 2026-07-01T19:00:00Z (noon in Los Angeles), manual",
+			got.CompletedAt, got.CompletedSource)
+	}
+	if text, isErr := call(`"completed_at":"tomorrowish"`); !isErr || !strings.Contains(text, "completed_at must be") {
+		t.Errorf("bad value: isErr=%v text=%s", isErr, text)
+	}
+	if text, isErr := call(`"completed_at":""`); isErr {
+		t.Fatalf("clear: %s", text)
+	}
+	if got := read(); got.Status != "done" || got.CompletedAt != nil || got.CompletedSource != nil {
+		t.Errorf("after clear = %+v, want done with no completion", got)
+	}
+}
+
 // East of Greenwich the error runs the other way: the same instant is already
 // tomorrow. A fix that just subtracted an offset would pass the Los Angeles
 // cases and fail here.

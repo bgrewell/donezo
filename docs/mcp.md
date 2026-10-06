@@ -52,7 +52,7 @@ is a summary, not the source of truth:
 | `convert_note`        | write | Turn an existing note into a task, reminder, or activity. The note is **removed** — unlike an inbox capture, which stays behind marked converted. Its body becomes the new item's details. |
 | `dismiss_inbox_item`  | write | Close out a reviewed capture that needs no follow-up. The other half of triage.                 |
 | `update_project`      | write | Update a project — its designations (next action, alternates, current focus, resume context, status) and descriptive fields (name, purpose, outcome, color, tags). Status is always a deliberate choice; the model never flips it automatically. |
-| `update_task`         | write | Change a task's title, details, status, due date, project, or what it's waiting on.              |
+| `update_task`         | write | Change a task's title, details, status, due date, project, what it's waiting on, or when it was completed. |
 | `update_note`         | write | Change a note's title, body, or project.                                                        |
 | `update_activity`     | write | Correct a past fact already on the timeline — title, details, type, date, effort, project.       |
 | `update_reminder`     | write | Reschedule a reminder, change its text, details or project, or mark it handled.                  |

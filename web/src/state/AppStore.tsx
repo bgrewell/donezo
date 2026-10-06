@@ -17,6 +17,12 @@ import { ApiError, type SpaceData } from "@/api/client";
 import { SessionContext } from "@/components/auth/session";
 import { anchorForToday, clampAnchor, clampToRange, shiftAnchor } from "@/lib/time";
 import { newId } from "@/lib/id";
+import {
+  applyCompletion,
+  projectFinished,
+  taskFinished,
+  type Completable,
+} from "@/lib/completion";
 import { parseHash } from "@/lib/route";
 import { syncAction } from "./sync";
 // Pure geometry module (no React/DOM) — the store needs the column math to
@@ -152,6 +158,16 @@ function patchById<T extends { id: string }>(list: T[], id: string, patch: Parti
   return list.map((item) => (item.id === id ? { ...item, ...patch } : item));
 }
 
+/** patchById for things that record when they were finished. */
+function patchCompletable<T extends Completable & { id: string; status: string }>(
+  list: T[],
+  id: string,
+  patch: Partial<T>,
+  finished: (x: T) => boolean
+): T[] {
+  return list.map((item) => (item.id === id ? applyCompletion(item, patch, finished) : item));
+}
+
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "REPLACE_STATE":
@@ -194,7 +210,7 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "UPDATE_PROJECT":
       return {
         ...state,
-        projects: patchById(state.projects, action.id, action.patch),
+        projects: patchCompletable(state.projects, action.id, action.patch, projectFinished),
       };
     case "REORDER_PROJECTS": {
       const pos = new Map(action.order.map((id, i) => [id, i] as const));
@@ -289,9 +305,15 @@ function reducer(state: AppState, action: AppAction): AppState {
           state.selectedActivityId === action.id ? null : state.selectedActivityId,
       };
     case "ADD_TASK":
-      return { ...state, tasks: [...state.tasks, action.task] };
+      return {
+        ...state,
+        tasks: [...state.tasks, applyCompletion<TaskItem>(undefined, action.task, taskFinished)],
+      };
     case "UPDATE_TASK":
-      return { ...state, tasks: patchById(state.tasks, action.id, action.patch) };
+      return {
+        ...state,
+        tasks: patchCompletable(state.tasks, action.id, action.patch, taskFinished),
+      };
     case "ADD_NOTE":
       return { ...state, notes: [...state.notes, action.note] };
     case "UPDATE_NOTE":

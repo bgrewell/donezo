@@ -163,6 +163,7 @@ func (s *SpaceStore) CreateProject(ctx context.Context, spaceID string, p Projec
 			return Project{}, fmt.Errorf("store: create project %q: next position: %w", p.ID, err)
 		}
 	}
+	stampProjectCompletion(&p, false, s.opts.now())
 	return s.insertProject(ctx, db, p)
 }
 
@@ -188,10 +189,12 @@ func (s *SpaceStore) insertProject(ctx context.Context, ex execer, p Project) (P
 	}
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO projects (id, name, color, purpose, outcome, current_focus, next_action,
-		   alt_next_actions, status, resume_context, waiting_on, tags, catchall, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   alt_next_actions, status, resume_context, waiting_on, tags, catchall, position,
+		   completed_at, completed_source, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction,
-		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, catchall, p.Position, p.CreatedAt, p.UpdatedAt); err != nil {
+		alt, p.Status, p.ResumeContext, p.WaitingOn, tags, catchall, p.Position,
+		p.CompletedAt, p.CompletedSource, p.CreatedAt, p.UpdatedAt); err != nil {
 		return Project{}, fmt.Errorf("store: create project %q: %w", p.ID, classifyConstraint(err))
 	}
 	return p, nil
@@ -204,7 +207,7 @@ func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 	var catchall int64
 	err := row.Scan(&p.ID, &p.Name, &p.Color, &p.Purpose, &p.Outcome, &p.CurrentFocus,
 		&p.NextAction, &alt, &p.Status, &p.ResumeContext, &p.WaitingOn, &tags,
-		&catchall, &p.Position, &p.CreatedAt, &p.UpdatedAt)
+		&catchall, &p.Position, &p.CompletedAt, &p.CompletedSource, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return Project{}, err
 	}
@@ -219,7 +222,8 @@ func scanProject(row interface{ Scan(...any) error }) (Project, error) {
 }
 
 const projectColumns = `id, name, color, purpose, outcome, current_focus, next_action,
-	alt_next_actions, status, resume_context, waiting_on, tags, catchall, position, created_at, updated_at`
+	alt_next_actions, status, resume_context, waiting_on, tags, catchall, position,
+	completed_at, completed_source, created_at, updated_at`
 
 // GetProject returns one project by id, or ErrNotFound.
 func (s *SpaceStore) GetProject(ctx context.Context, spaceID, id string) (Project, error) {
@@ -261,12 +265,20 @@ func (s *SpaceStore) UpdateProject(ctx context.Context, spaceID string, p Projec
 		return Project{}, fmt.Errorf("store: update project %q: begin: %w", p.ID, err)
 	}
 	defer rollbackQuietly(tx)
+	before, err := getProjectRow(ctx, tx, p.ID)
+	if err != nil {
+		return Project{}, err
+	}
 	p.UpdatedAt = s.opts.now()
+	stampProjectCompletion(&p, before.Status == "completed", p.UpdatedAt)
 	res, err := execUpdateProject(ctx, tx, p)
 	if err != nil {
 		return Project{}, fmt.Errorf("store: update project %q: %w", p.ID, classifyConstraint(err))
 	}
 	if err := notFoundIfZero(res, "project", p.ID); err != nil {
+		return Project{}, err
+	}
+	if err := logProjectStatus(ctx, tx, p.ID, before.Status, p.Status, p.UpdatedAt); err != nil {
 		return Project{}, err
 	}
 	stored, err := getProjectRow(ctx, tx, p.ID)
@@ -293,9 +305,10 @@ func execUpdateProject(ctx context.Context, ex execer, p Project) (sql.Result, e
 	return ex.ExecContext(ctx,
 		`UPDATE projects SET name = ?, color = ?, purpose = ?, outcome = ?, current_focus = ?,
 		   next_action = ?, alt_next_actions = ?, status = ?, resume_context = ?, waiting_on = ?,
-		   tags = ?, position = ?, updated_at = ? WHERE id = ?`,
+		   tags = ?, position = ?, completed_at = ?, completed_source = ?, updated_at = ? WHERE id = ?`,
 		p.Name, p.Color, p.Purpose, p.Outcome, p.CurrentFocus, p.NextAction, alt, p.Status,
-		p.ResumeContext, p.WaitingOn, tags, p.Position, p.UpdatedAt, p.ID)
+		p.ResumeContext, p.WaitingOn, tags, p.Position, p.CompletedAt, p.CompletedSource,
+		p.UpdatedAt, p.ID)
 }
 
 // ReorderProjects assigns each id in order its slice index as position, in one
@@ -367,7 +380,7 @@ func (s *SpaceStore) ListProjects(ctx context.Context, spaceID string) ([]Projec
 // ─── Activities ─────────────────────────────────────────────────────────
 
 const activityColumns = `id, project_id, date, type, title, details, effort_hours, source,
-	tags, links, next_action, planned, created_at, updated_at`
+	tags, links, next_action, planned, task_id, created_at, updated_at`
 
 // CreateActivity inserts an activity entry. CreatedAt/UpdatedAt are set
 // from the store clock. The referenced project must exist.
@@ -408,10 +421,11 @@ func (s *SpaceStore) insertActivity(ctx context.Context, ex execer, a ActivityEn
 	a.CreatedAt, a.UpdatedAt = now, now
 	if _, err := ex.ExecContext(ctx,
 		`INSERT INTO activities (id, project_id, date, type, title, details, effort_hours,
-		   source, tags, links, next_action, planned, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   source, tags, links, next_action, planned, task_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.ProjectID, a.Date, a.Type, a.Title, a.Details, a.EffortHours,
-		a.Source, tags, links, a.NextAction, boolPtrToInt(a.Planned), a.CreatedAt, a.UpdatedAt); err != nil {
+		a.Source, tags, links, a.NextAction, boolPtrToInt(a.Planned), a.TaskID,
+		a.CreatedAt, a.UpdatedAt); err != nil {
 		return ActivityEntry{}, fmt.Errorf("store: create activity %q: %w", a.ID, classifyConstraint(err))
 	}
 	return a, nil
@@ -424,7 +438,7 @@ func scanActivity(row interface{ Scan(...any) error }) (ActivityEntry, error) {
 	var planned *int64
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Date, &a.Type, &a.Title, &a.Details,
 		&a.EffortHours, &a.Source, &tags, &links, &a.NextAction, &planned,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.TaskID, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return ActivityEntry{}, err
 	}
@@ -510,9 +524,9 @@ func execUpdateActivity(ctx context.Context, ex execer, a ActivityEntry) (sql.Re
 	return ex.ExecContext(ctx,
 		`UPDATE activities SET project_id = ?, date = ?, type = ?, title = ?, details = ?,
 		   effort_hours = ?, source = ?, tags = ?, links = ?, next_action = ?, planned = ?,
-		   updated_at = ? WHERE id = ?`,
+		   task_id = ?, updated_at = ? WHERE id = ?`,
 		a.ProjectID, a.Date, a.Type, a.Title, a.Details, a.EffortHours, a.Source,
-		tags, links, a.NextAction, boolPtrToInt(a.Planned), a.UpdatedAt, a.ID)
+		tags, links, a.NextAction, boolPtrToInt(a.Planned), a.TaskID, a.UpdatedAt, a.ID)
 }
 
 // DeleteActivity moves an activity to the trash. Returns ErrNotFound if the
@@ -555,6 +569,7 @@ func (s *SpaceStore) CreateTask(ctx context.Context, spaceID string, t TaskItem)
 	if err != nil {
 		return TaskItem{}, err
 	}
+	stampTaskCompletion(&t, false, s.opts.now())
 	return insertTask(ctx, db, t)
 }
 
@@ -564,9 +579,11 @@ func insertTask(ctx context.Context, ex execer, t TaskItem) (TaskItem, error) {
 		return TaskItem{}, err
 	}
 	if _, err := ex.ExecContext(ctx,
-		`INSERT INTO tasks (id, project_id, title, details, status, due, waiting_on, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt); err != nil {
+		`INSERT INTO tasks (id, project_id, title, details, status, due, waiting_on, created_at,
+		   completed_at, completed_source)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt,
+		t.CompletedAt, t.CompletedSource); err != nil {
 		return TaskItem{}, fmt.Errorf("store: create task %q: %w", t.ID, classifyConstraint(err))
 	}
 	return t, nil
@@ -581,12 +598,21 @@ func (s *SpaceStore) GetTask(ctx context.Context, spaceID, id string) (TaskItem,
 	return getTaskRow(ctx, db, id)
 }
 
+const taskColumns = `id, project_id, title, details, status, due, waiting_on, created_at,
+	completed_at, completed_source`
+
+// scanTask reads one tasks row.
+func scanTask(row interface{ Scan(...any) error }) (TaskItem, error) {
+	var t TaskItem
+	err := row.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due,
+		&t.WaitingOn, &t.CreatedAt, &t.CompletedAt, &t.CompletedSource)
+	return t, err
+}
+
 // getTaskRow reads one task by id via q, or ErrNotFound.
 func getTaskRow(ctx context.Context, q rowQuerier, id string) (TaskItem, error) {
-	var t TaskItem
-	err := q.QueryRowContext(ctx,
-		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE id = ? AND deleted_at IS NULL`,
-		id).Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due, &t.WaitingOn, &t.CreatedAt)
+	t, err := scanTask(q.QueryRowContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ? AND deleted_at IS NULL`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskItem{}, fmt.Errorf("store: task %q: %w", id, ErrNotFound)
 	}
@@ -606,6 +632,11 @@ func (s *SpaceStore) UpdateTask(ctx context.Context, spaceID string, t TaskItem)
 	if err != nil {
 		return TaskItem{}, err
 	}
+	before, err := getTaskRow(ctx, db, t.ID)
+	if err != nil {
+		return TaskItem{}, err
+	}
+	stampTaskCompletion(&t, before.Status == "done", s.opts.now())
 	res, err := execUpdateTask(ctx, db, t)
 	if err != nil {
 		return TaskItem{}, fmt.Errorf("store: update task %q: %w", t.ID, classifyConstraint(err))
@@ -620,8 +651,9 @@ func (s *SpaceStore) UpdateTask(ctx context.Context, spaceID string, t TaskItem)
 func execUpdateTask(ctx context.Context, ex execer, t TaskItem) (sql.Result, error) {
 	return ex.ExecContext(ctx,
 		`UPDATE tasks SET project_id = ?, title = ?, details = ?, status = ?, due = ?, waiting_on = ?,
-		   created_at = ? WHERE id = ?`,
-		t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt, t.ID)
+		   created_at = ?, completed_at = ?, completed_source = ? WHERE id = ?`,
+		t.ProjectID, t.Title, t.Details, t.Status, t.Due, t.WaitingOn, t.CreatedAt,
+		t.CompletedAt, t.CompletedSource, t.ID)
 }
 
 // DeleteTask moves a task to the trash. Returns ErrNotFound if the id does
@@ -637,16 +669,15 @@ func (s *SpaceStore) ListTasks(ctx context.Context, spaceID string) ([]TaskItem,
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, project_id, title, details, status, due, waiting_on, created_at FROM tasks WHERE deleted_at IS NULL ORDER BY rowid`)
+		`SELECT `+taskColumns+` FROM tasks WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list tasks: %w", err)
 	}
 	defer closeQuietly(rows)
 	out := []TaskItem{}
 	for rows.Next() {
-		var t TaskItem
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Title, &t.Details, &t.Status, &t.Due,
-			&t.WaitingOn, &t.CreatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: scan task: %w", err)
 		}
 		out = append(out, t)

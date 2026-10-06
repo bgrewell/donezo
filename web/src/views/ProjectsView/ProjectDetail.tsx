@@ -22,6 +22,7 @@ import { NoteRow } from "./NoteRow";
 import { DetailsDisclosure } from "@/components/common/DetailsDisclosure";
 import { RowActions } from "@/components/common/RowActions";
 import { TaskEditor } from "@/components/common/TaskEditor";
+import { CompletedDateEdit } from "@/components/common/CompletedDateEdit";
 
 const COLOR_RAMP: ProjectColor[] = ["blue", "green", "tan", "violet", "rose", "orange", "steel"];
 
@@ -564,6 +565,73 @@ export function TaskRow({ task, onDone }: { task: TaskItem; onDone: () => void }
   );
 }
 
+/** Finished tasks, collapsed by default: out of the way of the work still to
+ *  do, but reachable — to reopen one checked off by mistake, or to correct
+ *  when it was finished. */
+function DoneTasks({ tasks }: { tasks: TaskItem[] }) {
+  const dispatch = useAppDispatch();
+  const [open, setOpen] = React.useState(false);
+  const undated = tasks.filter((t) => !t.completedAt).length;
+
+  return (
+    <section>
+      <SectionLabel
+        className="mb-2 mt-0"
+        trailing={
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen((o) => !o)}
+            className="rounded-gtc px-1 uppercase text-gtc-muted outline-none transition-colors hover:text-gtc-text focus-visible:shadow-gtc-focus"
+          >
+            <span className="text-gtc-text">{tasks.length}</span> · {open ? "hide" : "show"}
+          </button>
+        }
+      >
+        Done
+      </SectionLabel>
+      {!open ? (
+        undated > 0 && (
+          <p className="font-sans text-[0.8rem] text-gtc-muted">
+            {undated} finished without a recorded date.
+          </p>
+        )
+      ) : (
+        <div className="divide-y divide-gtc-line">
+          {tasks.map((t) => (
+            <div key={t.id} className="group flex items-center gap-3 py-2">
+              {/* RowActions overlays the right edge of its relative parent;
+                  scoping that to the title keeps the date clickable. */}
+              <span className="relative flex min-w-0 flex-1 items-center">
+                <span className="min-w-0 flex-1 truncate font-sans text-[0.85rem] text-gtc-muted line-through decoration-gtc-line">
+                  {t.title}
+                </span>
+                <RowActions
+                  label={`Actions for ${t.title}`}
+                  actions={[
+                    {
+                      label: "Reopen",
+                      onSelect: () =>
+                        dispatch({ type: "UPDATE_TASK", id: t.id, patch: { status: "open" } }),
+                    },
+                  ]}
+                />
+              </span>
+              <CompletedDateEdit
+                completedAt={t.completedAt}
+                source={t.completedSource}
+                onChange={(completedAt) =>
+                  dispatch({ type: "UPDATE_TASK", id: t.id, patch: { completedAt } })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Quiet typed-name delete confirmation at the very bottom of the page. */
 function DangerSection({ project }: { project: Project }) {
   const dispatch = useAppDispatch();
@@ -656,6 +724,12 @@ export function ProjectDetail({ project }: { project: Project }) {
     .filter((t) => t.projectId === project.id && (t.status === "open" || t.status === "waiting"))
     .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999") || a.createdAt.localeCompare(b.createdAt));
 
+  // Most recently finished first; undated ones last, since they are the
+  // ones a person may want to come back and fill in.
+  const doneTasks = state.tasks
+    .filter((t) => t.projectId === project.id && t.status === "done")
+    .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
+
   const notes = state.notes.filter((n) => n.projectId === project.id);
   const links: ActivityLink[] = [];
   {
@@ -733,6 +807,15 @@ export function ProjectDetail({ project }: { project: Project }) {
               ))}
             </Select>
           </span>
+          {project.status === "completed" && (
+            <CompletedDateEdit
+              key={project.id}
+              prefix=""
+              completedAt={project.completedAt}
+              source={project.completedSource}
+              onChange={(completedAt) => patch({ completedAt })}
+            />
+          )}
           <TagsEditable project={project} />
           {(project.status === "waiting" || project.status === "blocked") && (
             <WaitingOnInput key={project.id} project={project} />
@@ -835,6 +918,7 @@ export function ProjectDetail({ project }: { project: Project }) {
               key={taskLog.id}
               project={project}
               initialTitle={taskLog.title}
+              taskId={taskLog.id}
               skipLabel="Skip"
               onClose={() => setTaskLog(null)}
             />
@@ -850,6 +934,8 @@ export function ProjectDetail({ project }: { project: Project }) {
           </div>
         )}
       </section>
+
+      {doneTasks.length > 0 && <DoneTasks tasks={doneTasks} />}
 
       {/* Recent activity */}
       <section>

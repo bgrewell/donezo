@@ -16,9 +16,9 @@ import type { AppAction } from "./AppStore";
  *  internal/api/validate.go, mirroring the optional fields in
  *  domain/types.ts). Only these may translate undefined → null. */
 const CLEARABLE = {
-  project: new Set(["waitingOn"]),
-  activity: new Set(["effortHours", "nextAction", "planned"]),
-  task: new Set(["projectId", "due", "waitingOn"]),
+  project: new Set(["waitingOn", "completedAt"]),
+  activity: new Set(["effortHours", "nextAction", "planned", "taskId"]),
+  task: new Set(["projectId", "due", "waitingOn", "completedAt"]),
   note: new Set(["projectId"]),
   reminder: new Set(["projectId", "done", "repeat"]),
   inbox: new Set(["suggestedProjectId"]),

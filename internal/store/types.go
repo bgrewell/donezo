@@ -70,6 +70,13 @@ type Project struct {
 	// insertion order). Assigned one past the current max on create; a drag
 	// rewrites it. Omitted from JSON when zero (the first slot).
 	Position int `json:"position,omitempty"`
+	// CompletedAt is when the project's status became completed, as an
+	// RFC 3339 UTC instant; nil while it is not completed. The store stamps
+	// and clears it on status changes — see stampProjectCompletion.
+	CompletedAt *string `json:"completedAt,omitempty"`
+	// CompletedSource is how CompletedAt was arrived at: CompletedRecorded,
+	// CompletedInferred or CompletedManual. Nil exactly when CompletedAt is.
+	CompletedSource *string `json:"completedSource,omitempty"`
 	// Server-side timestamps; not part of the frontend type.
 	CreatedAt string `json:"-"`
 	UpdatedAt string `json:"-"`
@@ -95,6 +102,9 @@ type ActivityEntry struct {
 	Links       []ActivityLink `json:"links"`
 	NextAction  *string        `json:"nextAction,omitempty"`
 	Planned     *bool          `json:"planned,omitempty"`
+	// TaskID is the task whose check-off this activity records, when it was
+	// logged from one. A soft reference: the task may since have been purged.
+	TaskID *string `json:"taskId,omitempty"`
 	// Server-side timestamps; not part of the frontend type.
 	CreatedAt string `json:"-"`
 	UpdatedAt string `json:"-"`
@@ -113,6 +123,14 @@ type TaskItem struct {
 	Due       *string `json:"due,omitempty"`
 	WaitingOn *string `json:"waitingOn,omitempty"`
 	CreatedAt string  `json:"createdAt"`
+	// CompletedAt is when the task was done, as an RFC 3339 UTC instant; nil
+	// while it is not done, and for old done tasks whose date could not be
+	// recovered. The store stamps and clears it on status changes — see
+	// stampTaskCompletion.
+	CompletedAt *string `json:"completedAt,omitempty"`
+	// CompletedSource is how CompletedAt was arrived at: CompletedRecorded,
+	// CompletedInferred or CompletedManual. Nil exactly when CompletedAt is.
+	CompletedSource *string `json:"completedSource,omitempty"`
 }
 
 // NoteItem mirrors the frontend NoteItem type.
