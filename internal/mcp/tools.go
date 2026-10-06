@@ -259,7 +259,7 @@ func buildTools() []tool {
 				"grouped by project with hours and types, tasks and projects completed, status changes, and stretches " +
 				"spent waiting or blocked. Pick a preset period or give from/to; days are the user's local days. " +
 				"Prefer this over get_timeline when the question is \"what did I do\" rather than \"what happened on " +
-				"this date\". Read the notes in the result before writing it up: they say where the record is " +
+				"this date\". Each project's lists are capped at its most recent entries (totals are complete); narrow the period or projects for more. Read the notes in the result before writing it up: they say where the record is " +
 				"incomplete (undated completions, estimated dates, no effort logged), which must not be read as idle time.",
 			inputSchema: objectSchema(map[string]any{
 				"space_id": strProp("The space to summarize."),

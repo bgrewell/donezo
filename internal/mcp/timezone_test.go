@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -342,6 +344,35 @@ func TestSummarizeWorkInTheCallersTimezone(t *testing.T) {
 	if got.Totals.Activities != 1 || got.Totals.Hours != 1.5 || len(got.Projects) != 1 ||
 		len(got.Projects[0].Items) != 1 || got.Projects[0].Items[0].Title != "evening work" || got.Previous == nil {
 		t.Errorf("summary = %s", text)
+	}
+
+	// Lists are held to the read-tool bound; totals still count everything.
+	for i := 0; i < maxItems+5; i++ {
+		if _, err := f.spaces.CreateActivity(context.Background(), "sandbox", store.ActivityEntry{
+			ID: fmt.Sprintf("bulk-%02d", i), ProjectID: "loom", Date: "2026-07-20", Type: "work",
+			Title: "bulk", Source: "manual", Tags: []string{}, Links: []store.ActivityLink{},
+		}); err != nil {
+			t.Fatalf("seed bulk activity: %v", err)
+		}
+	}
+	text, isErr = f.callTool(t, f.ro, "summarize_work",
+		`{"space_id":"sandbox","from":"2026-07-01","to":"2026-07-31","detail":"full"}`)
+	if isErr {
+		t.Fatalf("summarize_work bulk: %s", text)
+	}
+	var bulk struct {
+		Totals struct {
+			Activities int `json:"activities"`
+		} `json:"totals"`
+		Projects []struct {
+			Items        []json.RawMessage `json:"items"`
+			ItemsOmitted int               `json:"itemsOmitted"`
+		} `json:"projects"`
+	}
+	parseToolJSON(t, text, &bulk)
+	if bulk.Totals.Activities != maxItems+6 || len(bulk.Projects[0].Items) != maxItems || bulk.Projects[0].ItemsOmitted != 6 {
+		t.Errorf("bulk: totals=%d items=%d omitted=%d, want %d / %d / 6",
+			bulk.Totals.Activities, len(bulk.Projects[0].Items), bulk.Projects[0].ItemsOmitted, maxItems+6, maxItems)
 	}
 
 	for _, tc := range []struct{ args, want string }{

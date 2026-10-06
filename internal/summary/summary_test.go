@@ -118,6 +118,7 @@ func TestBuildDefaults(t *testing.T) {
 	want := Totals{
 		Activities: 4, Hours: 4, ActiveDays: 4, TasksCompleted: 3, ProjectsCompleted: 1,
 		ByType: map[string]int{"work": 2, "decision": 1, "meeting": 1}, UndatedDone: 1,
+		EstimatedCompletions: 2, // t6 and iso
 	}
 	if !reflect.DeepEqual(s.Totals, want) {
 		t.Errorf("totals = %+v\nwant     %+v", s.Totals, want)
@@ -235,9 +236,13 @@ func TestBuildDetailAndCompare(t *testing.T) {
 	t.Parallel()
 	head := build(t, Options{Detail: DetailHeadline, Compare: true})
 	for _, p := range head.Projects {
-		if p.Items != nil || p.Completed != nil {
-			t.Errorf("%s carries lists at headline detail", p.ID)
+		if p.Items != nil || p.Completed != nil || p.StatusChanges != nil || p.Stalled != nil {
+			t.Errorf("%s carries lists at headline detail: %+v", p.ID, p)
 		}
+	}
+	// The estimate note does not depend on the lists being there.
+	if !strings.Contains(strings.Join(head.Notes, " "), "2 completion date(s) here are estimates") {
+		t.Errorf("headline notes = %q, want the estimate count", head.Notes)
 	}
 	if head.UnfiledTasksCompleted != nil || head.Totals.TasksCompleted != 3 {
 		t.Errorf("headline: unfiled=%v totals=%+v", head.UnfiledTasksCompleted, head.Totals)
@@ -282,6 +287,65 @@ func TestBuildUndatedOnlyBeforeRecording(t *testing.T) {
 		if hasNote := strings.Contains(strings.Join(s.Notes, " "), "no recorded completion date"); hasNote != (tt.want > 0) {
 			t.Errorf("since %q: note present = %v", tt.since, hasNote)
 		}
+	}
+}
+
+// A project already waiting or blocked when the status log began has no rows
+// in it, but its stall is known from the later of that moment and the
+// project's creation — and only from then.
+func TestBuildStallWithoutHistory(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name, since, created string
+		want                 []Span
+	}{
+		{"blocked when recording began", "2026-10-07T08:00:00Z", "2026-09-01T00:00:00Z",
+			[]Span{{Status: "blocked", From: "2026-10-07", To: "2026-10-09", Ongoing: true}}},
+		{"created blocked after recording began", "2026-09-01T00:00:00Z", "2026-10-08T15:00:00Z",
+			[]Span{{Status: "blocked", From: "2026-10-08", To: "2026-10-09", Ongoing: true}}},
+		{"recording began before the period", "2026-09-01T00:00:00Z", "2026-08-01T00:00:00Z",
+			[]Span{{Status: "blocked", From: "2026-10-05", To: "2026-10-09", Ongoing: true}}},
+		{"recording start unknown", "", "2026-08-01T00:00:00Z",
+			[]Span{{Status: "blocked", From: "2026-10-05", To: "2026-10-09", Ongoing: true}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			in := fixture()
+			in.RecordedSince = tt.since
+			in.State.Projects = append(in.State.Projects, store.Project{
+				ID: "vendor", Name: "Vendor", Status: "blocked", CreatedAt: tt.created,
+			})
+			s, err := Build(in, week(t), Options{}, fixtureNow, time.UTC)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if got := find(t, s, "vendor").Stalled; !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("stalled = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ItemLimit keeps each list to its most recent entries and says what it cut;
+// totals still count everything.
+func TestBuildItemLimit(t *testing.T) {
+	t.Parallel()
+	s := build(t, Options{ItemLimit: 1})
+	loom := find(t, s, "loom")
+	if len(loom.Items) != 1 || loom.Items[0].ID != "a2" || loom.ItemsOmitted != 1 {
+		t.Errorf("loom items = %+v (omitted %d), want a2 with 1 omitted", loom.Items, loom.ItemsOmitted)
+	}
+	if len(loom.Completed) != 1 || loom.Completed[0].ID != "t6" || loom.CompletedOmitted != 1 {
+		t.Errorf("loom completed = %+v (omitted %d), want t6 with 1 omitted", loom.Completed, loom.CompletedOmitted)
+	}
+	if s.Totals.Activities != 4 || s.Totals.TasksCompleted != 3 {
+		t.Errorf("totals = %+v, want them uncapped", s.Totals)
+	}
+	if !strings.Contains(strings.Join(s.Notes, " "), "2 older entries are left out") {
+		t.Errorf("notes = %q", s.Notes)
+	}
+	if none := build(t, Options{}); find(t, none, "loom").ItemsOmitted != 0 {
+		t.Error("omitted without a limit")
 	}
 }
 

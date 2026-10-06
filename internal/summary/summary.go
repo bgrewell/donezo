@@ -47,6 +47,12 @@ type Options struct {
 	Compare bool
 	// Detail is one of Details; empty is DetailItems.
 	Detail string
+	// ItemLimit, when positive, caps each list a project carries (and the
+	// unfiled completions) at its most recent ItemLimit entries; the rest are
+	// counted in the *Omitted fields and a note. Totals always count
+	// everything. For callers with a context budget — an MCP client — where a
+	// year at full detail would not fit.
+	ItemLimit int
 }
 
 // Validate checks the enumerated options.
@@ -84,6 +90,9 @@ type Summary struct {
 	Projects []ProjectSummary `json:"projects"`
 	// UnfiledTasksCompleted are tasks with no project finished in the period.
 	UnfiledTasksCompleted []TaskRef `json:"unfiledTasksCompleted,omitempty"`
+	// UnfiledOmitted counts older unfiled completions left out under
+	// Options.ItemLimit.
+	UnfiledOmitted int `json:"unfiledOmitted,omitempty"`
 	// Previous is the comparison period, when asked for.
 	Previous *Comparison `json:"previous,omitempty"`
 	// Notes flag what the numbers cannot see, so a reader — or a model
@@ -104,6 +113,9 @@ type Totals struct {
 	// UndatedDone counts done tasks in scope that have no completion date at
 	// all — finished at some point, so possibly in this period.
 	UndatedDone int `json:"undatedDone"`
+	// EstimatedCompletions counts the tasks and projects completed in the
+	// period whose date is an estimate (completedSource inferred).
+	EstimatedCompletions int `json:"estimatedCompletions"`
 }
 
 // ProjectSummary is one project's share of the period.
@@ -126,8 +138,12 @@ type ProjectSummary struct {
 
 	// Items is what happened, oldest first (items and full detail only).
 	Items []Item `json:"items,omitempty"`
+	// ItemsOmitted counts older items left out under Options.ItemLimit.
+	ItemsOmitted int `json:"itemsOmitted,omitempty"`
 	// Completed are the tasks finished in the period (items and full only).
 	Completed []TaskRef `json:"completed,omitempty"`
+	// CompletedOmitted counts older completions left out under ItemLimit.
+	CompletedOmitted int `json:"completedOmitted,omitempty"`
 	// StatusChanges in the period, oldest first.
 	StatusChanges []StatusChange `json:"statusChanges,omitempty"`
 	// Stalled are the stretches of the period spent waiting or blocked, as
@@ -206,8 +222,33 @@ func Build(in Input, p Period, opt Options, now time.Time, loc *time.Location) (
 		totals, _, _ := sc.collect(in, prev, opt, now, loc, false)
 		out.Previous = &Comparison{Period: prev, Totals: totals}
 	}
+	omitted := 0
+	if opt.ItemLimit > 0 {
+		for i := range out.Projects {
+			ps := &out.Projects[i]
+			ps.Items, ps.ItemsOmitted = latest(ps.Items, opt.ItemLimit)
+			ps.Completed, ps.CompletedOmitted = latest(ps.Completed, opt.ItemLimit)
+			omitted += ps.ItemsOmitted + ps.CompletedOmitted
+		}
+		out.UnfiledTasksCompleted, out.UnfiledOmitted = latest(out.UnfiledTasksCompleted, opt.ItemLimit)
+		omitted += out.UnfiledOmitted
+	}
 	out.Notes = notes(out)
+	if omitted > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf(
+			"Lists are capped at the %d most recent entries per project; %d older entries are left out of the lists but still counted in every total. Narrow the period or the projects to see them.",
+			opt.ItemLimit, omitted))
+	}
 	return out, nil
+}
+
+// latest keeps the last n entries of an oldest-first list and reports how
+// many were dropped.
+func latest[T any](list []T, n int) ([]T, int) {
+	if len(list) <= n {
+		return list, 0
+	}
+	return list[len(list)-n:], len(list) - n
 }
 
 // scope is the filter, applied the same way to every period.
@@ -370,6 +411,9 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 			continue
 		}
 		tot.TasksCompleted++
+		if deref(t.CompletedSource) == store.CompletedInferred {
+			tot.EstimatedCompletions++
+		}
 		ref := TaskRef{ID: t.ID, Title: t.Title, CompletedOn: on, CompletedSource: deref(t.CompletedSource)}
 		if full {
 			ref.Details = t.Details
@@ -396,13 +440,16 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 			continue
 		}
 		tot.ProjectsCompleted++
+		if deref(pr.CompletedSource) == store.CompletedInferred {
+			tot.EstimatedCompletions++
+		}
 		ps := get(pr.ID)
 		ps.CompletedOn = on
 		ps.CompletedSource = deref(pr.CompletedSource)
 	}
 
-	if withDetail {
-		sc.statusHistory(in.StatusChanges, p, now, loc, get)
+	if lists {
+		sc.statusHistory(in.StatusChanges, in.RecordedSince, p, now, loc, get)
 	}
 
 	out := make([]ProjectSummary, 0, len(byProject))
@@ -431,23 +478,47 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 
 // statusHistory adds each in-scope project's status changes in the period
 // and the stretches it spent waiting or blocked. A project whose only news
-// in the period is a status change still appears.
-func (sc *scope) statusHistory(changes []store.ProjectStatusChange, p Period, now time.Time, loc *time.Location, get func(string) *ProjectSummary) {
+// in the period is a status change, or a stall, still appears.
+//
+// The log covers every change since the space began recording them
+// (recordedSince), so a project's status before its first logged change —
+// or its current status, if it has none — is known to have held from the
+// later of that moment and the project's creation. Before that it is
+// unknown, and a stall is not stretched back into it.
+func (sc *scope) statusHistory(changes []store.ProjectStatusChange, recordedSince string, p Period, now time.Time, loc *time.Location, get func(string) *ProjectSummary) {
 	byProject := map[string][]store.ProjectStatusChange{}
 	for _, c := range changes {
-		if sc.projectInScope(c.ProjectID) && sc.tagMatch(nil, c.ProjectID) {
-			byProject[c.ProjectID] = append(byProject[c.ProjectID], c)
-		}
+		byProject[c.ProjectID] = append(byProject[c.ProjectID], c)
 	}
 	today := now.In(loc).Format(day)
-	for pid, cs := range byProject {
+	ids := make([]string, 0, len(sc.projects))
+	for id := range sc.projects {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, pid := range ids {
+		pr := sc.projects[pid]
+		if !sc.projectInScope(pid) || !sc.tagMatch(nil, pid) {
+			continue
+		}
+		cs := byProject[pid]
 		sort.SliceStable(cs, func(i, j int) bool { return cs[i].ChangedAt < cs[j].ChangedAt })
+
+		status := pr.Status
+		if len(cs) > 0 {
+			status = cs[0].FromStatus
+		}
+		since := ""
+		if recordedSince != "" {
+			known := recordedSince
+			if pr.CreatedAt > known {
+				known = pr.CreatedAt
+			}
+			since, _ = localDay(known, loc)
+		}
+
 		var inPeriod []StatusChange
 		var spans []Span
-		// The status before the first recorded change is that change's
-		// from_status, held since some unrecorded time — so a stretch that
-		// starts there is clipped to the period start like any other.
-		status, since := cs[0].FromStatus, ""
 		for _, c := range cs {
 			on, ok := localDay(c.ChangedAt, loc)
 			if !ok {
@@ -474,7 +545,8 @@ func (sc *scope) statusHistory(changes []store.ProjectStatusChange, p Period, no
 }
 
 // appendSpan clips [from, to] to p and appends it when anything is left.
-// An empty from means "since before the record began".
+// An empty from means the start is unknown; the stretch is taken from the
+// period start, the most that can be said without a record.
 func appendSpan(spans []Span, status, from, to string, ongoing bool, p Period) []Span {
 	if from == "" || from < p.From {
 		from = p.From
@@ -497,22 +569,7 @@ func notes(s Summary) []string {
 			"%d done task(s) in scope have no recorded completion date, so they may or may not belong to this period.",
 			s.Totals.UndatedDone))
 	}
-	inferred := 0
-	for _, ps := range s.Projects {
-		for _, t := range ps.Completed {
-			if t.CompletedSource == store.CompletedInferred {
-				inferred++
-			}
-		}
-		if ps.CompletedSource == store.CompletedInferred {
-			inferred++
-		}
-	}
-	for _, t := range s.UnfiledTasksCompleted {
-		if t.CompletedSource == store.CompletedInferred {
-			inferred++
-		}
-	}
+	inferred := s.Totals.EstimatedCompletions
 	if inferred > 0 {
 		out = append(out, fmt.Sprintf(
 			"%d completion date(s) here are estimates, reconstructed for items finished before donezo recorded the moment.",

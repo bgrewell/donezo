@@ -423,6 +423,10 @@ func toolSummarizeWork(ctx context.Context, h *Handler, c caller, args json.RawM
 		ExcludeCatchall: a.IncludeCatchall != nil && !*a.IncludeCatchall,
 		Compare:         a.Compare,
 		Detail:          a.Detail,
+		// The same per-list bound every other read tool keeps, so a year
+		// at full detail cannot swamp the client's context. Totals still
+		// count everything; a note says what was cut.
+		ItemLimit: maxItems,
 	}, now, loc)
 	if err != nil {
 		return err.Error(), true
