@@ -88,7 +88,15 @@ export interface Project {
   /** Manual sort order (ascending; ties break by creation). Set one past the
    *  current max on create; a drag in the Projects list rewrites it. */
   position?: number;
+  /** When the project was completed — see TaskItem.completedAt. */
+  completedAt?: string;
+  completedSource?: CompletedSource;
 }
+
+/** How a completedAt came to be. "recorded" is stamped at the moment of
+ *  completion; "inferred" was reconstructed for items finished before the
+ *  field existed; "manual" was set or corrected by the person. */
+export type CompletedSource = "recorded" | "inferred" | "manual";
 
 export interface ActivityLink {
   label: string;
@@ -113,6 +121,8 @@ export interface ActivityEntry {
   nextAction?: string;
   /** True for the optional planned-work layer (future/tentative entries). */
   planned?: boolean;
+  /** The task whose check-off this entry records, when logged from one. */
+  taskId?: string;
 }
 
 export type TaskStatus = "open" | "waiting" | "someday" | "done";
@@ -133,6 +143,13 @@ export interface TaskItem {
   waitingOn?: string;
   /** ISO yyyy-MM-dd. */
   createdAt: string;
+  /** When the task was done: an RFC 3339 UTC *instant*, unlike the local
+   *  days and datetimes elsewhere — read it with localDayOfInstant, never by
+   *  slicing. Absent while not done, and for old done tasks whose date could
+   *  not be recovered. Stamped by the server on check-off; see
+   *  lib/completion.ts for the rule. */
+  completedAt?: string;
+  completedSource?: CompletedSource;
 }
 
 export interface NoteItem {

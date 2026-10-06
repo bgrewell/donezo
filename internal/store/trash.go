@@ -445,6 +445,12 @@ func purgeWhere(ctx context.Context, tx *sql.Tx, where string, args ...any) (int
 				return 0, fmt.Errorf("store: purge: detach %s from project %q: %w", d.table, pid, err)
 			}
 		}
+		// Status history is about the project and nothing else; it goes
+		// with it.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM project_status_changes WHERE project_id = ?`, pid); err != nil {
+			return 0, fmt.Errorf("store: purge: status history of project %q: %w", pid, err)
+		}
 		// Activities cannot be detached — project_id is NOT NULL, and an
 		// activity is defined as a fact about a project. Any left over go
 		// with it, and they count towards what the purge removed.

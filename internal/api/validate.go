@@ -177,6 +177,44 @@ func isoDateTime(field, v string) error {
 	return fmt.Errorf("%s must be an ISO datetime like 2026-07-26T09:00:00", field)
 }
 
+// completedInstant validates and normalizes a completion time in place: it
+// must be RFC 3339 with a zone (a completion is an instant, not a wall-clock
+// time, so a bare local datetime would be ambiguous), it is stored as UTC so
+// stored values compare as strings, and it may not be in the future — see
+// store.CompletionInstant.
+func completedInstant(field string, v *string) error {
+	if v == nil {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, *v)
+	if err != nil {
+		return fmt.Errorf("%s must be an RFC 3339 instant like 2026-07-26T09:00:00Z", field)
+	}
+	out, ok := store.CompletionInstant(t, time.Now())
+	if !ok {
+		return fmt.Errorf("%s must not be in the future", field)
+	}
+	*v = out
+	return nil
+}
+
+// serverOwnedSource refuses a client-supplied completedSource. Provenance is
+// the server's to record: a completion time the client supplies is the
+// person's own and becomes manual, exactly as on PATCH — otherwise a create
+// could backdate a completion and label it recorded.
+func serverOwnedSource(src *string) error {
+	if src != nil {
+		return errors.New("completedSource is set by the server; send completedAt alone")
+	}
+	return nil
+}
+
+// badPatch is an error from a patch's apply that depends on the stored row,
+// so validate could not catch it. writeStoreError answers it with a 400.
+type badPatch string
+
+func (e badPatch) Error() string { return string(e) }
+
 // optionalNonEmpty rejects an optional string that is present but empty.
 func optionalNonEmpty(field string, v *string) error {
 	if v != nil && *v == "" {
@@ -220,6 +258,8 @@ func validateProjectCreate(p store.Project) error {
 		required("name", p.Name),
 		oneOf("color", p.Color, projectColors),
 		oneOf("status", p.Status, projectStatuses),
+		completedInstant("completedAt", p.CompletedAt),
+		serverOwnedSource(p.CompletedSource),
 	)
 }
 
@@ -234,6 +274,7 @@ func validateActivityCreate(a store.ActivityEntry) error {
 		oneOf("type", a.Type, activityTypes),
 		required("title", a.Title),
 		oneOf("source", a.Source, activitySources),
+		optionalNonEmpty("taskId", a.TaskID),
 	)
 }
 
@@ -245,6 +286,8 @@ func validateTaskCreate(t store.TaskItem) error {
 		oneOf("status", t.Status, taskStatuses),
 		isoDate("createdAt", t.CreatedAt),
 		optionalNonEmpty("projectId", t.ProjectID),
+		completedInstant("completedAt", t.CompletedAt),
+		serverOwnedSource(t.CompletedSource),
 	); err != nil {
 		return err
 	}
@@ -319,8 +362,12 @@ type projectPatch struct {
 	WaitingOn      json.RawMessage `json:"waitingOn"`
 	Tags           *[]string       `json:"tags"`
 	Position       *int            `json:"position"`
+	// CompletedAt corrects when the project was completed; null clears it to
+	// "unknown". Only meaningful while the status is completed.
+	CompletedAt json.RawMessage `json:"completedAt"`
 
-	waitingOn *string // decoded by validate
+	waitingOn   *string // decoded by validate
+	completedAt *string // decoded by validate
 }
 
 // validate checks every present field and decodes the clearable ones.
@@ -343,7 +390,11 @@ func (p *projectPatch) validate() error {
 	if p.Position != nil && *p.Position < 0 {
 		return errors.New("position must not be negative")
 	}
-	return decodeNullable("waitingOn", "string", p.WaitingOn, &p.waitingOn)
+	return firstError(
+		decodeNullable("waitingOn", "string", p.WaitingOn, &p.waitingOn),
+		decodeNullable("completedAt", "string", p.CompletedAt, &p.completedAt),
+		completedInstant("completedAt", p.completedAt),
+	)
 }
 
 // apply copies the present fields onto the stored project.
@@ -384,7 +435,23 @@ func (p *projectPatch) apply(cur *store.Project) error {
 	if p.Position != nil {
 		cur.Position = *p.Position
 	}
+	if p.CompletedAt != nil {
+		if p.completedAt != nil && cur.Status != "completed" {
+			return badPatch("completedAt can only be set on a completed project")
+		}
+		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource(p.completedAt)
+	}
 	return nil
+}
+
+// manualSource is the completedSource for a completion time the person set:
+// manual when there is one, none when they cleared it.
+func manualSource(at *string) *string {
+	if at == nil {
+		return nil
+	}
+	src := store.CompletedManual
+	return &src
 }
 
 // activityPatch is the PATCH activities/{aid} body.
@@ -400,10 +467,12 @@ type activityPatch struct {
 	Links       *[]store.ActivityLink `json:"links"`
 	NextAction  json.RawMessage       `json:"nextAction"`
 	Planned     json.RawMessage       `json:"planned"`
+	TaskID      json.RawMessage       `json:"taskId"`
 
 	effortHours *float64 // decoded by validate
 	nextAction  *string  // decoded by validate
 	planned     *bool    // decoded by validate
+	taskID      *string  // decoded by validate
 }
 
 // validate checks every present field and decodes the clearable ones.
@@ -437,6 +506,8 @@ func (p *activityPatch) validate() error {
 		decodeNullable("effortHours", "number", p.EffortHours, &p.effortHours),
 		decodeNullable("nextAction", "string", p.NextAction, &p.nextAction),
 		decodeNullable("planned", "boolean", p.Planned, &p.planned),
+		decodeNullable("taskId", "string", p.TaskID, &p.taskID),
+		optionalNonEmpty("taskId", p.taskID),
 	)
 }
 
@@ -475,6 +546,9 @@ func (p *activityPatch) apply(cur *store.ActivityEntry) error {
 	if p.Planned != nil {
 		cur.Planned = p.planned
 	}
+	if p.TaskID != nil {
+		cur.TaskID = p.taskID
+	}
 	return nil
 }
 
@@ -489,10 +563,14 @@ type taskPatch struct {
 	Due       json.RawMessage `json:"due"`
 	WaitingOn json.RawMessage `json:"waitingOn"`
 	CreatedAt *string         `json:"createdAt"`
+	// CompletedAt corrects when the task was done; null clears it to
+	// "unknown". Only meaningful while the status is done.
+	CompletedAt json.RawMessage `json:"completedAt"`
 
-	projectID *string // decoded by validate
-	due       *string // decoded by validate
-	waitingOn *string // decoded by validate
+	projectID   *string // decoded by validate
+	due         *string // decoded by validate
+	waitingOn   *string // decoded by validate
+	completedAt *string // decoded by validate
 }
 
 // validate checks every present field and decodes the clearable ones.
@@ -517,6 +595,8 @@ func (p *taskPatch) validate() error {
 		decodeNullable("due", "string", p.Due, &p.due),
 		decodeNullable("waitingOn", "string", p.WaitingOn, &p.waitingOn),
 		optionalNonEmpty("projectId", p.projectID),
+		decodeNullable("completedAt", "string", p.CompletedAt, &p.completedAt),
+		completedInstant("completedAt", p.completedAt),
 	); err != nil {
 		return err
 	}
@@ -548,6 +628,12 @@ func (p *taskPatch) apply(cur *store.TaskItem) error {
 	}
 	if p.CreatedAt != nil {
 		cur.CreatedAt = *p.CreatedAt
+	}
+	if p.CompletedAt != nil {
+		if p.completedAt != nil && cur.Status != "done" {
+			return badPatch("completedAt can only be set on a done task")
+		}
+		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource(p.completedAt)
 	}
 	return nil
 }

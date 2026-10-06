@@ -466,6 +466,9 @@ func buildTools() []tool {
 				"outcome":          strProp("What done looks like."),
 				"color":            enumProp("Project color.", projectColors),
 				"tags":             arrStrProp("Tags on the project (replaces the existing set)."),
+				"completed_at": strProp("Correct when the project was completed: a yyyy-MM-dd date (the user's " +
+					"local day) or an RFC 3339 instant; empty string marks it unknown. Only for a completed " +
+					"project — moving status to completed records the time by itself."),
 			}, "space_id", "project_id"),
 			handler: toolUpdateProject,
 		},
@@ -505,6 +508,9 @@ func buildTools() []tool {
 				"due":        strProp("Due date, yyyy-MM-dd (empty string clears it)."),
 				"project_id": strProp("Project to attach to (empty string detaches it)."),
 				"waiting_on": strProp("Who/what this task is waiting on (empty string clears it)."),
+				"completed_at": strProp("Correct when the task was done: a yyyy-MM-dd date (the user's local " +
+					"day) or an RFC 3339 instant; empty string marks it unknown. Only for a done task — " +
+					"completing one records the time by itself."),
 			}, "space_id", "task_id"),
 			handler: toolUpdateTask,
 		},
@@ -635,6 +641,38 @@ func oneOf(v string, allowed []string) bool {
 func validDate(v string) bool {
 	_, err := time.Parse("2006-01-02", v)
 	return err == nil
+}
+
+// completedAtArg turns a completed_at argument into the stored form. A bare
+// date is the caller's local day, recorded at local noon so it stays on that
+// day whatever zone it is later read in — or at now, when that day is today
+// and noon has not come yet. A date after today, or an instant in the future,
+// is refused. "" is "unknown" and yields nil. Returns an error message for
+// anything it cannot accept.
+func completedAtArg(v string, loc *time.Location, now time.Time) (*string, string) {
+	if v == "" {
+		return nil, ""
+	}
+	var t time.Time
+	if d, err := time.ParseInLocation("2006-01-02", v, loc); err == nil {
+		if v > now.In(loc).Format("2006-01-02") {
+			return nil, "completed_at must not be in the future"
+		}
+		// time.Date, not midnight plus twelve hours: on a daylight-saving
+		// day that lands at 11:00 or 13:00, and the same day set from the
+		// web would store a different instant.
+		t = time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, loc)
+		if t.After(now) {
+			t = now
+		}
+	} else if t, err = time.Parse(time.RFC3339, v); err != nil {
+		return nil, "completed_at must be a yyyy-MM-dd date or an RFC 3339 instant"
+	}
+	out, ok := store.CompletionInstant(t, now)
+	if !ok {
+		return nil, "completed_at must not be in the future"
+	}
+	return &out, ""
 }
 
 // validDateTime reports whether v is an ISO datetime, with or without a

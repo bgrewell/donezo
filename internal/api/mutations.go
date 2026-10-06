@@ -19,7 +19,10 @@ import (
 // broken project references a calm 400. Anything else is an internal
 // fault: logged, and answered with an opaque 500.
 func (s *Server) writeStoreError(w http.ResponseWriter, kind string, err error) {
+	var bad badPatch
 	switch {
+	case errors.As(err, &bad):
+		writeError(w, http.StatusBadRequest, bad.Error())
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, kind+" not found")
 	case errors.Is(err, store.ErrDuplicateID):

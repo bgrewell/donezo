@@ -61,6 +61,20 @@ export function localDayOfInstant(instant: string): string {
   return toISODate(new Date(instant));
 }
 
+/** The current moment as an RFC 3339 UTC instant, in the server's
+ *  seconds-precision form (2026-07-26T16:30:05Z). */
+export function nowInstant(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** The instant for "this local day" when only the day is known: local noon,
+ *  which stays on the same calendar day wherever it is later read back. */
+export function instantOfLocalDay(iso: string): string {
+  const d = parseDate(iso);
+  d.setHours(12, 0, 0, 0);
+  return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 /** relativeFromToday for a true instant rather than a local day.
  *  See localDayOfInstant for why the two cannot share a code path. */
 export function relativeFromInstant(instant: string): string {

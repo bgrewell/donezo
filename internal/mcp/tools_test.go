@@ -433,16 +433,24 @@ func TestCompleteTask(t *testing.T) {
 	}
 	var got struct {
 		Task struct {
-			Status string `json:"status"`
+			Status          string `json:"status"`
+			CompletedSource string `json:"completedSource"`
 		} `json:"task"`
 		LoggedActivity bool `json:"loggedActivity"`
 		Activity       *struct {
-			Title string `json:"title"`
+			Title  string `json:"title"`
+			TaskID string `json:"taskId"`
 		} `json:"activity"`
 	}
 	parseToolJSON(t, text, &got)
 	if got.Task.Status != "done" || !got.LoggedActivity || got.Activity == nil || got.Activity.Title != "ship it" {
 		t.Errorf("complete twp = %+v", got)
+	}
+	// The completion is recorded, and the activity says which task it closed,
+	// so a summary never has to guess the pairing again.
+	if got.Task.CompletedSource != "recorded" || got.Activity == nil || got.Activity.TaskID != "twp" {
+		t.Errorf("complete twp: completedSource=%q activity=%+v, want recorded and linked to twp",
+			got.Task.CompletedSource, got.Activity)
 	}
 
 	// Task without a project: completes, but no activity.

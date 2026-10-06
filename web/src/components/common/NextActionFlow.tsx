@@ -62,6 +62,7 @@ export function matchingTaskFor(
 export function ActivityLogStrip({
   project,
   initialTitle,
+  taskId,
   note,
   skipLabel = "Skip logging",
   onClose,
@@ -69,6 +70,8 @@ export function ActivityLogStrip({
 }: {
   project: Project;
   initialTitle: string;
+  /** The task being completed, so the activity records which one it was. */
+  taskId?: string;
   /** Extra quiet line, e.g. "also completes task: <title>". */
   note?: string;
   skipLabel?: string;
@@ -100,6 +103,7 @@ export function ActivityLogStrip({
         source: "manual",
         tags: [],
         links: [],
+        taskId,
       },
     });
     onClose(true);
@@ -456,6 +460,7 @@ export function NextActionFlow({
         <ActivityLogStrip
           project={project}
           initialTitle={text}
+          taskId={task?.id}
           note={task ? `also completes task: ${task.title}` : undefined}
           onClose={() => finishDone(flow.altIndex)}
           onCancel={() => setFlow({ kind: "idle" })}

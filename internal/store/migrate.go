@@ -23,6 +23,23 @@ type migration struct {
 	version int
 	name    string
 	sql     string
+	// step, when set, runs after sql inside the same transaction. It is for
+	// the rare migration whose data change is clearer in Go than in SQL; see
+	// migrationSteps.
+	step migrationStep
+}
+
+// migrationStep is Go code that belongs to one migration version. It runs in
+// that migration's transaction, so the schema change, the data change and the
+// schema_migrations row commit or roll back together — and, like the SQL, it
+// runs exactly once per database.
+type migrationStep func(ctx context.Context, tx *sql.Tx, now string) error
+
+// migrationSteps maps a migrations directory to the Go steps of its versions.
+var migrationSteps = map[string]map[int]migrationStep{
+	"migrations/space": {
+		8: backfillCompletions,
+	},
 }
 
 // loadMigrations reads and orders the migration files under dir in fsys.
@@ -49,7 +66,9 @@ func loadMigrations(fsys fs.FS, dir string) ([]migration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("store: read migration %s: %w", name, err)
 		}
-		migs = append(migs, migration{version: version, name: name, sql: string(body)})
+		migs = append(migs, migration{
+			version: version, name: name, sql: string(body), step: migrationSteps[dir][version],
+		})
 	}
 	sort.Slice(migs, func(i, j int) bool { return migs[i].version < migs[j].version })
 	for i := 1; i < len(migs); i++ {
@@ -109,6 +128,11 @@ func applyMigration(ctx context.Context, db *sql.DB, m migration, now func() str
 	}()
 	if _, err = tx.ExecContext(ctx, m.sql); err != nil {
 		return fmt.Errorf("store: apply migration %s: %w", m.name, err)
+	}
+	if m.step != nil {
+		if err = m.step(ctx, tx, now()); err != nil {
+			return fmt.Errorf("store: apply migration %s: %w", m.name, err)
+		}
 	}
 	if _, err = tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`,
