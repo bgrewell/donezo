@@ -14,8 +14,8 @@ export interface Completable {
  *  - not finished: both fields cleared;
  *  - staying finished: as the patch leaves it, including cleared ("unknown").
  *
- *  A patch that sets completedAt is the person correcting it, so its source
- *  becomes manual. The source itself never travels: the server derives it the
+ *  A patch that sets or clears completedAt is the person correcting it, so
+ *  its source becomes manual — kept even with no date. The source itself never travels: the server derives it the
  *  same way, and rejects it as an unknown PATCH field. */
 export function applyCompletion<T extends Completable>(
   prev: T | undefined,
@@ -24,7 +24,10 @@ export function applyCompletion<T extends Completable>(
 ): T {
   const next = { ...prev, ...patch } as T;
   if ("completedAt" in patch) {
-    next.completedSource = patch.completedAt ? "manual" : undefined;
+    // Setting or clearing: either way it is the person's call, and a
+    // cleared date keeps the mark so a summary can tell it from one that
+    // was never recorded.
+    next.completedSource = "manual";
   }
   if (!finished(next)) {
     next.completedAt = undefined;

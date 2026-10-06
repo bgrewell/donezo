@@ -149,6 +149,8 @@ export interface TaskItem {
    *  not be recovered. Stamped by the server on check-off; see
    *  lib/completion.ts for the rule. */
   completedAt?: string;
+  /** Absent with completedAt, except "manual" with no date: the person
+   *  marked it unknown (as opposed to never recorded). */
   completedSource?: CompletedSource;
 }
 

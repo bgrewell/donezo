@@ -47,11 +47,12 @@ type Options struct {
 	Compare bool
 	// Detail is one of Details; empty is DetailItems.
 	Detail string
-	// ItemLimit, when positive, caps each list a project carries (and the
-	// unfiled completions) at its most recent ItemLimit entries; the rest are
-	// counted in the *Omitted fields and a note. Totals always count
-	// everything. For callers with a context budget — an MCP client — where a
-	// year at full detail would not fit.
+	// ItemLimit, when positive, caps every list in the result at ItemLimit
+	// entries: the projects at the busiest, and each project's items,
+	// completions, status changes and stalls (and the unfiled completions)
+	// at the most recent. The rest are counted in the *Omitted fields and a
+	// note; totals always count everything. For callers with a context
+	// budget — an MCP client — where a year at full detail would not fit.
 	ItemLimit int
 }
 
@@ -88,6 +89,9 @@ type Summary struct {
 	// Projects that saw any activity, completion or status change in the
 	// period, busiest first; the catch-all sorts last.
 	Projects []ProjectSummary `json:"projects"`
+	// ProjectsOmitted counts the least busy projects left out under
+	// Options.ItemLimit; their work is still in Totals.
+	ProjectsOmitted int `json:"projectsOmitted,omitempty"`
 	// UnfiledTasksCompleted are tasks with no project finished in the period.
 	UnfiledTasksCompleted []TaskRef `json:"unfiledTasksCompleted,omitempty"`
 	// UnfiledOmitted counts older unfiled completions left out under
@@ -146,9 +150,13 @@ type ProjectSummary struct {
 	CompletedOmitted int `json:"completedOmitted,omitempty"`
 	// StatusChanges in the period, oldest first.
 	StatusChanges []StatusChange `json:"statusChanges,omitempty"`
+	// StatusChangesOmitted counts older changes left out under ItemLimit.
+	StatusChangesOmitted int `json:"statusChangesOmitted,omitempty"`
 	// Stalled are the stretches of the period spent waiting or blocked, as
 	// far as the status history records.
 	Stalled []Span `json:"stalled,omitempty"`
+	// StalledOmitted counts older stretches left out under ItemLimit.
+	StalledOmitted int `json:"stalledOmitted,omitempty"`
 
 	// Where it stands now: what is next and what it waits on.
 	NextAction string `json:"nextAction,omitempty"`
@@ -223,20 +231,28 @@ func Build(in Input, p Period, opt Options, now time.Time, loc *time.Location) (
 		out.Previous = &Comparison{Period: prev, Totals: totals}
 	}
 	omitted := 0
-	if opt.ItemLimit > 0 {
+	if n := opt.ItemLimit; n > 0 {
+		if len(out.Projects) > n {
+			out.ProjectsOmitted = len(out.Projects) - n
+			out.Projects = out.Projects[:n]
+			omitted += out.ProjectsOmitted
+		}
 		for i := range out.Projects {
 			ps := &out.Projects[i]
-			ps.Items, ps.ItemsOmitted = latest(ps.Items, opt.ItemLimit)
-			ps.Completed, ps.CompletedOmitted = latest(ps.Completed, opt.ItemLimit)
-			omitted += ps.ItemsOmitted + ps.CompletedOmitted
+			ps.Items, ps.ItemsOmitted = latest(ps.Items, n)
+			ps.Completed, ps.CompletedOmitted = latest(ps.Completed, n)
+			ps.StatusChanges, ps.StatusChangesOmitted = latest(ps.StatusChanges, n)
+			ps.Stalled, ps.StalledOmitted = latest(ps.Stalled, n)
+			omitted += ps.ItemsOmitted + ps.CompletedOmitted + ps.StatusChangesOmitted + ps.StalledOmitted
 		}
-		out.UnfiledTasksCompleted, out.UnfiledOmitted = latest(out.UnfiledTasksCompleted, opt.ItemLimit)
+		out.UnfiledTasksCompleted, out.UnfiledOmitted = latest(out.UnfiledTasksCompleted, n)
 		omitted += out.UnfiledOmitted
 	}
+	// Notes read only the totals, which the cap never touches.
 	out.Notes = notes(out)
 	if omitted > 0 {
 		out.Notes = append(out.Notes, fmt.Sprintf(
-			"Lists are capped at the %d most recent entries per project; %d older entries are left out of the lists but still counted in every total. Narrow the period or the projects to see them.",
+			"Every list here is capped at %d entries (the busiest projects; the most recent of everything else), so %d are left out of the lists — the *Omitted fields say where. Totals still count everything. Narrow the period or the projects to see them.",
 			opt.ItemLimit, omitted))
 	}
 	return out, nil
@@ -401,7 +417,7 @@ func (sc *scope) collect(in Input, p Period, opt Options, now time.Time, loc *ti
 			continue
 		}
 		if t.CompletedAt == nil {
-			if undatedMayBelong(in.RecordedSince, p, loc) {
+			if undatedMayBelong(t, in.RecordedSince, p, loc) {
 				tot.UndatedDone++
 			}
 			continue
@@ -582,9 +598,12 @@ func notes(s Summary) []string {
 }
 
 // undatedMayBelong reports whether an undated done task could have been
-// finished in p: only if p starts on or before the day recording began.
-func undatedMayBelong(recordedSince string, p Period, loc *time.Location) bool {
-	if recordedSince == "" {
+// finished in p. One the person marked unknown (source manual) could belong
+// anywhere. One never dated was finished before recording began — every
+// completion since is stamped — so only a period starting on or before that
+// day can hold it.
+func undatedMayBelong(t store.TaskItem, recordedSince string, p Period, loc *time.Location) bool {
+	if recordedSince == "" || deref(t.CompletedSource) == store.CompletedManual {
 		return true
 	}
 	since, ok := localDay(recordedSince, loc)

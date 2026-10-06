@@ -249,8 +249,9 @@ func TestUpdateTaskCompletedAtIsTheCallersDay(t *testing.T) {
 	if text, isErr := call(`"completed_at":""`); isErr {
 		t.Fatalf("clear: %s", text)
 	}
-	if got := read(); got.Status != "done" || got.CompletedAt != nil || got.CompletedSource != nil {
-		t.Errorf("after clear = %+v, want done with no completion", got)
+	if got := read(); got.Status != "done" || got.CompletedAt != nil ||
+		got.CompletedSource == nil || *got.CompletedSource != store.CompletedManual {
+		t.Errorf("after clear = %+v, want done with no date and source manual", got)
 	}
 }
 

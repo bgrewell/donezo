@@ -439,17 +439,16 @@ func (p *projectPatch) apply(cur *store.Project) error {
 		if p.completedAt != nil && cur.Status != "completed" {
 			return badPatch("completedAt can only be set on a completed project")
 		}
-		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource(p.completedAt)
+		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource()
 	}
 	return nil
 }
 
-// manualSource is the completedSource for a completion time the person set:
-// manual when there is one, none when they cleared it.
-func manualSource(at *string) *string {
-	if at == nil {
-		return nil
-	}
+// manualSource is the completedSource for a completion time the person set
+// or cleared. Always manual: a cleared date keeps the mark, which is what
+// tells "the person said unknown" apart from an old task that was never dated
+// (both have no completedAt) — a summary treats the two differently.
+func manualSource() *string {
 	src := store.CompletedManual
 	return &src
 }
@@ -633,7 +632,7 @@ func (p *taskPatch) apply(cur *store.TaskItem) error {
 		if p.completedAt != nil && cur.Status != "done" {
 			return badPatch("completedAt can only be set on a done task")
 		}
-		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource(p.completedAt)
+		cur.CompletedAt, cur.CompletedSource = p.completedAt, manualSource()
 	}
 	return nil
 }

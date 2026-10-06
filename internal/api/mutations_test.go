@@ -415,8 +415,11 @@ func TestEntityMutationEndpoints(t *testing.T) {
 			checkState: func(t *testing.T, state map[string]json.RawMessage) {
 				t.Helper()
 				tasks := string(state["tasks"])
-				if !strings.Contains(tasks, `"status":"done"`) || strings.Contains(tasks, "completed") {
-					t.Errorf("want a done task with no completion fields: %s", tasks)
+				// No date, but marked as the person's call, so a summary can
+				// tell it from an old task that was never dated.
+				if !strings.Contains(tasks, `"status":"done"`) || strings.Contains(tasks, "completedAt") ||
+					!strings.Contains(tasks, `"completedSource":"manual"`) {
+					t.Errorf("want a done task with no date and source manual: %s", tasks)
 				}
 			},
 		},

@@ -16,12 +16,13 @@ import (
 //   - Becoming done with no completed_at given: stamped now, as recorded.
 //   - Not done: both cleared, so reopening forgets the old date and finishing
 //     again records the new one.
-//   - Staying done: left exactly as the write has it. That includes nil, which
-//     is how a person says "I don't know when" after clearing a wrong
-//     inferred date — re-stamping it with today would be a new wrong date.
+//   - Staying done: left exactly as the write has it. That includes no
+//     instant, which is how a person says "I don't know when" after clearing
+//     a wrong inferred date — re-stamping it with today would be a new wrong
+//     date. Their clear carries source manual; an old task never dated has
+//     none, and the two mean different things to a summary.
 //
-// The source is kept consistent with the instant: an instant without one is
-// treated as the person's, and no instant means no source.
+// An instant without a source is treated as the person's.
 func stampTaskCompletion(t *TaskItem, wasDone bool, now string) {
 	t.CompletedAt, t.CompletedSource = stampCompletion(t.Status == "done", wasDone, t.CompletedAt, t.CompletedSource, now)
 }
@@ -40,7 +41,7 @@ func stampCompletion(isDone, wasDone bool, at, src *string, now string) (*string
 	}
 	if at == nil {
 		if wasDone {
-			return nil, nil
+			return nil, src
 		}
 		a, s := now, CompletedRecorded
 		return &a, &s
@@ -102,6 +103,12 @@ func (s *SpaceStore) ListProjectStatusChanges(ctx context.Context, spaceID strin
 	if err != nil {
 		return nil, err
 	}
+	return listProjectStatusChanges(ctx, db)
+}
+
+// listProjectStatusChanges is ListProjectStatusChanges via q, so a snapshot can read it inside one transaction.
+func listProjectStatusChanges(ctx context.Context, q querier) ([]ProjectStatusChange, error) {
+	db := q
 	rows, err := db.QueryContext(ctx,
 		`SELECT c.project_id, COALESCE(c.from_status, ''), c.to_status, c.changed_at
 		 FROM project_status_changes c JOIN projects p ON p.id = c.project_id
@@ -122,4 +129,49 @@ func (s *SpaceStore) ListProjectStatusChanges(ctx context.Context, spaceID strin
 		return nil, fmt.Errorf("store: list status changes: %w", err)
 	}
 	return out, nil
+}
+
+// SummarySnapshot is everything a work summary reads — the space's state, its
+// project status history, and when it began recording completions — taken in
+// one transaction, so the three agree. Read separately, a status change
+// landing between them could pair a project still "active" in the state with
+// a history that says it went blocked.
+func (s *SpaceStore) SummarySnapshot(ctx context.Context, spaceID string) (SpaceState, []ProjectStatusChange, string, error) {
+	db, err := s.db(ctx, spaceID)
+	if err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return SpaceState{}, nil, "", fmt.Errorf("store: summary snapshot: begin: %w", err)
+	}
+	defer rollbackQuietly(tx)
+	var st SpaceState
+	if st.Projects, err = listProjects(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	if st.Activities, err = listActivities(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	if st.Tasks, err = listTasks(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	if st.Notes, err = listNotes(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	if st.Reminders, err = listReminders(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	if st.Inbox, err = listInboxItems(ctx, tx); err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	changes, err := listProjectStatusChanges(ctx, tx)
+	if err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	since, err := completionsRecordedSince(ctx, tx)
+	if err != nil {
+		return SpaceState{}, nil, "", err
+	}
+	return st, changes, since, nil
 }

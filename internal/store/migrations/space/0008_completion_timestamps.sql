@@ -14,7 +14,8 @@
 --   inferred  reconstructed for rows completed before this column existed
 --             (see the Go step that runs with this migration, backfill.go)
 --   manual    set or corrected by the person
--- It is NULL exactly when completed_at is.
+-- It is NULL whenever completed_at is, with one exception: manual with no
+-- completed_at records that the person cleared the date to "unknown".
 ALTER TABLE tasks    ADD COLUMN completed_at     TEXT;
 ALTER TABLE tasks    ADD COLUMN completed_source TEXT;
 ALTER TABLE projects ADD COLUMN completed_at     TEXT;

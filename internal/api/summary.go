@@ -79,17 +79,9 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// summaryInput loads what a summary is built from.
+// summaryInput loads what a summary is built from, in one snapshot.
 func (s *Server) summaryInput(ctx context.Context, spaceID string) (summary.Input, error) {
-	st, err := s.spaces.State(ctx, spaceID)
-	if err != nil {
-		return summary.Input{}, err
-	}
-	changes, err := s.spaces.ListProjectStatusChanges(ctx, spaceID)
-	if err != nil {
-		return summary.Input{}, err
-	}
-	since, err := s.spaces.CompletionsRecordedSince(ctx, spaceID)
+	st, changes, since, err := s.spaces.SummarySnapshot(ctx, spaceID)
 	if err != nil {
 		return summary.Input{}, err
 	}

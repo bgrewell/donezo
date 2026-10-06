@@ -288,6 +288,23 @@ func TestBuildUndatedOnlyBeforeRecording(t *testing.T) {
 			t.Errorf("since %q: note present = %v", tt.since, hasNote)
 		}
 	}
+
+	// A date the person cleared to unknown could be from any time, so it
+	// stays in scope even for a period long after recording began.
+	in := fixture()
+	in.RecordedSince = "2026-09-01T00:00:00Z"
+	for i := range in.State.Tasks {
+		if in.State.Tasks[i].ID == "t2" {
+			in.State.Tasks[i].CompletedSource = ptr(store.CompletedManual)
+		}
+	}
+	s, err := Build(in, week(t), Options{}, fixtureNow, time.UTC)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if s.Totals.UndatedDone != 1 {
+		t.Errorf("person-cleared date: undated = %d, want 1", s.Totals.UndatedDone)
+	}
 }
 
 // A project already waiting or blocked when the status log began has no rows
@@ -341,8 +358,25 @@ func TestBuildItemLimit(t *testing.T) {
 	if s.Totals.Activities != 4 || s.Totals.TasksCompleted != 3 {
 		t.Errorf("totals = %+v, want them uncapped", s.Totals)
 	}
-	if !strings.Contains(strings.Join(s.Notes, " "), "2 older entries are left out") {
+	// Only the busiest project survives a limit of one: 3 projects, plus one
+	// item and one completion of loom's, are left out.
+	if len(s.Projects) != 1 || s.ProjectsOmitted != 3 {
+		t.Errorf("projects = %v (omitted %d), want loom with 3 omitted", projectIDs(s), s.ProjectsOmitted)
+	}
+	if !strings.Contains(strings.Join(s.Notes, " "), "so 5 are left out") {
 		t.Errorf("notes = %q", s.Notes)
+	}
+	// Status changes and stalls are capped like everything else.
+	in := fixture()
+	in.StatusChanges = append(in.StatusChanges,
+		store.ProjectStatusChange{ProjectID: "ops", FromStatus: "active", ToStatus: "paused", ChangedAt: "2026-10-09T09:00:00Z"})
+	capped, err := Build(in, week(t), Options{ItemLimit: 2, ProjectIDs: []string{"ops"}}, fixtureNow, time.UTC)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	ops := find(t, capped, "ops")
+	if len(ops.StatusChanges) != 2 || ops.StatusChangesOmitted != 1 || ops.StatusChanges[1].To != "paused" {
+		t.Errorf("ops status changes = %+v (omitted %d), want the latest 2 with 1 omitted", ops.StatusChanges, ops.StatusChangesOmitted)
 	}
 	if none := build(t, Options{}); find(t, none, "loom").ItemsOmitted != 0 {
 		t.Error("omitted without a limit")

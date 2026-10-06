@@ -252,6 +252,12 @@ func TestTaskCompletionStamping(t *testing.T) {
 	got = patch("t1", func(t *TaskItem) { t.CompletedAt, t.CompletedSource = nil, nil })
 	want("cleared to unknown stays unknown", got, "", "")
 
+	// A person's clear keeps its manual mark, through unrelated edits too.
+	got = patch("t1", func(t *TaskItem) { t.CompletedAt, t.CompletedSource = nil, ptr(CompletedManual) })
+	want("marked unknown by the person", got, "", CompletedManual)
+	got = patch("t1", func(t *TaskItem) { t.Details = "edited" })
+	want("unknown survives an edit", got, "", CompletedManual)
+
 	got = patch("t1", func(t *TaskItem) { t.Status = "open" })
 	want("reopen", got, "", "")
 

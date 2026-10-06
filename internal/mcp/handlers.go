@@ -400,17 +400,8 @@ func toolSummarizeWork(ctx context.Context, h *Handler, c caller, args json.RawM
 	if err != nil {
 		return err.Error(), true
 	}
-	st, err := h.spaces.State(ctx, sp.ID)
-	if err != nil {
-		h.logger.Printf("mcp summarize: %v", err)
-		return "internal error", true
-	}
-	changes, err := h.spaces.ListProjectStatusChanges(ctx, sp.ID)
-	if err != nil {
-		h.logger.Printf("mcp summarize: %v", err)
-		return "internal error", true
-	}
-	since, err := h.spaces.CompletionsRecordedSince(ctx, sp.ID)
+	// One snapshot: state, status history and recording start must agree.
+	st, changes, since, err := h.spaces.SummarySnapshot(ctx, sp.ID)
 	if err != nil {
 		h.logger.Printf("mcp summarize: %v", err)
 		return "internal error", true
@@ -628,12 +619,11 @@ func toolListReminders(ctx context.Context, h *Handler, c caller, args json.RawM
 // something not finished; the handler reports it in its own words.
 var errCompletedAtStatus = errors.New("completed_at on an unfinished item")
 
-// manualSource is the completedSource for a completion time the caller set:
-// manual when there is one, none when it was cleared.
-func manualSource(at *string) *string {
-	if at == nil {
-		return nil
-	}
+// manualSource is the completedSource for a completion time the caller set
+// or cleared. Always manual: a cleared date keeps the mark, which is what
+// tells "the caller said unknown" apart from an old task that was never dated
+// (both have no completedAt) — a summary treats the two differently.
+func manualSource() *string {
 	src := store.CompletedManual
 	return &src
 }
@@ -1323,7 +1313,7 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 			if completedAt != nil && p.Status != "completed" {
 				return errCompletedAtStatus
 			}
-			p.CompletedAt, p.CompletedSource = completedAt, manualSource(completedAt)
+			p.CompletedAt, p.CompletedSource = completedAt, manualSource()
 		}
 		return nil
 	})
@@ -1454,7 +1444,7 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 			if completedAt != nil && t.Status != "done" {
 				return errCompletedAtStatus
 			}
-			t.CompletedAt, t.CompletedSource = completedAt, manualSource(completedAt)
+			t.CompletedAt, t.CompletedSource = completedAt, manualSource()
 		}
 		return nil
 	})

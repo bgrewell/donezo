@@ -75,8 +75,13 @@ func (s *SpaceStore) CompletionsRecordedSince(ctx context.Context, spaceID strin
 	if err != nil {
 		return "", err
 	}
+	return completionsRecordedSince(ctx, db)
+}
+
+// completionsRecordedSince is CompletionsRecordedSince via q.
+func completionsRecordedSince(ctx context.Context, q rowQuerier) (string, error) {
 	var raw string
-	err = db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, completionBackfillKey).Scan(&raw)
+	err := q.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, completionBackfillKey).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
