@@ -79,6 +79,11 @@ func TestSummaryEndpoint(t *testing.T) {
 		}
 	}
 
+	if rec := doJSON(t, h, http.MethodPost, "/api/spaces/sandbox/summary", "{}"); rec.Code != http.StatusMethodNotAllowed ||
+		rec.Header().Get("Allow") != http.MethodGet {
+		t.Errorf("POST summary: %d Allow=%q, want 405 Allow=GET", rec.Code, rec.Header().Get("Allow"))
+	}
+
 	if rec := doJSON(t, h, http.MethodGet, "/api/spaces/private/summary", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("someone else's space: %d, want 404", rec.Code)
 	}

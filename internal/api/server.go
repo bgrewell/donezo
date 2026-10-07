@@ -434,6 +434,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/trash/{entity}/{tid}":         http.MethodDelete,
 		"/api/spaces/{id}/trash/{entity}/{tid}/restore": http.MethodPost,
 		"/api/spaces/{id}/revision":                     http.MethodGet,
+		"/api/spaces/{id}/summary":                      http.MethodGet,
 		"/api/spaces/{id}/projects":                     http.MethodPost,
 		"/api/spaces/{id}/catchall":                     http.MethodPost,
 		// No bare-path 405 entry for projects/reorder: it would match all

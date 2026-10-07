@@ -442,6 +442,25 @@ func TestBuildOrderIsDeterministic(t *testing.T) {
 	}
 }
 
+// Looking back at a past period, a stall that is still going is clipped to
+// where the period ends but stays marked ongoing — it did not end there.
+func TestBuildOngoingStallInPastPeriod(t *testing.T) {
+	t.Parallel()
+	past, err := ResolvePeriod("", "2026-09-21", "2026-09-27", time.Monday, fixtureNow, time.UTC)
+	if err != nil {
+		t.Fatalf("period: %v", err)
+	}
+	s, err := Build(fixture(), past, Options{}, fixtureNow, time.UTC)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	// loom went waiting on 2026-09-20 and never changed back.
+	want := []Span{{Status: "waiting", From: "2026-09-21", To: "2026-09-27", Ongoing: true}}
+	if got := find(t, s, "loom").Stalled; !reflect.DeepEqual(got, want) {
+		t.Errorf("stalled = %+v, want %+v", got, want)
+	}
+}
+
 func TestBuildRejects(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {

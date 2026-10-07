@@ -203,7 +203,7 @@ type Span struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	// Ongoing is true when the status had not changed again by the end of
-	// the record.
+	// the record — including when To is only where the period stops.
 	Ongoing bool `json:"ongoing,omitempty"`
 }
 
@@ -577,9 +577,10 @@ func appendSpan(spans []Span, status, from, to string, ongoing bool, p Period) [
 	if from == "" || from < p.From {
 		from = p.From
 	}
+	// Clipping the end to the period keeps Ongoing: the status has still
+	// not changed, the period just stops looking before it does.
 	if to > p.To {
 		to = p.To
-		ongoing = false
 	}
 	if from > to {
 		return spans
