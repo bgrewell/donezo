@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -247,8 +249,9 @@ func TestUpdateTaskCompletedAtIsTheCallersDay(t *testing.T) {
 	if text, isErr := call(`"completed_at":""`); isErr {
 		t.Fatalf("clear: %s", text)
 	}
-	if got := read(); got.Status != "done" || got.CompletedAt != nil || got.CompletedSource != nil {
-		t.Errorf("after clear = %+v, want done with no completion", got)
+	if got := read(); got.Status != "done" || got.CompletedAt != nil ||
+		got.CompletedSource == nil || *got.CompletedSource != store.CompletedManual {
+		t.Errorf("after clear = %+v, want done with no date and source manual", got)
 	}
 }
 
@@ -300,6 +303,90 @@ func deref(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// summarize_work reads periods in the caller's zone, and is a read tool — a
+// read-only token can call it. At eveningClock it is still Saturday
+// 2026-07-25 in Los Angeles, so "today" holds what was just logged there,
+// where UTC would already be on Sunday.
+func TestSummarizeWorkInTheCallersTimezone(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, WithClock(eveningClock), WithLocation(time.UTC))
+	f.setTimezone(t, losAngeles)
+	if text, isErr := f.callTool(t, f.rw, "log_activity",
+		`{"space_id":"sandbox","project_id":"loom","title":"evening work","effort_hours":1.5}`); isErr {
+		t.Fatalf("log_activity: %s", text)
+	}
+
+	text, isErr := f.callTool(t, f.ro, "summarize_work", `{"space_id":"sandbox","period":"today","compare":true}`)
+	if isErr {
+		t.Fatalf("summarize_work: %s", text)
+	}
+	var got struct {
+		Period struct {
+			From, To, Timezone string
+		} `json:"period"`
+		Totals struct {
+			Activities int     `json:"activities"`
+			Hours      float64 `json:"hours"`
+		} `json:"totals"`
+		Projects []struct {
+			ID    string `json:"id"`
+			Items []struct {
+				Title string `json:"title"`
+			} `json:"items"`
+		} `json:"projects"`
+		Previous *struct{} `json:"previous"`
+	}
+	parseToolJSON(t, text, &got)
+	if got.Period.From != laDay || got.Period.Timezone != losAngeles {
+		t.Errorf("period = %+v, want %s in %s", got.Period, laDay, losAngeles)
+	}
+	if got.Totals.Activities != 1 || got.Totals.Hours != 1.5 || len(got.Projects) != 1 ||
+		len(got.Projects[0].Items) != 1 || got.Projects[0].Items[0].Title != "evening work" || got.Previous == nil {
+		t.Errorf("summary = %s", text)
+	}
+
+	// Lists are held to the read-tool bound; totals still count everything.
+	for i := 0; i < maxItems+5; i++ {
+		if _, err := f.spaces.CreateActivity(context.Background(), "sandbox", store.ActivityEntry{
+			ID: fmt.Sprintf("bulk-%02d", i), ProjectID: "loom", Date: "2026-07-20", Type: "work",
+			Title: "bulk", Source: "manual", Tags: []string{}, Links: []store.ActivityLink{},
+		}); err != nil {
+			t.Fatalf("seed bulk activity: %v", err)
+		}
+	}
+	text, isErr = f.callTool(t, f.ro, "summarize_work",
+		`{"space_id":"sandbox","from":"2026-07-01","to":"2026-07-31","detail":"full"}`)
+	if isErr {
+		t.Fatalf("summarize_work bulk: %s", text)
+	}
+	var bulk struct {
+		Totals struct {
+			Activities int `json:"activities"`
+		} `json:"totals"`
+		Projects []struct {
+			Items        []json.RawMessage `json:"items"`
+			ItemsOmitted int               `json:"itemsOmitted"`
+		} `json:"projects"`
+	}
+	parseToolJSON(t, text, &bulk)
+	if bulk.Totals.Activities != maxItems+6 || len(bulk.Projects[0].Items) != maxItems || bulk.Projects[0].ItemsOmitted != 6 {
+		t.Errorf("bulk: totals=%d items=%d omitted=%d, want %d / %d / 6",
+			bulk.Totals.Activities, len(bulk.Projects[0].Items), bulk.Projects[0].ItemsOmitted, maxItems+6, maxItems)
+	}
+
+	for _, tc := range []struct{ args, want string }{
+		{`{"space_id":"sandbox","period":"fortnight"}`, "period must be one of"},
+		{`{"space_id":"sandbox","from":"2026-07-01"}`, "needs both"},
+		{`{"space_id":"sandbox","detail":"verbose"}`, "detail must be one of"},
+		{`{"space_id":"sandbox","project_ids":["ghost"]}`, "not found"},
+		{`{"space_id":"sandbox","week_start":"friday"}`, "week start must be"},
+	} {
+		if text, isErr := f.callTool(t, f.ro, "summarize_work", tc.args); !isErr || !strings.Contains(text, tc.want) {
+			t.Errorf("%s: isErr=%v text=%s, want %q", tc.args, isErr, text, tc.want)
+		}
+	}
 }
 
 // East of Greenwich the error runs the other way: the same instant is already

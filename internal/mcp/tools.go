@@ -8,6 +8,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/bgrewell/donezo/internal/store"
+	"github.com/bgrewell/donezo/internal/summary"
 )
 
 // This file defines the curated tool surface and registers it with the SDK
@@ -250,6 +251,33 @@ func buildTools() []tool {
 				"to_date":   strProp("End of the range, inclusive, yyyy-MM-dd."),
 			}, "space_id", "from_date", "to_date"),
 			handler: toolGetTimeline,
+		},
+		{
+			name:  "summarize_work",
+			title: "Summarize work",
+			description: "What got done over a period, for a recap, standup, status report or timesheet: activities " +
+				"grouped by project with hours and types, tasks and projects completed, status changes, and stretches " +
+				"spent waiting or blocked. Pick a preset period or give from/to; days are the user's local days. " +
+				"Prefer this over get_timeline when the question is \"what did I do\" rather than \"what happened on " +
+				"this date\". Each project's lists are capped at its most recent entries (totals are complete); narrow the period or projects for more. Read the notes in the result before writing it up: they say where the record is " +
+				"incomplete (undated completions, estimated dates, no effort logged), which must not be read as idle time.",
+			inputSchema: objectSchema(map[string]any{
+				"space_id": strProp("The space to summarize."),
+				"period": enumProp("A preset period. Omit (with no from/to) for last week on the first day of a week, "+
+					"this week otherwise.", summary.Presets),
+				"from":             strProp("Custom range start, inclusive, yyyy-MM-dd (with to, instead of period)."),
+				"to":               strProp("Custom range end, inclusive, yyyy-MM-dd."),
+				"week_start":       enumProp("First day of the week for week presets (default monday).", []string{"monday", "sunday", "saturday"}),
+				"project_ids":      arrStrProp("Only these projects."),
+				"types":            arrStrProp("Only these activity types (work, research, meeting, decision, blocker, milestone)."),
+				"tags":             arrStrProp("Only work tagged with any of these, on the activity or its project."),
+				"include_planned":  boolProp("Also count planned (future/tentative) activities (default false)."),
+				"include_catchall": boolProp("Include the Miscellaneous catch-all project (default true)."),
+				"compare":          boolProp("Add the previous period of the same length, totals only."),
+				"detail": enumProp("headline: counts and hours only; items (default): one line per item; "+
+					"full: with details and links.", summary.Details),
+			}, "space_id"),
+			handler: toolSummarizeWork,
 		},
 		{
 			name:  "list_inbox",

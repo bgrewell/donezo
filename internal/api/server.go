@@ -371,6 +371,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/spaces/{id}/unarchive", s.handleUnarchiveSpace)
 	mux.HandleFunc("GET /api/spaces/{id}/state", s.handleSpaceState)
 	mux.HandleFunc("GET /api/spaces/{id}/revision", s.handleSpaceRevision)
+	mux.HandleFunc("GET /api/spaces/{id}/summary", s.handleSummary)
 	mux.HandleFunc("POST /api/spaces/{id}/projects", s.handleCreateProject)
 	mux.HandleFunc("POST /api/spaces/{id}/catchall", s.handleEnsureCatchAll)
 	mux.HandleFunc("PATCH /api/spaces/{id}/projects/reorder", s.handleReorderProjects)
@@ -433,6 +434,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/spaces/{id}/trash/{entity}/{tid}":         http.MethodDelete,
 		"/api/spaces/{id}/trash/{entity}/{tid}/restore": http.MethodPost,
 		"/api/spaces/{id}/revision":                     http.MethodGet,
+		"/api/spaces/{id}/summary":                      http.MethodGet,
 		"/api/spaces/{id}/projects":                     http.MethodPost,
 		"/api/spaces/{id}/catchall":                     http.MethodPost,
 		// No bare-path 405 entry for projects/reorder: it would match all

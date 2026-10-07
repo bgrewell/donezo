@@ -252,6 +252,12 @@ func TestTaskCompletionStamping(t *testing.T) {
 	got = patch("t1", func(t *TaskItem) { t.CompletedAt, t.CompletedSource = nil, nil })
 	want("cleared to unknown stays unknown", got, "", "")
 
+	// A person's clear keeps its manual mark, through unrelated edits too.
+	got = patch("t1", func(t *TaskItem) { t.CompletedAt, t.CompletedSource = nil, ptr(CompletedManual) })
+	want("marked unknown by the person", got, "", CompletedManual)
+	got = patch("t1", func(t *TaskItem) { t.Details = "edited" })
+	want("unknown survives an edit", got, "", CompletedManual)
+
 	got = patch("t1", func(t *TaskItem) { t.Status = "open" })
 	want("reopen", got, "", "")
 
@@ -377,3 +383,44 @@ func deref(p *string) string {
 }
 
 func equalPtr(a, b *string) bool { return deref(a) == deref(b) && (a == nil) == (b == nil) }
+
+// A space records when it began stamping completions — the moment migration
+// 0008 ran on it, by the store clock — so a summary can tell which periods
+// undated done tasks could belong to.
+func TestCompletionsRecordedSince(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	if err := s.EnsureSpace(ctx, testSpace); err != nil {
+		t.Fatalf("EnsureSpace: %v", err)
+	}
+	got, err := s.CompletionsRecordedSince(ctx, testSpace)
+	if err != nil || got != fixedNow {
+		t.Errorf("CompletionsRecordedSince = %q, %v; want %q", got, err, fixedNow)
+	}
+}
+
+// The snapshot carries what a summary reads, together, and leaves out what
+// it does not.
+func TestSummarySnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestSpaceStore(t)
+	mustCreateProject(t, s, "p1")
+	if _, err := s.PatchProject(ctx, testSpace, "p1", func(p *Project) error { p.Status = "blocked"; return nil }); err != nil {
+		t.Fatalf("PatchProject: %v", err)
+	}
+	if _, err := s.CreateNote(ctx, testSpace, NoteItem{ID: "n1", Title: "n", Body: "b", CreatedAt: "2026-07-01"}); err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	st, changes, since, err := s.SummarySnapshot(ctx, testSpace)
+	if err != nil {
+		t.Fatalf("SummarySnapshot: %v", err)
+	}
+	if len(st.Projects) != 1 || st.Projects[0].Status != "blocked" || len(changes) != 1 || since != fixedNow {
+		t.Errorf("snapshot = %d projects (%v), %d changes, since %q", len(st.Projects), st.Projects, len(changes), since)
+	}
+	if st.Notes == nil || len(st.Notes) != 0 || st.Reminders == nil || st.Inbox == nil {
+		t.Errorf("unused collections should be empty, not read: notes=%v reminders=%v inbox=%v", st.Notes, st.Reminders, st.Inbox)
+	}
+}

@@ -109,7 +109,9 @@ export function CompletedDateEdit({
       }}
       title={
         !completedAt
-          ? "When this was finished was never recorded. Click to set it."
+          ? source === "manual"
+            ? "Marked as unknown. Click to set it."
+            : "When this was finished was never recorded. Click to set it."
           : guessed
             ? "Estimated from the activity logged when it was finished. Click to correct."
             : "Click to correct."

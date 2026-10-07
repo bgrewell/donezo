@@ -89,6 +89,13 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// querier is the subset of *sql.DB and *sql.Tx used by list helpers, so a
+// read can run standalone or inside a snapshot transaction.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // rowQuerier is the subset of *sql.DB and *sql.Tx used by single-row read
 // helpers.
 type rowQuerier interface {
@@ -375,6 +382,12 @@ func (s *SpaceStore) ListProjects(ctx context.Context, spaceID string) ([]Projec
 	if err != nil {
 		return nil, err
 	}
+	return listProjects(ctx, db)
+}
+
+// listProjects is ListProjects via q, so a snapshot can read it inside one transaction.
+func listProjects(ctx context.Context, q querier) ([]Project, error) {
+	db := q
 	rows, err := db.QueryContext(ctx, `SELECT `+projectColumns+` FROM projects WHERE deleted_at IS NULL ORDER BY position, rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list projects: %w", err)
@@ -558,6 +571,12 @@ func (s *SpaceStore) ListActivities(ctx context.Context, spaceID string) ([]Acti
 	if err != nil {
 		return nil, err
 	}
+	return listActivities(ctx, db)
+}
+
+// listActivities is ListActivities via q, so a snapshot can read it inside one transaction.
+func listActivities(ctx context.Context, q querier) ([]ActivityEntry, error) {
+	db := q
 	rows, err := db.QueryContext(ctx, `SELECT `+activityColumns+` FROM activities WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list activities: %w", err)
@@ -696,6 +715,12 @@ func (s *SpaceStore) ListTasks(ctx context.Context, spaceID string) ([]TaskItem,
 	if err != nil {
 		return nil, err
 	}
+	return listTasks(ctx, db)
+}
+
+// listTasks is ListTasks via q, so a snapshot can read it inside one transaction.
+func listTasks(ctx context.Context, q querier) ([]TaskItem, error) {
+	db := q
 	rows, err := db.QueryContext(ctx,
 		`SELECT `+taskColumns+` FROM tasks WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
@@ -807,6 +832,12 @@ func (s *SpaceStore) ListNotes(ctx context.Context, spaceID string) ([]NoteItem,
 	if err != nil {
 		return nil, err
 	}
+	return listNotes(ctx, db)
+}
+
+// listNotes is ListNotes via q, so a snapshot can read it inside one transaction.
+func listNotes(ctx context.Context, q querier) ([]NoteItem, error) {
+	db := q
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, project_id, title, body, created_at FROM notes WHERE deleted_at IS NULL ORDER BY rowid`)
 	if err != nil {
@@ -923,6 +954,12 @@ func (s *SpaceStore) ListReminders(ctx context.Context, spaceID string) ([]Remin
 	if err != nil {
 		return nil, err
 	}
+	return listReminders(ctx, db)
+}
+
+// listReminders is ListReminders via q, so a snapshot can read it inside one transaction.
+func listReminders(ctx context.Context, q querier) ([]Reminder, error) {
+	db := q
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, text, details, remind_at, project_id, done, repeat_every, repeat_unit
 		 FROM reminders WHERE deleted_at IS NULL ORDER BY rowid`)
@@ -1038,6 +1075,12 @@ func (s *SpaceStore) ListInboxItems(ctx context.Context, spaceID string) ([]Inbo
 	if err != nil {
 		return nil, err
 	}
+	return listInboxItems(ctx, db)
+}
+
+// listInboxItems is ListInboxItems via q, so a snapshot can read it inside one transaction.
+func listInboxItems(ctx context.Context, q querier) ([]InboxItem, error) {
+	db := q
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, raw, captured_at, suggested_kind, suggested_project_id, status
 		 FROM inbox WHERE deleted_at IS NULL ORDER BY rowid`)

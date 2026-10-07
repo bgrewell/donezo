@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bgrewell/donezo/internal/store"
+	"github.com/bgrewell/donezo/internal/summary"
 )
 
 // This file holds the tool handlers. Each resolves the target space to one
@@ -367,6 +368,63 @@ func toolSearch(ctx context.Context, h *Handler, c caller, args json.RawMessage)
 	return jsonText(out), false
 }
 
+func toolSummarizeWork(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
+	var a struct {
+		SpaceID         string   `json:"space_id"`
+		Period          string   `json:"period"`
+		From            string   `json:"from"`
+		To              string   `json:"to"`
+		WeekStart       string   `json:"week_start"`
+		ProjectIDs      []string `json:"project_ids"`
+		Types           []string `json:"types"`
+		Tags            []string `json:"tags"`
+		IncludePlanned  bool     `json:"include_planned"`
+		IncludeCatchall *bool    `json:"include_catchall"`
+		Compare         bool     `json:"compare"`
+		Detail          string   `json:"detail"`
+	}
+	if !decodeArgs(args, &a) {
+		return "invalid arguments", true
+	}
+	weekStart, err := summary.ParseWeekStart(a.WeekStart)
+	if err != nil {
+		return err.Error(), true
+	}
+	sp, msg, ok := h.ownedSpace(ctx, c, a.SpaceID)
+	if !ok {
+		return msg, true
+	}
+	loc := h.callerLocation(ctx, c)
+	now := h.clock()
+	period, err := summary.ResolvePeriod(a.Period, a.From, a.To, weekStart, now, loc)
+	if err != nil {
+		return err.Error(), true
+	}
+	// One snapshot: state, status history and recording start must agree.
+	st, changes, since, err := h.spaces.SummarySnapshot(ctx, sp.ID)
+	if err != nil {
+		h.logger.Printf("mcp summarize: %v", err)
+		return "internal error", true
+	}
+	out, err := summary.Build(summary.Input{State: st, StatusChanges: changes, RecordedSince: since}, period, summary.Options{
+		ProjectIDs:      a.ProjectIDs,
+		Types:           a.Types,
+		Tags:            a.Tags,
+		IncludePlanned:  a.IncludePlanned,
+		ExcludeCatchall: a.IncludeCatchall != nil && !*a.IncludeCatchall,
+		Compare:         a.Compare,
+		Detail:          a.Detail,
+		// The same per-list bound every other read tool keeps, so a year
+		// at full detail cannot swamp the client's context. Totals still
+		// count everything; a note says what was cut.
+		ItemLimit: maxItems,
+	}, now, loc)
+	if err != nil {
+		return err.Error(), true
+	}
+	return jsonText(out), false
+}
+
 func toolGetTimeline(ctx context.Context, h *Handler, c caller, args json.RawMessage) (string, bool) {
 	var a struct {
 		SpaceID  string `json:"space_id"`
@@ -561,12 +619,11 @@ func toolListReminders(ctx context.Context, h *Handler, c caller, args json.RawM
 // something not finished; the handler reports it in its own words.
 var errCompletedAtStatus = errors.New("completed_at on an unfinished item")
 
-// manualSource is the completedSource for a completion time the caller set:
-// manual when there is one, none when it was cleared.
-func manualSource(at *string) *string {
-	if at == nil {
-		return nil
-	}
+// manualSource is the completedSource for a completion time the caller set
+// or cleared. Always manual: a cleared date keeps the mark, which is what
+// tells "the caller said unknown" apart from an old task that was never dated
+// (both have no completedAt) — a summary treats the two differently.
+func manualSource() *string {
 	src := store.CompletedManual
 	return &src
 }
@@ -1256,7 +1313,7 @@ func toolUpdateProject(ctx context.Context, h *Handler, c caller, args json.RawM
 			if completedAt != nil && p.Status != "completed" {
 				return errCompletedAtStatus
 			}
-			p.CompletedAt, p.CompletedSource = completedAt, manualSource(completedAt)
+			p.CompletedAt, p.CompletedSource = completedAt, manualSource()
 		}
 		return nil
 	})
@@ -1387,7 +1444,7 @@ func toolUpdateTask(ctx context.Context, h *Handler, c caller, args json.RawMess
 			if completedAt != nil && t.Status != "done" {
 				return errCompletedAtStatus
 			}
-			t.CompletedAt, t.CompletedSource = completedAt, manualSource(completedAt)
+			t.CompletedAt, t.CompletedSource = completedAt, manualSource()
 		}
 		return nil
 	})

@@ -75,7 +75,8 @@ type Project struct {
 	// and clears it on status changes — see stampProjectCompletion.
 	CompletedAt *string `json:"completedAt,omitempty"`
 	// CompletedSource is how CompletedAt was arrived at: CompletedRecorded,
-	// CompletedInferred or CompletedManual. Nil exactly when CompletedAt is.
+	// CompletedInferred or CompletedManual. Nil when CompletedAt is, except
+	// CompletedManual with no CompletedAt: the person marked the date unknown.
 	CompletedSource *string `json:"completedSource,omitempty"`
 	// Server-side timestamps; not part of the frontend type.
 	CreatedAt string `json:"-"`
@@ -129,7 +130,8 @@ type TaskItem struct {
 	// stampTaskCompletion.
 	CompletedAt *string `json:"completedAt,omitempty"`
 	// CompletedSource is how CompletedAt was arrived at: CompletedRecorded,
-	// CompletedInferred or CompletedManual. Nil exactly when CompletedAt is.
+	// CompletedInferred or CompletedManual. Nil when CompletedAt is, except
+	// CompletedManual with no CompletedAt: the person marked the date unknown.
 	CompletedSource *string `json:"completedSource,omitempty"`
 }
 
